@@ -91,6 +91,19 @@ Postgres real rodando em container e um servidor Express real:
 - Falhas esperadas com credenciais fake (token Telegram/API key SyncPay
   inválidos) foram tratadas graciosamente em todos os pontos — não derrubam
   o servidor nem quebram o fluxo principal (confirmado nos logs).
+- **Build real da imagem Docker validado** (`docker build` + container
+  rodando conectado a um Postgres real, `prisma migrate deploy` dentro do
+  container, login funcionando com sessão persistida na tabela `session`).
+  Dois problemas reais encontrados e corrigidos nesse teste:
+  1. `node:20-slim` não vem com OpenSSL — Prisma avisava que estava
+     "adivinhando" a versão pra usar. Corrigido instalando `openssl`
+     explicitamente no `Dockerfile` (build e runtime).
+  2. `express-session` usava `MemoryStore` (padrão) — vaza memória e perde
+     todas as sessões a cada restart, inaceitável numa VPS always-on de longa
+     duração. Trocado por `connect-pg-simple`, usando o mesmo Postgres da app.
+  O flag `Secure` do cookie de sessão só "falha" em teste via HTTP direto
+  sem TLS (esperado — o Caddy termina HTTPS antes de proxyar pro app; em
+  produção o browser sempre fala HTTPS com o Caddy).
 
 ## Pendente (ver task list da sessão para detalhes)
 
