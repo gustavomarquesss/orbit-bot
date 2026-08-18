@@ -1,0 +1,193 @@
+// Schema único — fonte da verdade do modelo de dados.
+// Ver ARCHITECTURE.md para o racional de cada entidade.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Fonte de tráfego rastreável: outro bot, canal, campanha etc.
+/// `param` é o valor usado no deep link t.me/seu_bot?start=param
+model Origin {
+  id        String   @id @default(cuid())
+  param     String   @unique
+  label     String
+  kind      OriginKind @default(OTHER)
+  createdAt DateTime @default(now())
+
+  leads  Lead[]
+  orders Order[]
+}
+
+enum OriginKind {
+  BOT
+  CHANNEL
+  CAMPAIGN
+  OTHER
+}
+
+/// Usuário do Telegram que já interagiu com o bot.
+model Lead {
+  id          String   @id @default(cuid())
+  telegramId  BigInt   @unique
+  username    String?
+  firstName   String?
+  lastName    String?
+  originId    String?
+  origin      Origin?  @relation(fields: [originId], references: [id])
+  createdAt   DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+
+  orders          Order[]
+  flowExecutions  FlowExecution[]
+}
+
+/// Um fluxo de mensagens configurável (ex: "boas-vindas", "oferta-vip").
+model Flow {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  name        String
+  description String?
+  isEntryPoint Boolean @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  steps           FlowStep[]
+  flowExecutions  FlowExecution[]
+}
+
+/// Um passo dentro de um fluxo: uma mensagem (texto/mídia) com botões.
+model FlowStep {
+  id          String    @id @default(cuid())
+  flowId      String
+  flow        Flow      @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  order       Int
+  text        String?
+  mediaType   MediaType @default(NONE)
+  mediaFileId String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  buttons Button[]
+
+  @@unique([flowId, order])
+}
+
+enum MediaType {
+  NONE
+  PHOTO
+  VIDEO
+  AUDIO
+  DOCUMENT
+}
+
+/// Botão inline associado a um passo de fluxo.
+model Button {
+  id          String     @id @default(cuid())
+  flowStepId  String
+  flowStep    FlowStep   @relation(fields: [flowStepId], references: [id], onDelete: Cascade)
+  order       Int
+  label       String
+  action      ButtonAction
+  targetFlowKey String?  // ButtonAction.GOTO_FLOW
+  productId   String?    // ButtonAction.BUY_PRODUCT
+  product     Product?   @relation(fields: [productId], references: [id])
+  url         String?    // ButtonAction.OPEN_LINK / REDIRECT_CHANNEL
+  createdAt   DateTime   @default(now())
+
+  @@unique([flowStepId, order])
+}
+
+enum ButtonAction {
+  GOTO_FLOW
+  BUY_PRODUCT
+  OPEN_LINK
+  REDIRECT_CHANNEL
+}
+
+/// Registra que um Lead está/esteve num Flow, e em qual passo.
+model FlowExecution {
+  id          String   @id @default(cuid())
+  leadId      String
+  lead        Lead     @relation(fields: [leadId], references: [id])
+  flowId      String
+  flow        Flow     @relation(fields: [flowId], references: [id])
+  currentStep Int      @default(0)
+  startedAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+/// Produto vendido.
+model Product {
+  id              String        @id @default(cuid())
+  name            String
+  description     String?
+  priceCents      Int
+  deliveryType    DeliveryType
+  fileTelegramId  String?       // DeliveryType.FILE — file_id no canal-cofre
+  fileMediaType   MediaType     @default(NONE)
+  externalLink    String?       // DeliveryType.LINK
+  protectContent  Boolean       @default(true)
+  active          Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  buttons Button[]
+  orders  Order[]
+}
+
+enum DeliveryType {
+  FILE
+  LINK
+}
+
+/// Uma cobrança PIX gerada. Registro próprio para auditoria cruzada com a gateway.
+model Order {
+  id                String      @id @default(cuid())
+  leadId            String
+  lead              Lead        @relation(fields: [leadId], references: [id])
+  productId         String
+  product           Product     @relation(fields: [productId], references: [id])
+  originId          String?
+  origin            Origin?     @relation(fields: [originId], references: [id])
+
+  syncpayChargeId   String      @unique
+  amountCents       Int
+  status            OrderStatus @default(PENDING)
+  pixCopyPaste      String?
+  qrCodeUrl         String?
+
+  createdAt         DateTime    @default(now())
+  paidAt            DateTime?
+  expiresAt         DateTime?
+
+  webhookEvents     WebhookEvent[]
+
+  @@index([status])
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  REFUSED
+  EXPIRED
+}
+
+/// Log bruto de todo webhook recebido da SyncPay — garante idempotência
+/// (webhook duplicado não gera reprocessamento) e serve de trilha de auditoria.
+model WebhookEvent {
+  id          String   @id @default(cuid())
+  provider    String   @default("syncpay")
+  externalId  String   // id do evento/transação na gateway
+  orderId     String?
+  order       Order?   @relation(fields: [orderId], references: [id])
+  payload     Json
+  receivedAt  DateTime @default(now())
+  processedAt DateTime?
+
+  @@unique([provider, externalId])
+}

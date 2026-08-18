@@ -1,0 +1,21 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/agent-browser-check.mjs\"",
+            "shell": "bash",
+            "timeout": 90,
+            "async": true,
+            "asyncRewake": true,
+            "statusMessage": "Validating UI with agent-browser (desktop + mobile)...",
+            "rewakeSummary": "agent-browser found UI issues"
+          }
+        ]
+      }
+    ]
+  }
+}

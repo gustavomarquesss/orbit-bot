@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-browser.dev/schema.json",
+  "headed": false,
+  "profile": "C:\\Users\\gusta\\.agent-browser\\projects\\dg-bot\\profile",
+  "screenshotDir": "./.agent-browser/screenshots",
+  "contentBoundaries": true,
+  "maxOutput": 50000
+}

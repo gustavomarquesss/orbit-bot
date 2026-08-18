@@ -1,0 +1,28 @@
+# agent-browser local artifacts (profile, screenshots, baselines)
+.agent-browser/
+
+# dependencies
+node_modules/
+
+# env
+.env
+.env.local
+.env.*.local
+
+# build output
+dist/
+*.tsbuildinfo
+
+# logs
+npm-debug.log*
+*.log
+
+# editor / OS
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+
+# prisma
+prisma/*.db
+prisma/*.db-journal
