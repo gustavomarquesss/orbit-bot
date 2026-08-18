@@ -128,7 +128,7 @@ model Product {
   description     String?
   priceCents      Int
   deliveryType    DeliveryType
-  fileTelegramId  String?       // DeliveryType.FILE — file_id no canal-cofre
+  fileTelegramId  String?       // DeliveryType.FILE — message_id (não file_id!) da mensagem no canal-cofre; copyMessage exige message_id, ver src/bot/delivery.ts
   fileMediaType   MediaType     @default(NONE)
   externalLink    String?       // DeliveryType.LINK
   protectContent  Boolean       @default(true)
