@@ -16,9 +16,9 @@ RUN npm ci --omit=dev
 COPY prisma ./prisma
 RUN npx prisma generate
 COPY --from=build /app/dist ./dist
-# EJS views do painel admin não são compiladas pelo tsc — copiadas à parte.
-# Descomentar quando src/admin/views existir (task do painel admin).
-# COPY src/admin/views ./dist/admin/views
+# EJS views do painel admin não são compiladas pelo tsc — copiadas à parte,
+# no mesmo caminho relativo (src/server.ts resolve `views` ao lado do módulo).
+COPY src/admin/views ./dist/admin/views
 
 EXPOSE 3000
 CMD ["node", "dist/server.js"]

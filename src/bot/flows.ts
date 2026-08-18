@@ -109,6 +109,20 @@ async function handleGotoFlow(ctx: Context, lead: Lead, button: Button): Promise
   await startFlow(ctx, lead.id, targetFlow.id, targetFlow.key);
 }
 
+const DATA_URI_PREFIX = /^data:image\/[a-zA-Z0-9.+-]+;base64,/;
+
+// A SyncPay devolve o QR code como imagem base64 (src/payments/syncpay.ts
+// converte pra data URI); `replyWithPhoto` do Telegraf não aceita uma string
+// `data:` — só file_id, URL http(s), ou `{ source: Buffer }`. Decodifica o
+// base64 pra Buffer quando for o caso; se um dia vier uma URL http(s) de
+// verdade, passa direto.
+function buildPhotoInput(qrCodeUrl: string): string | { source: Buffer } {
+  const match = qrCodeUrl.match(DATA_URI_PREFIX);
+  if (!match) return qrCodeUrl;
+  const base64 = qrCodeUrl.slice(match[0].length);
+  return { source: Buffer.from(base64, "base64") };
+}
+
 async function handleBuyProduct(ctx: Context, lead: Lead, button: Button): Promise<void> {
   if (!button.productId) {
     await ctx.reply("Esse botão não tem um produto configurado.");
@@ -128,10 +142,14 @@ async function handleBuyProduct(ctx: Context, lead: Lead, button: Button): Promi
 
     if (qrCodeUrl) {
       try {
-        await ctx.replyWithPhoto(qrCodeUrl, { caption: "Ou escaneie o QR Code para pagar." });
+        await ctx.replyWithPhoto(buildPhotoInput(qrCodeUrl), {
+          caption: "Ou escaneie o QR Code para pagar.",
+        });
       } catch (err) {
-        console.error("[flows] falha ao enviar QR code como imagem, enviando link", err);
-        await ctx.reply(`QR Code: ${qrCodeUrl}`);
+        console.error("[flows] falha ao enviar QR code como imagem", err);
+        if (!DATA_URI_PREFIX.test(qrCodeUrl)) {
+          await ctx.reply(`QR Code: ${qrCodeUrl}`);
+        }
       }
     }
   } catch (err) {
