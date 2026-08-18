@@ -1,8 +1,18 @@
 import express, { Router, type Request, type Response, type NextFunction } from "express";
 import session from "express-session";
+import createPgSessionStore from "connect-pg-simple";
+import pg from "pg";
 import { timingSafeEqual } from "node:crypto";
 import { prisma } from "../db/client.js";
 import { config } from "../config.js";
+
+// Pool dedicado do connect-pg-simple (ele gerencia sua própria tabela de
+// sessões, "session", criada automaticamente com createTableIfMissing).
+// Evita depender do MemoryStore padrão do express-session, que vaza memória
+// e perde todas as sessões a cada restart do processo — inaceitável numa VPS
+// always-on de longa duração.
+const sessionPool = new pg.Pool({ connectionString: config.DATABASE_URL });
+const PgSessionStore = createPgSessionStore(session);
 
 declare module "express-session" {
   interface SessionData {
@@ -32,6 +42,7 @@ export function createAdminRouter(): Router {
   router.use(express.urlencoded({ extended: true }));
   router.use(
     session({
+      store: new PgSessionStore({ pool: sessionPool, tableName: "session", createTableIfMissing: true }),
       secret: config.SESSION_SECRET,
       resave: false,
       saveUninitialized: false,
