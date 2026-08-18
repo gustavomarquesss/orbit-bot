@@ -21,21 +21,43 @@ npm run dev
 Todo o conteúdo do bot — mensagens, mídia, botões e para onde cada botão leva —
 fica salvo no banco de dados, não em código. Para editar, use os comandos
 administrativos direto no chat com o bot (disponíveis só para o
-`TELEGRAM_ADMIN_USER_ID` configurado no `.env`):
+`TELEGRAM_ADMIN_USER_ID` configurado no `.env`; qualquer outro usuário que
+tentar usá-los é ignorado silenciosamente).
+
+Todos os comandos abaixo estão **implementados e com CRUD real no banco**
+(não há mais wizard/scene do Telegraf — ver decisão em
+`src/bot/adminCommands.ts`: argumentos numa linha só, com `|` separando
+campos que podem ter espaço, para não depender de estado de conversa em
+memória, que se perderia se o processo dormir/reiniciar no Render free tier):
 
 | Comando | O que faz |
 |---|---|
-| `/fluxos` | Lista os fluxos existentes |
+| `/fluxos` | Lista os fluxos existentes (chave, nome, e qual é o de entrada) |
 | `/novofluxo <chave> <nome>` | Cria um novo fluxo |
-| `/novamensagem <fluxo>` | Inicia o assistente para adicionar um passo (texto/mídia) a um fluxo |
-| `/novobotao <fluxo> <passo>` | Adiciona um botão a um passo, com sua ação (ir para outro fluxo, comprar produto, abrir link, redirecionar para canal) |
-| `/produtos` | Lista produtos cadastrados |
-| `/novoproduto` | Assistente para cadastrar um produto (preço, arquivo/link de entrega) |
-| `/vendas` | Resumo rápido de vendas aprovadas/pendentes/recusadas |
+| `/novamensagem <fluxo> <texto>` | Adiciona um passo (texto) ao fim do fluxo. Para incluir foto/vídeo/áudio/documento, envie a mídia normalmente e depois responda a ela (reply) com este comando |
+| `/novobotao <fluxo> <passo> <label> \| <AÇÃO> \| <destino>` | Adiciona um botão a um passo. `<AÇÃO>` é uma de `GOTO_FLOW`, `BUY_PRODUCT`, `OPEN_LINK`, `REDIRECT_CHANNEL`; `<destino>` é a chave do fluxo, o id (ou nome) do produto, ou a URL, conforme a ação |
+| `/produtos` | Lista produtos cadastrados (nome, preço em R$, ativo/inativo, id) |
+| `/novoproduto <nome> \| <preço> \| <FILE\|LINK> \| <message_id do cofre ou link> \| <protect sim/não> \| <descrição>` | Cadastra um produto numa linha só |
+| `/vendas` | Resumo de Orders por status (pendente/paga/recusada/expirada), contado direto do banco |
 
-O guia detalhado, com exemplos passo a passo de cada comando, fica documentado
-à medida que os comandos forem implementados (task de documentação em
-`PROJECT_STATE.md`).
+Exemplos:
+
+```
+/novofluxo boas-vindas Boas-vindas
+/novamensagem boas-vindas Olá! Bem-vindo(a).
+/novoproduto Ebook Vendas | 29.90 | FILE | 482 | sim | PDF com o passo a passo
+/novobotao boas-vindas 0 Comprar agora | BUY_PRODUCT | Ebook Vendas
+/novobotao boas-vindas 0 Ver ofertas | GOTO_FLOW | ofertas
+/novobotao boas-vindas 0 Canal VIP | OPEN_LINK | https://t.me/seu_canal
+```
+
+Para produtos do tipo `FILE`, o "destino" não é o `file_id` do Telegram — é o
+**número da mensagem** (`message_id`) que contém o arquivo dentro do canal
+"cofre" configurado em `TELEGRAM_VAULT_CHANNEL_ID`. Poste o produto uma vez
+nesse canal e use o número da mensagem (visível encaminhando-a pra "Saved
+Messages" e olhando os detalhes, ou via um bot auxiliar tipo @userinfobot em
+canais). A entrega usa `copyMessage`, que exige `message_id`, não `file_id`
+— decisão documentada em `src/bot/delivery.ts` e no `prisma/schema.prisma`.
 
 O painel web (`/admin`, protegido por senha) complementa isso com métricas e
 histórico de vendas — é somente leitura na v1.
