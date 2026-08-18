@@ -26,3 +26,6 @@ Thumbs.db
 # prisma
 prisma/*.db
 prisma/*.db-journal
+
+# worktrees de agentes (Claude Code)
+.claude/worktrees/
