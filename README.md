@@ -86,6 +86,16 @@ Exemplo: `feat: gerar cobrança PIX ao clicar em botão de compra`
 
 ## Deploy
 
-Deploy no [Render](https://render.com) (free tier). Detalhes de configuração
-(variáveis de ambiente, webhooks, keep-alive) em `PROJECT_STATE.md` assim que
-o deploy inicial for feito.
+Self-hosted numa VPS própria via Docker Compose (`app` + `postgres` + `caddy`
+como reverse proxy com TLS automático). Requer um domínio/subdomínio apontando
+pro IP da VPS (obrigatório para o Caddy emitir certificado — os webhooks do
+Telegram e da SyncPay exigem HTTPS confiável).
+
+```bash
+cp .env.example .env   # preencher tudo, incluindo POSTGRES_*, PUBLIC_DOMAIN e PUBLIC_BASE_URL=https://SEU_DOMINIO
+docker compose up -d --build
+docker compose exec app npx prisma migrate deploy
+```
+
+Detalhes de provisionamento da VPS, backup do Postgres e registro dos
+webhooks em `PROJECT_STATE.md`, atualizados conforme o deploy real for feito.

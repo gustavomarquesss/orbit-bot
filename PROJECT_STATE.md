@@ -11,12 +11,19 @@
 ## Decisões tomadas (validadas com o usuário)
 
 - Stack: Node.js 20 + TypeScript + Express + Telegraf + Prisma. Ver `ARCHITECTURE.md`.
-- Hospedagem: **Render free tier**, aceitando cold-start de ~1min após 15min de
-  inatividade, mitigado com ping externo (cron-job.org/UptimeRobot). Usuário
-  confirmou explicitamente que aceita esse trade-off (alternativa seria pagar
-  ~$5-7/mês por estabilidade, ou usar VPS própria — não é o caso hoje).
-- Banco: **Neon Postgres free tier** (não SQLite — Render free não tem disco
-  persistente).
+- **Hospedagem (revisado em 2026-08-18, mesmo dia da decisão original):** VPS
+  própria (referência: Hetzner ~€5-8/mês) + Docker Compose (app + Postgres +
+  Caddy como reverse proxy/TLS). Motivo da revisão: usuário precisa de
+  confirmação de pagamento/notificações em tempo quase real — o cold-start do
+  Render free (~1min após 15min de inatividade) era incompatível com isso.
+  VPS always-on também evita migração futura, já que o usuário pretende
+  escalar nesse formato. Trade-off assumido: usuário passa a cuidar de
+  patches de SO, backup do volume Postgres e domínio/TLS (Caddy renova
+  certificado sozinho, desde que o domínio continue apontando certo).
+  Decisão original (Render+Neon free) fica só como histórico no
+  `ARCHITECTURE.md`, não vale mais.
+- Banco: **Postgres em container Docker**, no mesmo `docker-compose.yml` da
+  app (não mais Neon/Supabase — não se aplica mais desde a revisão de hosting acima).
 - Gateway PIX: **SyncPay**. Usuário já tem conta e API key.
 - Bot Telegram: usuário já tem token criado no @BotFather.
 - Config de fluxos/mensagens/botões: guardada no **banco**, editável via
@@ -55,23 +62,28 @@
 - [ ] Integração SyncPay: client HTTP, geração de cobrança, webhook +
       idempotência (usar `WebhookEvent` já modelado).
 - [ ] Painel admin web.
+- [ ] `Dockerfile` + `docker-compose.yml` + `Caddyfile` (app + postgres + reverse proxy TLS).
 - [ ] **Bloqueador para testar de ponta a ponta**: preciso do usuário para:
-      1. Criar um projeto Neon e me passar a `DATABASE_URL` (via `.env`, nunca no chat).
-      2. Confirmar `TELEGRAM_BOT_TOKEN` e `TELEGRAM_ADMIN_USER_ID` no `.env`.
-      3. Confirmar `SYNCPAY_API_KEY` e detalhes de autenticação/assinatura do
+      1. Contratar/apontar a VPS (Hetzner ou equivalente) e me passar acesso
+         (ou rodar os comandos de deploy ele mesmo a partir do que eu preparar).
+      2. Confirmar se já existe um domínio/subdomínio disponível para apontar
+         pro IP da VPS — **obrigatório** pro Caddy emitir certificado TLS
+         (Telegram e SyncPay exigem webhook HTTPS com cert confiável).
+      3. Confirmar `TELEGRAM_BOT_TOKEN` e `TELEGRAM_ADMIN_USER_ID` no `.env`.
+      4. Confirmar `SYNCPAY_API_KEY` e detalhes de autenticação/assinatura do
          webhook (a API da SyncPay tem doc em https://web.syncpay.pro/documentacao/
-         — confirmar formato exato de assinatura do webhook antes de implementar
-         a validação).
-      4. Criar (ou apontar) o canal privado "cofre" e me adicionar o bot como admin.
-- [ ] Deploy no Render + configuração de keep-alive externo.
+         — a feature de pagamentos está pesquisando isso agora).
+      5. Criar (ou apontar) o canal privado "cofre" e me adicionar o bot como admin.
+- [ ] Deploy via Docker Compose na VPS + backup agendado do Postgres.
 - [ ] QA E2E com agent-browser no painel admin (desktop + mobile).
 - [ ] Expandir guia de comandos admin no README conforme forem implementados.
 
 ## Trade-offs relevantes para lembrar
 
-- Render free pode atrasar confirmação de pagamento em até ~1min em cold-start.
-  Não é um bug, é uma decisão de custo consciente — não "consertar" isso sem
-  avisar o usuário primeiro (a correção envolve custo: upgrade de plano ou VPS).
+- VPS própria significa que **não há mais mitigação de plataforma** para
+  segurança de SO, backup e certificado — é tudo nosso. Não assumir que "está
+  na nuvem, está seguro"; a task de deploy precisa cobrir isso de verdade
+  (backup agendado do Postgres é bloqueador antes de considerar produção).
 - Config de conteúdo fica no banco, não em arquivo — qualquer agente que for
   mexer em mensagens/fluxos deve editar via seed/comando admin, não hardcoded
   em `src/`.
