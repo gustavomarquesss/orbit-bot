@@ -134,11 +134,11 @@ async function getAccessToken(): Promise<string> {
   return access_token;
 }
 
-function buildPostbackUrl(): string {
+function buildWebhookUrl(): string {
   const url = new URL("/webhooks/syncpay", config.PUBLIC_BASE_URL);
   // Mecanismo de assinatura do webhook não documentado publicamente (ver
   // PROJECT_STATE.md). Usamos SYNCPAY_WEBHOOK_SECRET como shared-secret
-  // embutido na própria postbackUrl, validado em src/payments/webhook.ts.
+  // embutido na própria webhook_url, validado em src/payments/webhook.ts.
   url.searchParams.set("secret", config.SYNCPAY_WEBHOOK_SECRET);
   return url.toString();
 }
@@ -164,16 +164,25 @@ async function buildQrCodeDataUri(pixCopyPaste: string): Promise<string> {
  * Endpoint, payload e resposta confirmados com chamadas reais em 2026-08-19
  * contra a API de produção (ver PROJECT_STATE.md para o log completo):
  *   POST https://api.syncpayments.com.br/api/partner/v1/cash-in
- *   body: { amount (REAIS, não centavos — ver correção abaixo), description, postbackUrl }
+ *   body: { amount (REAIS, não centavos — ver correção abaixo), description, webhook_url }
  *   resposta: { message, pix_code, identifier }
  * Nenhum dado do comprador (nome/email/CPF) é exigido — diferente do que a
  * doc espelhada usada antes sugeria. Isso bate com o modelo real do negócio
  * (bot vende para qualquer um, sem cadastro do comprador).
  *
- * BUG CORRIGIDO em 2026-08-19: a suposição inicial de que `amount` era em
+ * BUG 1 CORRIGIDO em 2026-08-19: a suposição inicial de que `amount` era em
  * centavos estava errada — mandar `amountCents` direto gerou uma cobrança
  * 100x maior na SyncPay (plano de R$1,00 virou cobrança de R$100,00, visto
  * em teste real no dashboard deles). O campo é em reais (decimal).
+ *
+ * BUG 2 CORRIGIDO em 2026-08-19: o campo de callback usado (`postbackUrl`)
+ * não existe na API real — o nome correto é `webhook_url` (confirmado via
+ * uma lib de terceiros no GitHub que documenta o payload real, já que não
+ * há doc oficial acessível). Isso explica por que nenhum webhook de
+ * pagamento chegou nos testes reais: a SyncPay provavelmente ignorava o
+ * campo desconhecido. O polling de reconciliação (src/payments/
+ * reconciliation.ts) continua ativo como rede de segurança até isso ser
+ * validado com um pagamento real.
  */
 export async function createCharge(
   params: CreateChargeParams
@@ -184,7 +193,7 @@ export async function createCharge(
   const body = {
     amount: params.amountCents / 100,
     description: params.description,
-    postbackUrl: buildPostbackUrl(),
+    webhook_url: buildWebhookUrl(),
   };
 
   let response: Response;

@@ -12,8 +12,8 @@ const PROVIDER = "syncpay";
  * A doc da SyncPay acessível na pesquisa não documenta nenhum mecanismo de
  * assinatura de webhook (HMAC, header custom, etc — ver relatório da task).
  * Como fallback, exigimos um shared-secret (SYNCPAY_WEBHOOK_SECRET) embutido
- * na própria postbackUrl que registramos na cobrança (src/payments/syncpay.ts,
- * buildPostbackUrl) e comparamos aqui via timingSafeEqual. Isso PRECISA ser
+ * na própria webhook_url que registramos na cobrança (src/payments/syncpay.ts,
+ * buildWebhookUrl) e comparamos aqui via timingSafeEqual. Isso PRECISA ser
  * confirmado/substituído por um mecanismo oficial assim que a doc real (ou
  * suporte da SyncPay) confirmar como eles assinam o postback.
  */

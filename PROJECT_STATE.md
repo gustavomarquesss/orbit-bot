@@ -76,20 +76,25 @@ enviada.
 primeiro pagamento real completo, o Order ficou PENDING pra sempre — o
 pagamento aprovou no dashboard da SyncPay mas nosso endpoint
 `/webhooks/syncpay` nunca foi chamado (confirmado que o endpoint funciona
-normalmente via `curl` direto). Sem doc oficial confirmando o mecanismo de
-entrega de webhook deles (já era um ponto em aberto), a causa mais provável
-é que `postbackUrl` no body do `cash-in` não é o campo que eles realmente
-usam pra registrar callback (pode exigir configuração no dashboard deles —
-ainda não verificado). **Mitigação implementada**: polling de reconciliação
-(`src/payments/reconciliation.ts`, `startReconciliationPolling`, chamado em
-`server.ts`, intervalo de 20s) — varre Orders PENDING e consulta
+normalmente via `curl` direto). **Mitigação implementada**: polling de
+reconciliação (`src/payments/reconciliation.ts`, `startReconciliationPolling`,
+chamado em `server.ts`, intervalo de 20s) — varre Orders PENDING e consulta
 `GET /transaction/:id` diretamente, aplicando a mesma lógica de
 transição/entrega do webhook (extraída pra `src/payments/orderStatus.ts`,
 compartilhada entre webhook e polling, idempotente). Testado e confirmado
 funcionando: pegou o pagamento pendente e marcou PAID sozinho, sem depender
-do webhook. **Ainda pendente**: confirmar com a SyncPay (dashboard/suporte)
-como registrar o webhook de verdade — o polling cobre o caso, mas 20s de
-atraso não é ideal como solução definitiva de produção.
+do webhook.
+
+**Causa raiz encontrada em 2026-08-19**: o campo que mandávamos pra registrar
+o callback (`postbackUrl` no body do `cash-in`) **não existe na API real da
+SyncPay** — não há doc oficial acessível, mas uma lib de terceiros no GitHub
+(`b7k3/syncpay`) documenta o payload real e mostra o campo correto:
+**`webhook_url`**. A SyncPay provavelmente ignorava silenciosamente o campo
+desconhecido — por isso nenhum webhook chegava, apesar do nosso endpoint
+funcionar perfeitamente. Corrigido em `src/payments/syncpay.ts`
+(`buildWebhookUrl`, antes `buildPostbackUrl`), com teste de regressão. O
+polling de reconciliação continua ativo como rede de segurança até um novo
+pagamento real confirmar que o webhook chega de verdade agora.
 
 ## Protocolo de trabalho (feedback explícito do usuário, 2026-08-19)
 
@@ -281,12 +286,11 @@ o projeto estabilizar.
       **não confirmado porque o webhook da SyncPay nunca chegou** (ver bug 2,
       seção "Fase 1" acima). Coberto por polling de reconciliação em vez
       disso. `normalizeChargeStatus` continua sendo aproximação tolerante.
-- [ ] **Descobrir como registrar o webhook de verdade na SyncPay** —
-      `postbackUrl` no body do `cash-in` não disparou nenhuma chamada pro
-      nosso endpoint (testado e confirmado que o endpoint funciona). Precisa
-      checar o dashboard/suporte da SyncPay por uma configuração de webhook
-      separada. Enquanto isso, o polling de reconciliação (20s) cobre o caso
-      — não é bloqueador, só não é ideal pra produção (latência de até 20s).
+- [x] ~~Descobrir como registrar o webhook de verdade na SyncPay~~ —
+      encontrado: campo correto é `webhook_url`, não `postbackUrl` (ver seção
+      "Fase 1" acima). Corrigido. **Falta confirmar com um novo pagamento
+      real** que o webhook chega de verdade agora (o polling de 20s cobre
+      enquanto isso não for validado).
 - [ ] Contratar a VPS (usuário pediu recomendação, referência Hetzner CX22
       ~€5-8/mês) e registrar um domínio/subdomínio (usuário ainda não tem um
       — obrigatório pro Caddy emitir TLS). Sem isso, não dá pra fazer o

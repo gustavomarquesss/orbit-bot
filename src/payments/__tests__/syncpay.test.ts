@@ -92,6 +92,26 @@ describe("createCharge", () => {
     expect(sentBody.amount).toBe(1);
   });
 
+  it("manda a URL de callback no campo `webhook_url` (regressão: campo `postbackUrl` não existe na API real e era ignorado silenciosamente)", async () => {
+    const fetchMock = mockFetchForCharge(() =>
+      jsonResponse({
+        message: "Cashin request successfully submitted",
+        identifier: "f7f3ac07-a772-4bf3-8932-6e604786ddc2",
+        pix_code: "00020126850014br.gov.bcb.pix...",
+      })
+    );
+    global.fetch = fetchMock;
+
+    await createCharge(baseParams);
+
+    const chargeCall = vi
+      .mocked(fetchMock)
+      .mock.calls.find(([input]) => !(typeof input === "string" ? input : input.toString()).includes("auth-token"));
+    const sentBody = JSON.parse(chargeCall![1]!.body as string);
+    expect(sentBody.webhook_url).toContain("/webhooks/syncpay");
+    expect(sentBody.postbackUrl).toBeUndefined();
+  });
+
   it("lança SyncPayError kind=validation em erro 4xx", async () => {
     global.fetch = mockFetchForCharge(() => jsonResponse({ message: "cpf inválido" }, 400));
 
