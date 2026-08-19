@@ -6,6 +6,8 @@ import { createOrderAndCharge, type OrderItemInput } from "../payments/orders.js
 import { resolveOriginAndUpsertLead, touchLead } from "./deepLink.js";
 import { renderTemplate } from "./templating.js";
 import { buildOfferText, defaultAcceptLabel, defaultDeclineLabel } from "./offerMessage.js";
+import { applyDiscount, parseDownsellBuyCallback, DOWNSELL_BUY_PREFIX } from "./downsellMessage.js";
+import { scheduleGeneralDownsell, scheduleDownsellForOrder } from "./downsellScheduler.js";
 
 type WelcomeWithRelations = WelcomeConfig & { media: WelcomeMedia[]; redirectButtons: RedirectButton[] };
 
@@ -144,6 +146,14 @@ async function handleBuyItems(ctx: Context, botId: string, lead: Lead, items: Or
       where: { id: primaryPlanId },
       include: { flow: { include: { paymentMessages: true } } },
     });
+    if (plan) {
+      try {
+        await scheduleDownsellForOrder(botId, lead.id, order.id, plan.flowId);
+      } catch (err) {
+        console.error("[flows] falha ao agendar downsell de PIX gerado", err);
+      }
+    }
+
     const botRow = await prisma.bot.findUniqueOrThrow({ where: { id: botId } });
     const template = plan?.flow.paymentMessages?.pixGeneratedMessage;
     const introText = template
@@ -261,6 +271,27 @@ async function advanceOrderBumpFlow(
   });
 }
 
+/**
+ * Botão de compra de uma oferta de Downsell (src/bot/downsellScheduler.ts
+ * monta o botão) — gera o PIX direto com o desconto da sequência aplicado
+ * ao Plan escolhido, sem passar pela fila de Order Bump (a intenção do
+ * Downsell é recuperar a venda a um preço menor, não empurrar mais itens).
+ */
+async function handleDownsellPurchase(
+  ctx: Context,
+  botId: string,
+  lead: Lead,
+  sequenceId: string,
+  planId: string
+): Promise<void> {
+  const sequence = await prisma.downsellSequence.findUnique({ where: { id: sequenceId } });
+  const plan = await prisma.plan.findUnique({ where: { id: planId } });
+  if (!sequence || !plan) return;
+
+  const unitPriceCentsOverride = applyDiscount(plan.priceCents, sequence.discountType, sequence.discountValue);
+  await handleBuyItems(ctx, botId, lead, [{ planId, kind: "DOWNSELL", unitPriceCentsOverride }]);
+}
+
 export function registerFlowHandlers(bot: Telegraf, botId: string): void {
   bot.start(async (ctx) => {
     const result = await resolveOriginAndUpsertLead(ctx, botId, ctx.startPayload);
@@ -272,6 +303,14 @@ export function registerFlowHandlers(bot: Telegraf, botId: string): void {
         "Olá! Ainda não configurei minhas mensagens de boas-vindas. Tente novamente em breve."
       );
       return;
+    }
+
+    if (result.isNewLead) {
+      try {
+        await scheduleGeneralDownsell(botId, result.lead.id, flow.id);
+      } catch (err) {
+        console.error("[flows] falha ao agendar downsell geral", err);
+      }
     }
 
     const botRow = await prisma.bot.findUniqueOrThrow({ where: { id: botId } });
@@ -326,5 +365,17 @@ export function registerFlowHandlers(bot: Telegraf, botId: string): void {
     if (!lead) return;
 
     await advanceOrderBumpFlow(ctx, botId, lead, parsed.planId, parsed.bitmask, parsed.index + 1);
+  });
+
+  bot.action(new RegExp(`^${DOWNSELL_BUY_PREFIX}.+`), async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+    const data = getCallbackData(ctx);
+    const parsed = data ? parseDownsellBuyCallback(data) : null;
+    if (!parsed) return;
+
+    const lead = await touchLead(ctx, botId);
+    if (!lead) return;
+
+    await handleDownsellPurchase(ctx, botId, lead, parsed.sequenceId, parsed.planId);
   });
 }

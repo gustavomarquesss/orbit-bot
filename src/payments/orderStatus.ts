@@ -2,6 +2,7 @@ import type { OrderStatus, Prisma } from "@prisma/client";
 import { prisma } from "../db/client.js";
 import { deliverPlanToLead, notifyAdminOfSale, notifyLeadOfApproval } from "../bot/delivery.js";
 import { scheduleUpsellSequence } from "../bot/upsellScheduler.js";
+import { cancelPendingDownsellsForLead } from "../bot/downsellScheduler.js";
 import type { NormalizedChargeStatus } from "./syncpay.js";
 
 export const ORDER_INCLUDE = {
@@ -60,6 +61,14 @@ export async function applyNormalizedStatus(
     // não uma vez por item, senão base+bump do mesmo funil agendariam a
     // mesma sequência duas vezes.
     const scheduledFlowIds = new Set<string>();
+
+    // O lead converteu — não faz mais sentido oferecer desconto de
+    // recuperação (Downsell) de nenhum trigger pendente dele.
+    try {
+      await cancelPendingDownsellsForLead(order.leadId);
+    } catch (err) {
+      console.error("[order-status] falha ao cancelar downsells pendentes", err);
+    }
 
     // Uma entrega/notificação por item — hoje todo Order tem exatamente 1
     // item (BASE), mas o shape já é o de vários itens (Order Bump, Fase 2

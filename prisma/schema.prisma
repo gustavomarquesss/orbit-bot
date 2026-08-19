@@ -40,11 +40,11 @@ model Settings {
 /// Fonte de tráfego rastreável: outro bot, canal, campanha etc.
 /// `param` é o valor usado no deep link t.me/seu_bot?start=param
 model Origin {
-  id        String   @id @default(cuid())
-  param     String   @unique
+  id        String     @id @default(cuid())
+  param     String     @unique
   label     String
   kind      OriginKind @default(OTHER)
-  createdAt DateTime @default(now())
+  createdAt DateTime   @default(now())
 
   leads  Lead[]
   orders Order[]
@@ -60,22 +60,22 @@ enum OriginKind {
 /// Um bot do Telegram gerenciado pelo painel (substitui o antigo
 /// TELEGRAM_BOT_TOKEN único no .env — agora dá pra ter vários).
 model Bot {
-  id                String   @id @default(cuid())
-  label             String
+  id                        String   @id @default(cuid())
+  label                     String
   /// Token do BotFather, criptografado (AES-256-GCM via src/lib/crypto.ts).
   /// Nunca gravar em texto plano.
   telegramBotTokenEncrypted String
-  telegramUsername  String?
-  telegramUserId    BigInt?
-  displayName       String?
-  photoFileId       String?
-  description       String?
-  shortDescription  String?
+  telegramUsername          String?
+  telegramUserId            BigInt?
+  displayName               String?
+  photoFileId               String?
+  description               String?
+  shortDescription          String?
   /// Usado no path do webhook (/telegram/webhook/:botId/:webhookSecret).
-  webhookSecret     String
-  active            Boolean  @default(true)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  webhookSecret             String
+  active                    Boolean  @default(true)
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
 
   commands BotCommand[]
   flows    FlowBot[]
@@ -92,13 +92,13 @@ enum BotCommandKind {
 /// Comandos fixos do bot (/start, /suporte, /status) — só emoji e label
 /// são editáveis, os comandos em si não mudam (igual ao Shark Bot).
 model BotCommand {
-  id     String         @id @default(cuid())
-  botId  String
-  bot    Bot            @relation(fields: [botId], references: [id], onDelete: Cascade)
-  kind   BotCommandKind
-  emoji  String
-  label  String
-  order  Int
+  id    String         @id @default(cuid())
+  botId String
+  bot   Bot            @relation(fields: [botId], references: [id], onDelete: Cascade)
+  kind  BotCommandKind
+  emoji String
+  label String
+  order Int
 
   @@unique([botId, kind])
 }
@@ -107,25 +107,26 @@ model BotCommand {
 /// telegramId pode ser um Lead diferente em cada Bot (funis/vendas
 /// separados por bot).
 model Lead {
-  id          String   @id @default(cuid())
-  telegramId  BigInt
-  botId       String
-  bot         Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
-  username    String?
-  firstName   String?
-  lastName    String?
+  id           String   @id @default(cuid())
+  telegramId   BigInt
+  botId        String
+  bot          Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
+  username     String?
+  firstName    String?
+  lastName     String?
   /// Código de idioma do cliente Telegram do usuário (ex: "pt-br", "en") —
   /// vem de ctx.from.language_code, exibido no canal de vendas rico.
   languageCode String?
   /// ctx.from.is_premium — exibido no canal de vendas rico.
-  isPremium   Boolean  @default(false)
-  originId    String?
-  origin      Origin?  @relation(fields: [originId], references: [id])
-  createdAt   DateTime @default(now())
-  lastSeenAt  DateTime @default(now())
+  isPremium    Boolean  @default(false)
+  originId     String?
+  origin       Origin?  @relation(fields: [originId], references: [id])
+  createdAt    DateTime @default(now())
+  lastSeenAt   DateTime @default(now())
 
-  orders                Order[]
-  scheduledUpsellSends  ScheduledUpsellSend[]
+  orders                 Order[]
+  scheduledUpsellSends   ScheduledUpsellSend[]
+  scheduledDownsellSends ScheduledDownsellSend[]
 
   @@unique([telegramId, botId])
 }
@@ -144,6 +145,7 @@ model Flow {
   paymentMessages PaymentMessages?
   plans           Plan[]
   upsellSequence  UpsellSequence?
+  downsellConfig  DownsellConfig?
 }
 
 /// "Bots Vinculados" de um Flow — quais bots executam este funil.
@@ -158,22 +160,22 @@ model FlowBot {
 
 /// Configuração da seção "Boas-vindas" — roda no /start.
 model WelcomeConfig {
-  id        String  @id @default(cuid())
-  flowId    String  @unique
-  flow      Flow    @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  flowId String @unique
+  flow   Flow   @relation(fields: [flowId], references: [id], onDelete: Cascade)
 
   /// HTML restrito ao subset aceito pelo Telegram (parse_mode HTML):
   /// <b>/<i>/<u>/<s>/<code>/<blockquote>. Suporta variáveis {nome} etc,
   /// substituídas em src/bot/templating.ts.
-  text                 String?
+  text                    String?
   secondaryMessageEnabled Boolean @default(false)
-  ctaButtonEnabled     Boolean @default(false)
-  ctaLabel             String?
-  miniAppEnabled       Boolean @default(false)
-  miniAppUrl           String?
+  ctaButtonEnabled        Boolean @default(false)
+  ctaLabel                String?
+  miniAppEnabled          Boolean @default(false)
+  miniAppUrl              String?
   /// Canal/grupo padrão de entrega de conteúdo pra este funil — substitui
   /// o antigo TELEGRAM_VAULT_CHANNEL_ID global do .env.
-  defaultDeliveryTarget String?
+  defaultDeliveryTarget   String?
 
   media           WelcomeMedia[]
   redirectButtons RedirectButton[]
@@ -226,30 +228,31 @@ enum DeliveryType {
 /// preenchido = assinatura com expiração (renovação manual — ver
 /// OrderItem.accessExpiresAt e src/payments/subscriptionScheduler.ts).
 model Plan {
-  id             String          @id @default(cuid())
-  flowId         String
-  flow           Flow            @relation(fields: [flowId], references: [id], onDelete: Cascade)
-  name           String
-  priceCents     Int
-  durationDays   Int?
-  buttonColor    PlanButtonColor @default(PADRAO)
-  deliveryType   DeliveryType
+  id                   String          @id @default(cuid())
+  flowId               String
+  flow                 Flow            @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  name                 String
+  priceCents           Int
+  durationDays         Int?
+  buttonColor          PlanButtonColor @default(PADRAO)
+  deliveryType         DeliveryType
   /// DeliveryType.FILE — message_id (não file_id) da mensagem no canal-cofre.
-  fileTelegramId String?
-  externalLink   String?
+  fileTelegramId       String?
+  externalLink         String?
   /// Override do WelcomeConfig.defaultDeliveryTarget só pra este plano.
   customDeliveryTarget String?
-  protectContent Boolean         @default(true)
-  active         Boolean         @default(true)
-  order          Int             @default(0)
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  protectContent       Boolean         @default(true)
+  active               Boolean         @default(true)
+  order                Int             @default(0)
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
 
-  orderItems           OrderItem[]
-  triggerOffers        Offer[]               @relation("OfferTrigger")
-  offeredInOffers      Offer[]               @relation("OfferOffered")
-  upsellMessagePlans   UpsellMessagePlan[]
-  upsellMessageButtons UpsellMessageButton[]
+  orderItems            OrderItem[]
+  triggerOffers         Offer[]                @relation("OfferTrigger")
+  offeredInOffers       Offer[]                @relation("OfferOffered")
+  upsellMessagePlans    UpsellMessagePlan[]
+  upsellMessageButtons  UpsellMessageButton[]
+  downsellSequencePlans DownsellSequencePlan[]
 }
 
 enum OfferKind {
@@ -387,23 +390,23 @@ model PaymentMessages {
   flowId String @unique
   flow   Flow   @relation(fields: [flowId], references: [id], onDelete: Cascade)
 
-  pixGeneratedMessage String?
-  pixApprovedMessage  String?
-  buttonStyle         PaymentButtonStyle @default(PADRAO)
-  showConfirmationStep Boolean @default(false)
+  pixGeneratedMessage  String?
+  pixApprovedMessage   String?
+  buttonStyle          PaymentButtonStyle @default(PADRAO)
+  showConfirmationStep Boolean            @default(false)
 }
 
 /// Uma cobrança PIX gerada. Cabeçalho — o que foi vendido de fato vive em
 /// OrderItem (um Order pode ter mais de um item: plano base + order bumps
 /// pagos na mesma cobrança — ver Fase 2, Milestone 1/4 do plano).
 model Order {
-  id          String @id @default(cuid())
-  leadId      String
-  lead        Lead   @relation(fields: [leadId], references: [id])
-  botId       String
-  bot         Bot    @relation(fields: [botId], references: [id])
-  originId    String?
-  origin      Origin? @relation(fields: [originId], references: [id])
+  id       String  @id @default(cuid())
+  leadId   String
+  lead     Lead    @relation(fields: [leadId], references: [id])
+  botId    String
+  bot      Bot     @relation(fields: [botId], references: [id])
+  originId String?
+  origin   Origin? @relation(fields: [originId], references: [id])
 
   syncpayChargeId String      @unique
   amountCents     Int
@@ -411,12 +414,13 @@ model Order {
   pixCopyPaste    String?
   qrCodeUrl       String?
 
-  createdAt   DateTime  @default(now())
-  paidAt      DateTime?
-  expiresAt   DateTime?
+  createdAt DateTime  @default(now())
+  paidAt    DateTime?
+  expiresAt DateTime?
 
-  items         OrderItem[]
-  webhookEvents WebhookEvent[]
+  items                  OrderItem[]
+  webhookEvents          WebhookEvent[]
+  scheduledDownsellSends ScheduledDownsellSend[]
 
   @@index([status])
 }
@@ -440,12 +444,12 @@ enum OrderItemKind {
 /// mudar depois) e, pra planos com duração (assinatura), o controle de
 /// expiração/renovação/revogação de acesso (Fase 2, Milestone 5).
 model OrderItem {
-  id      String @id @default(cuid())
-  orderId String
-  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  planId  String
-  plan    Plan   @relation(fields: [planId], references: [id])
-  kind    OrderItemKind @default(BASE)
+  id             String        @id @default(cuid())
+  orderId        String
+  order          Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  planId         String
+  plan           Plan          @relation(fields: [planId], references: [id])
+  kind           OrderItemKind @default(BASE)
   unitPriceCents Int
 
   accessExpiresAt       DateTime?
@@ -455,16 +459,121 @@ model OrderItem {
   @@index([orderId])
 }
 
+enum DownsellTrigger {
+  /// Dispara N minutos após o /start pra leads que nunca geraram pagamento.
+  GENERAL
+  /// Dispara N minutos após um PIX ser gerado e não pago. Quando há pelo
+  /// menos 1 sequência PIX_GENERATED ativa, ela substitui (cancela de vez)
+  /// os envios GENERAL pendentes daquele lead — ver
+  /// src/bot/downsellScheduler.ts (scheduleDownsellForOrder).
+  PIX_GENERATED
+}
+
+enum DiscountType {
+  /// discountValue de 0 a 100.
+  PERCENT
+  /// discountValue em centavos.
+  FIXED
+}
+
+/// Config global de Downsell de um Flow — um único liga/desliga pra todas
+/// as sequências (Geral e PIX Gerado), igual ao toggle único mostrado nas
+/// duas abas do painel de referência do usuário.
+model DownsellConfig {
+  id        String   @id @default(cuid())
+  flowId    String   @unique
+  flow      Flow     @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  active    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sequences DownsellSequence[]
+}
+
+/// Uma sequência de Downsell — mensagem + desconto, disparada `delayMinutes`
+/// depois do gatilho (`trigger`). Até 20 por trigger (limite aplicado na
+/// rota do painel, não no schema). Planos ad-hoc criados só pra oferta
+/// ("Criar planos" na tela de referência) ficaram fora do escopo desta
+/// versão — só reaproveita Planos já cadastrados no funil, com o desconto
+/// calculado na hora da compra (ver src/bot/downsellMessage.ts).
+model DownsellSequence {
+  id            String          @id @default(cuid())
+  configId      String
+  config        DownsellConfig  @relation(fields: [configId], references: [id], onDelete: Cascade)
+  trigger       DownsellTrigger
+  order         Int             @default(0)
+  delayMinutes  Int             @default(5)
+  discountType  DiscountType    @default(PERCENT)
+  discountValue Int             @default(0)
+  message       String          @db.Text
+  active        Boolean         @default(true)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  media          DownsellSequenceMedia[]
+  plans          DownsellSequencePlan[]
+  scheduledSends ScheduledDownsellSend[]
+}
+
+/// Até 3 mídias de uma DownsellSequence, em ordem (mesmo padrão de WelcomeMedia).
+model DownsellSequenceMedia {
+  id         String           @id @default(cuid())
+  sequenceId String
+  sequence   DownsellSequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  order      Int
+  mediaType  MediaType
+  fileId     String
+
+  @@unique([sequenceId, order])
+}
+
+/// Um Plan mostrado nessa oferta de Downsell — o preço exibido/cobrado é o
+/// do Plan com o desconto da sequência aplicado em cima, não um preço
+/// próprio salvo aqui (ver applyDiscount em src/bot/downsellMessage.ts).
+model DownsellSequencePlan {
+  id         String           @id @default(cuid())
+  sequenceId String
+  sequence   DownsellSequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  planId     String
+  plan       Plan             @relation(fields: [planId], references: [id], onDelete: Cascade)
+  order      Int              @default(0)
+
+  @@unique([sequenceId, planId])
+}
+
+/// Um envio agendado de DownsellSequence pra um Lead — `orderId` presente
+/// só pro trigger PIX_GENERATED (aponta pro PIX específico que ficou sem
+/// pagar). Processado pelo poller (src/bot/downsellScheduler.ts) quando
+/// `sendAt` chega. `canceledAt` marca envios GENERAL cancelados por
+/// substituição (PIX gerado) ou por conversão (lead pagou).
+model ScheduledDownsellSend {
+  id         String           @id @default(cuid())
+  sequenceId String
+  sequence   DownsellSequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  leadId     String
+  lead       Lead             @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  botId      String
+  orderId    String?
+  order      Order?           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  sendAt     DateTime
+  sentAt     DateTime?
+  canceledAt DateTime?
+  createdAt  DateTime         @default(now())
+
+  @@index([sendAt])
+  @@index([leadId])
+}
+
 /// Log bruto de todo webhook recebido da SyncPay — garante idempotência
 /// (webhook duplicado não gera reprocessamento) e serve de trilha de auditoria.
 model WebhookEvent {
-  id          String   @id @default(cuid())
-  provider    String   @default("syncpay")
-  externalId  String   // id do evento/transação na gateway
+  id          String    @id @default(cuid())
+  provider    String    @default("syncpay")
+  externalId  String // id do evento/transação na gateway
   orderId     String?
-  order       Order?   @relation(fields: [orderId], references: [id])
+  order       Order?    @relation(fields: [orderId], references: [id])
   payload     Json
-  receivedAt  DateTime @default(now())
+  receivedAt  DateTime  @default(now())
   processedAt DateTime?
 
   @@unique([provider, externalId])

@@ -487,6 +487,176 @@ export function createFlowsRouter(): Router {
     res.redirect(`/admin/flows/${req.params.id}/upsell`);
   });
 
+  // --- Downsell (Geral: pós-/start sem compra · PIX Gerado: PIX abandonado) ---
+
+  const DOWNSELL_SEQUENCE_INCLUDE = {
+    media: { orderBy: { order: "asc" as const } },
+    plans: { orderBy: { order: "asc" as const }, include: { plan: true } },
+  };
+
+  async function loadDownsellConfig(flowId: string) {
+    return prisma.downsellConfig.upsert({
+      where: { flowId },
+      update: {},
+      create: { flowId },
+      include: {
+        sequences: {
+          orderBy: { order: "asc" },
+          include: DOWNSELL_SEQUENCE_INCLUDE,
+        },
+      },
+    });
+  }
+
+  router.get("/:id/downsell", async (req, res) => {
+    const flow = await loadFlow(req.params.id);
+    if (!flow) return res.status(404).send("Fluxo não encontrado.");
+    const config = await loadDownsellConfig(flow.id);
+    const activeTab = req.query.tab === "pix" ? "pix" : "geral";
+    res.render("flows/downsell", { flow, config, activeTab, error: null });
+  });
+
+  router.post("/:id/downsell", async (req, res) => {
+    const flowId = req.params.id;
+    const active = req.body.active === "on";
+    await prisma.downsellConfig.upsert({
+      where: { flowId },
+      update: { active },
+      create: { flowId, active },
+    });
+    res.redirect(`/admin/flows/${flowId}/downsell`);
+  });
+
+  const DOWNSELL_SEQUENCE_LIMIT = 20;
+
+  router.post("/:id/downsell/sequences", async (req, res) => {
+    const flowId = req.params.id;
+    const trigger = req.body.trigger === "PIX_GENERATED" ? "PIX_GENERATED" : "GENERAL";
+    const config = await loadDownsellConfig(flowId);
+
+    const forTrigger = config.sequences.filter((s) => s.trigger === trigger);
+    if (forTrigger.length < DOWNSELL_SEQUENCE_LIMIT) {
+      const last = forTrigger.reduce((max, s) => Math.max(max, s.order), -1);
+      await prisma.downsellSequence.create({
+        data: {
+          configId: config.id,
+          trigger,
+          order: nextOrder(last === -1 ? null : last),
+          message: "Não conseguiu pagar? Temos uma oferta especial...",
+        },
+      });
+    }
+    res.redirect(`/admin/flows/${flowId}/downsell?tab=${trigger === "PIX_GENERATED" ? "pix" : "geral"}`);
+  });
+
+  router.post("/:id/downsell/sequences/:seqId", async (req, res) => {
+    const message = String(req.body.message ?? "").trim() || "Não conseguiu pagar? Temos uma oferta especial...";
+    const delayMinutes = Math.max(0, Number(req.body.delayMinutes ?? 5) || 0);
+    const discountType = req.body.discountType === "FIXED" ? "FIXED" : "PERCENT";
+    const discountValue = Math.max(0, Number(req.body.discountValue ?? 0) || 0);
+
+    const sequence = await prisma.downsellSequence.update({
+      where: { id: req.params.seqId },
+      data: { message, delayMinutes, discountType, discountValue },
+    });
+    res.redirect(`/admin/flows/${req.params.id}/downsell?tab=${sequence.trigger === "PIX_GENERATED" ? "pix" : "geral"}`);
+  });
+
+  router.post("/:id/downsell/sequences/:seqId/toggle", async (req, res) => {
+    const sequence = await prisma.downsellSequence.findUnique({ where: { id: req.params.seqId } });
+    if (sequence) {
+      await prisma.downsellSequence.update({ where: { id: sequence.id }, data: { active: !sequence.active } });
+    }
+    res.redirect(`/admin/flows/${req.params.id}/downsell?tab=${sequence?.trigger === "PIX_GENERATED" ? "pix" : "geral"}`);
+  });
+
+  router.post("/:id/downsell/sequences/:seqId/duplicate", async (req, res) => {
+    const original = await prisma.downsellSequence.findUnique({
+      where: { id: req.params.seqId },
+      include: DOWNSELL_SEQUENCE_INCLUDE,
+    });
+    if (original) {
+      const siblings = await prisma.downsellSequence.findMany({
+        where: { configId: original.configId, trigger: original.trigger },
+        orderBy: { order: "desc" },
+        take: 1,
+      });
+      await prisma.downsellSequence.create({
+        data: {
+          configId: original.configId,
+          trigger: original.trigger,
+          order: nextOrder(siblings[0]?.order),
+          delayMinutes: original.delayMinutes,
+          discountType: original.discountType,
+          discountValue: original.discountValue,
+          message: original.message,
+          active: original.active,
+          media: { create: original.media.map((m) => ({ order: m.order, mediaType: m.mediaType, fileId: m.fileId })) },
+          plans: { create: original.plans.map((p) => ({ planId: p.planId, order: p.order })) },
+        },
+      });
+    }
+    res.redirect(`/admin/flows/${req.params.id}/downsell?tab=${original?.trigger === "PIX_GENERATED" ? "pix" : "geral"}`);
+  });
+
+  router.post("/:id/downsell/sequences/:seqId/delete", async (req, res) => {
+    const sequence = await prisma.downsellSequence.findUnique({ where: { id: req.params.seqId } });
+    await prisma.downsellSequence.delete({ where: { id: req.params.seqId } });
+    res.redirect(`/admin/flows/${req.params.id}/downsell?tab=${sequence?.trigger === "PIX_GENERATED" ? "pix" : "geral"}`);
+  });
+
+  router.post("/:id/downsell/sequences/:seqId/media", async (req, res) => {
+    const seqId = req.params.seqId;
+    const mediaType = String(req.body.mediaType ?? "");
+    const fileId = String(req.body.fileId ?? "").trim();
+    const sequence = await prisma.downsellSequence.findUnique({ where: { id: seqId } });
+    if (mediaType && fileId && sequence) {
+      const existing = await prisma.downsellSequenceMedia.findMany({ where: { sequenceId: seqId } });
+      if (existing.length < 3) {
+        const last = existing.reduce((max, m) => Math.max(max, m.order), -1);
+        await prisma.downsellSequenceMedia.create({
+          data: { sequenceId: seqId, order: nextOrder(last === -1 ? null : last), mediaType: mediaType as never, fileId },
+        });
+      }
+    }
+    res.redirect(`/admin/flows/${req.params.id}/downsell?tab=${sequence?.trigger === "PIX_GENERATED" ? "pix" : "geral"}`);
+  });
+
+  router.post("/:id/downsell/sequences/:seqId/media/:mediaId/delete", async (req, res) => {
+    const media = await prisma.downsellSequenceMedia.findUnique({
+      where: { id: req.params.mediaId },
+      include: { sequence: true },
+    });
+    if (media) await prisma.downsellSequenceMedia.delete({ where: { id: media.id } });
+    res.redirect(`/admin/flows/${req.params.id}/downsell?tab=${media?.sequence.trigger === "PIX_GENERATED" ? "pix" : "geral"}`);
+  });
+
+  router.post("/:id/downsell/sequences/:seqId/plans", async (req, res) => {
+    const seqId = req.params.seqId;
+    const planId = String(req.body.planId ?? "").trim();
+    const sequence = await prisma.downsellSequence.findUnique({ where: { id: seqId } });
+    if (planId && sequence) {
+      const last = await prisma.downsellSequencePlan.findFirst({
+        where: { sequenceId: seqId },
+        orderBy: { order: "desc" },
+        select: { order: true },
+      });
+      await prisma.downsellSequencePlan
+        .create({ data: { sequenceId: seqId, planId, order: nextOrder(last?.order) } })
+        .catch(() => {}); // unique[sequenceId,planId] -- ignora se já estava anexado
+    }
+    res.redirect(`/admin/flows/${req.params.id}/downsell?tab=${sequence?.trigger === "PIX_GENERATED" ? "pix" : "geral"}`);
+  });
+
+  router.post("/:id/downsell/sequences/:seqId/plans/:linkId/delete", async (req, res) => {
+    const link = await prisma.downsellSequencePlan.findUnique({
+      where: { id: req.params.linkId },
+      include: { sequence: true },
+    });
+    if (link) await prisma.downsellSequencePlan.delete({ where: { id: link.id } });
+    res.redirect(`/admin/flows/${req.params.id}/downsell?tab=${link?.sequence.trigger === "PIX_GENERATED" ? "pix" : "geral"}`);
+  });
+
   router.post("/:id/delete", async (req, res) => {
     await prisma.flow.delete({ where: { id: req.params.id } });
     res.redirect("/admin/flows");

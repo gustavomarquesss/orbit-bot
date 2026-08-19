@@ -25,9 +25,14 @@ vi.mock("../../bot/upsellScheduler.js", () => ({
   scheduleUpsellSequence: vi.fn(),
 }));
 
+vi.mock("../../bot/downsellScheduler.js", () => ({
+  cancelPendingDownsellsForLead: vi.fn(),
+}));
+
 import { prisma } from "../../db/client.js";
 import { deliverPlanToLead, notifyAdminOfSale, notifyLeadOfApproval } from "../../bot/delivery.js";
 import { scheduleUpsellSequence } from "../../bot/upsellScheduler.js";
+import { cancelPendingDownsellsForLead } from "../../bot/downsellScheduler.js";
 import { config } from "../../config.js";
 import {
   handleSyncpayWebhook,
@@ -166,6 +171,7 @@ describe("handleSyncpayWebhook", () => {
     vi.mocked(prisma.order.findUnique).mockResolvedValue({
       id: "order-1",
       botId: "bot1",
+      leadId: "lead-1",
       status: "PENDING",
       paidAt: null,
       lead,
@@ -195,6 +201,7 @@ describe("handleSyncpayWebhook", () => {
     expect(notifyAdminOfSale).toHaveBeenCalledTimes(1);
     expect(notifyLeadOfApproval).toHaveBeenCalledTimes(1);
     expect(scheduleUpsellSequence).toHaveBeenCalledTimes(1);
+    expect(cancelPendingDownsellsForLead).toHaveBeenCalledWith("lead-1");
     expect(prisma.webhookEvent.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: "we-2" },
@@ -228,6 +235,7 @@ describe("handleSyncpayWebhook", () => {
     vi.mocked(prisma.order.findUnique).mockResolvedValue({
       id: "order-real",
       botId: "bot1",
+      leadId: "lead-1",
       status: "PENDING",
       paidAt: null,
       lead,

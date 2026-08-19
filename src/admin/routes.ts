@@ -7,6 +7,7 @@ import { prisma } from "../db/client.js";
 import { config } from "../config.js";
 import { createBotsRouter } from "./botsRoutes.js";
 import { createFlowsRouter } from "./flowsRoutes.js";
+import { applyDiscount } from "../bot/downsellMessage.js";
 
 // Pool dedicado do connect-pg-simple (ele gerencia sua própria tabela de
 // sessões, "session", criada automaticamente com createTableIfMissing).
@@ -57,6 +58,7 @@ export function createAdminRouter(): Router {
   );
   router.use((req, res, next) => {
     res.locals.formatBRL = formatBRL;
+    res.locals.applyDiscount = applyDiscount;
     next();
   });
 

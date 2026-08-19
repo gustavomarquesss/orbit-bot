@@ -28,9 +28,14 @@ vi.mock("../../bot/upsellScheduler.js", () => ({
   scheduleUpsellSequence: vi.fn(),
 }));
 
+vi.mock("../../bot/downsellScheduler.js", () => ({
+  cancelPendingDownsellsForLead: vi.fn(),
+}));
+
 import { prisma } from "../../db/client.js";
 import { getTransactionStatus } from "../syncpay.js";
 import { deliverPlanToLead, notifyAdminOfSale } from "../../bot/delivery.js";
+import { cancelPendingDownsellsForLead } from "../../bot/downsellScheduler.js";
 import { pollPendingOrders } from "../reconciliation.js";
 
 const lead = { id: "lead-1", telegramId: 123n };
@@ -46,6 +51,7 @@ function orderFixture(overrides: Partial<Record<string, unknown>> = {}) {
   return {
     id: "order-1",
     botId: "bot1",
+    leadId: "lead-1",
     status: "PENDING",
     paidAt: null,
     syncpayChargeId: "tx-1",
@@ -94,6 +100,7 @@ describe("pollPendingOrders", () => {
     );
     expect(deliverPlanToLead).toHaveBeenCalledTimes(1);
     expect(notifyAdminOfSale).toHaveBeenCalledTimes(1);
+    expect(cancelPendingDownsellsForLead).toHaveBeenCalledWith("lead-1");
   });
 
   it("segue pros próximos pedidos se um deles falhar ao consultar a SyncPay", async () => {

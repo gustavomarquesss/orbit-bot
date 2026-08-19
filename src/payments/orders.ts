@@ -12,6 +12,8 @@ export interface OrderItemInput {
   planId: string;
   /** Default "BASE" — Order Bump/Upsell/Downsell (Fase 2) usam os outros kinds. */
   kind?: OrderItemKind;
+  /** Downsell aplica desconto em cima do Plan.priceCents — quando presente, sobrescreve o preço do item (ver src/bot/downsellMessage.ts). */
+  unitPriceCentsOverride?: number;
 }
 
 /**
@@ -50,7 +52,7 @@ export async function createOrderAndCharge(params: {
   }
 
   const totalCents = params.items.reduce(
-    (sum, item) => sum + planById.get(item.planId)!.priceCents,
+    (sum, item) => sum + (item.unitPriceCentsOverride ?? planById.get(item.planId)!.priceCents),
     0
   );
   const description = params.items.map((item) => planById.get(item.planId)!.name).join(" + ");
@@ -88,7 +90,7 @@ export async function createOrderAndCharge(params: {
         create: params.items.map((item) => ({
           planId: item.planId,
           kind: item.kind ?? "BASE",
-          unitPriceCents: planById.get(item.planId)!.priceCents,
+          unitPriceCents: item.unitPriceCentsOverride ?? planById.get(item.planId)!.priceCents,
         })),
       },
     },

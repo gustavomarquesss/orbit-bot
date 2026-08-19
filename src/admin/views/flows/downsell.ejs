@@ -1,0 +1,182 @@
+<%- include("../partials/header", { title: flow.name + " — Downsell", active: "flows" }) %>
+<%- include("./partials/nav", { flow, section: "downsell" }) %>
+
+<style>
+  .ds-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+  .ds-tabs a { padding: 7px 16px; border-radius: 8px; font-size: 0.85rem; text-decoration: none; color: var(--text); background: var(--surface); }
+  .ds-tabs a.active { background: var(--accent); color: #fff; font-weight: 600; }
+  .ds-hint-box { background: color-mix(in srgb, var(--accent) 12%, transparent); border: 1px solid var(--accent); color: var(--text); padding: 10px 14px; border-radius: 10px; font-size: 0.85rem; margin-bottom: 16px; }
+  .ds-hint-box ul { margin: 6px 0 0; padding-left: 18px; }
+  .ds-seq-card { border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+  .ds-seq-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .ds-seq-header h3 { margin: 0; font-size: 0.95rem; }
+  .ds-seq-header-actions { display: flex; gap: 6px; align-items: center; }
+  .ds-row { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 10px; }
+  .ds-row label { font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 4px; }
+  .ds-subtable-title { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-muted); margin: 14px 0 6px; }
+  .ds-mini-table { width: 100%; font-size: 0.85rem; }
+  .ds-mini-table td, .ds-mini-table th { padding: 4px 6px; }
+  .ds-inline-add { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+  .ds-inline-add select, .ds-inline-add input { flex: 1; min-width: 140px; }
+  .ds-counter { color: var(--text-muted); font-size: 0.85rem; }
+</style>
+
+<section>
+  <form method="POST" action="/admin/flows/<%= flow.id %>/downsell" class="checkbox-row" style="margin-bottom: 16px;">
+    <input type="checkbox" id="active" name="active" onchange="this.form.submit()" <%= config.active ? "checked" : "" %> />
+    <label for="active">Ativar Downsell</label>
+  </form>
+</section>
+
+<div class="ds-tabs">
+  <a href="/admin/flows/<%= flow.id %>/downsell?tab=geral" class="<%= activeTab === 'geral' ? 'active' : '' %>">Geral</a>
+  <a href="/admin/flows/<%= flow.id %>/downsell?tab=pix" class="<%= activeTab === 'pix' ? 'active' : '' %>">PIX Gerado</a>
+</div>
+
+<% if (activeTab === 'geral') { %>
+  <div class="ds-hint-box">
+    Sequências enviadas após o /start para leads que não geraram pagamento.
+  </div>
+<% } else { %>
+  <div class="ds-hint-box">
+    Sequências enviadas quando o lead gera pagamento mas não paga. Quando ativo, substitui o downsell Geral para esses leads.
+  </div>
+<% } %>
+
+<% const sequences = config.sequences.filter(function(s) { return s.trigger === (activeTab === 'pix' ? 'PIX_GENERATED' : 'GENERAL'); }); %>
+
+<div class="flow-header">
+  <h2 style="font-size:1rem;margin:0;">Sequências de Downsell</h2>
+  <span class="ds-counter"><%= sequences.length %>/20</span>
+</div>
+
+<% sequences.forEach(function(seq, idx) { %>
+  <div class="ds-seq-card">
+    <div class="ds-seq-header">
+      <h3>Sequência <%= idx + 1 %> <% if (!seq.active) { %><span class="badge inactive">pausada</span><% } %></h3>
+      <div class="ds-seq-header-actions">
+        <form method="POST" action="/admin/flows/<%= flow.id %>/downsell/sequences/<%= seq.id %>/toggle" class="inline-form">
+          <button class="btn small secondary" type="submit"><%= seq.active ? "Pausar" : "Ativar" %></button>
+        </form>
+        <form method="POST" action="/admin/flows/<%= flow.id %>/downsell/sequences/<%= seq.id %>/duplicate" class="inline-form">
+          <button class="btn small secondary" type="submit" title="Duplicar">Duplicar</button>
+        </form>
+        <form method="POST" action="/admin/flows/<%= flow.id %>/downsell/sequences/<%= seq.id %>/delete" class="inline-form" onsubmit="return confirm('Excluir esta sequência inteira?');">
+          <button class="btn small danger" type="submit">Excluir</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="ds-subtable-title">Mídias (até 3)</div>
+    <table class="ds-mini-table">
+      <tbody>
+        <% seq.media.forEach(function(m) { %>
+          <tr>
+            <td><%= m.mediaType %></td>
+            <td class="hint"><%= m.fileId.slice(0, 24) %>…</td>
+            <td>
+              <form method="POST" action="/admin/flows/<%= flow.id %>/downsell/sequences/<%= seq.id %>/media/<%= m.id %>/delete" class="inline-form">
+                <button class="btn small danger" type="submit">Remover</button>
+              </form>
+            </td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+    <% if (seq.media.length < 3) { %>
+      <form method="POST" action="/admin/flows/<%= flow.id %>/downsell/sequences/<%= seq.id %>/media" class="ds-inline-add">
+        <select name="mediaType">
+          <option value="PHOTO">Foto</option>
+          <option value="VIDEO">Vídeo</option>
+          <option value="AUDIO">Áudio</option>
+          <option value="DOCUMENT">Documento</option>
+        </select>
+        <input type="text" name="fileId" placeholder="file_id do Telegram" />
+        <button class="btn small secondary" type="submit">+ Adicionar mídia</button>
+      </form>
+    <% } %>
+
+    <form method="POST" action="/admin/flows/<%= flow.id %>/downsell/sequences/<%= seq.id %>" style="margin-top:14px;">
+      <div class="ds-row">
+        <div>
+          <label for="delayMinutes-<%= seq.id %>">Enviar (minutos após <%= activeTab === 'pix' ? 'o PIX gerado' : 'o /start' %>)</label>
+          <input type="number" id="delayMinutes-<%= seq.id %>" name="delayMinutes" min="0" value="<%= seq.delayMinutes %>" style="max-width:120px;" />
+        </div>
+        <div>
+          <label for="discountType-<%= seq.id %>">Tipo de desconto</label>
+          <select id="discountType-<%= seq.id %>" name="discountType" style="max-width:120px;">
+            <option value="PERCENT" <%= seq.discountType === "PERCENT" ? "selected" : "" %>>%</option>
+            <option value="FIXED" <%= seq.discountType === "FIXED" ? "selected" : "" %>>R$</option>
+          </select>
+        </div>
+        <div>
+          <label for="discountValue-<%= seq.id %>">Valor do desconto</label>
+          <input type="number" id="discountValue-<%= seq.id %>" name="discountValue" min="0"
+            value="<%= seq.discountType === 'FIXED' ? (seq.discountValue / 100).toFixed(2) : seq.discountValue %>"
+            step="<%= seq.discountType === 'FIXED' ? '0.01' : '1' %>" style="max-width:120px;" />
+        </div>
+      </div>
+
+      <label for="message-<%= seq.id %>">Mensagem *</label>
+      <div class="rte-toolbar">
+        <button type="button" onclick="dgWrapSelection('message-<%= seq.id %>','&lt;b&gt;','&lt;/b&gt;')"><b>B</b></button>
+        <button type="button" onclick="dgWrapSelection('message-<%= seq.id %>','&lt;i&gt;','&lt;/i&gt;')"><i>I</i></button>
+        <button type="button" onclick="dgWrapSelection('message-<%= seq.id %>','&lt;u&gt;','&lt;/u&gt;')"><u>U</u></button>
+      </div>
+      <textarea id="message-<%= seq.id %>" name="message" rows="4" maxlength="4000" placeholder="Não conseguiu pagar? Temos uma oferta especial..."><%= seq.message %></textarea>
+      <div class="var-chips">
+        <% ["nome","saudacao","bot.username"].forEach(function(v) { %>
+          <button type="button" onclick="dgInsertAtCursor('message-<%= seq.id %>', '{<%= v %>}')">{<%= v %>}</button>
+        <% }); %>
+      </div>
+
+      <div class="actions"><button class="btn small" type="submit">Salvar sequência</button></div>
+    </form>
+
+    <div class="ds-subtable-title">
+      Planos da Oferta
+      <span class="hint">— exibidos com <%= seq.discountType === "PERCENT" ? seq.discountValue + "%" : formatBRL(seq.discountValue) %> de desconto</span>
+    </div>
+    <table class="ds-mini-table">
+      <thead><tr><th>Nome</th><th>Preço original</th><th>Com desconto</th><th></th></tr></thead>
+      <tbody>
+        <% seq.plans.forEach(function(link) { %>
+          <tr>
+            <td><%= link.plan.name %></td>
+            <td><%= formatBRL(link.plan.priceCents) %></td>
+            <td><%= formatBRL(applyDiscount(link.plan.priceCents, seq.discountType, seq.discountValue)) %></td>
+            <td>
+              <form method="POST" action="/admin/flows/<%= flow.id %>/downsell/sequences/<%= seq.id %>/plans/<%= link.id %>/delete" class="inline-form">
+                <button class="btn small danger" type="submit">Remover</button>
+              </form>
+            </td>
+          </tr>
+        <% }); %>
+        <% if (seq.plans.length === 0) { %><tr><td colspan="4" class="empty">Nenhum plano cadastrado nesta oferta.</td></tr><% } %>
+      </tbody>
+    </table>
+    <form method="POST" action="/admin/flows/<%= flow.id %>/downsell/sequences/<%= seq.id %>/plans" class="ds-inline-add">
+      <select name="planId">
+        <% flow.plans.forEach(function(p) { %>
+          <option value="<%= p.id %>"><%= p.name %> — <%= formatBRL(p.priceCents) %></option>
+        <% }); %>
+      </select>
+      <button class="btn small secondary" type="submit">+ Anexar plano</button>
+    </form>
+  </div>
+<% }); %>
+
+<% if (sequences.length === 0) { %>
+  <p class="empty">Nenhuma sequência cadastrada nesta aba ainda.</p>
+<% } %>
+
+<% if (sequences.length < 20) { %>
+  <form method="POST" action="/admin/flows/<%= flow.id %>/downsell/sequences">
+    <input type="hidden" name="trigger" value="<%= activeTab === 'pix' ? 'PIX_GENERATED' : 'GENERAL' %>" />
+    <button class="btn secondary" type="submit">+ Adicionar Sequência</button>
+  </form>
+<% } %>
+
+  </div>
+</div>
+<%- include("../partials/footer") %>

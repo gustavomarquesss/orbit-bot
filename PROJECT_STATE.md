@@ -113,11 +113,61 @@ Upsell agendada (1min de atraso) chegou certinha, botão BUY_PLAN gerou PIX
 novo separado. Milestone 4 considerado fechado (Downsell explicitamente
 adiado, ver acima).
 
-**Próximo**: Milestone 3 (multi-gateway WiinPay) segue bloqueado esperando
-a API key do usuário. Milestone 5 (assinatura/renovação) não depende disso
-e pode ser adiantado enquanto isso, mesmo padrão do Milestone 4. Plano em
+**Milestone 3 (WiinPay) — bloqueado de novo, agora por Cloudflare
+(2026-08-19)**: usuário forneceu um token JWT (confirmado que veio da tela
+"API/Integração" do painel deles, não de sessão de login). Não existe doc
+oficial pública da API WiinPay — só uma referência de terceiro (Scribd)
+sugerindo auth via `api_key` no corpo, valor mínimo R$3, campo
+`webhook_url`. Tentativa de descobrir o domínio/contrato real por chamadas
+diretas (curl, `api-v2.wiinpay.com.br`, achado via busca) esbarrou num
+**Cloudflare "Attention Required"** bloqueando qualquer requisição
+programática, em qualquer caminho testado (raiz, `/api/v1/me`,
+`/api/v1/gateway/cash-in`, etc — todos 403 com o mesmo desafio JS do
+Cloudflare, não um 404 de rota errada). Não dá pra descobrir o contrato às
+cegas daqui. **Pré-requisito pra retomar**: usuário abrir o painel da
+WiinPay, DevTools → Network, gerar um PIX de teste pela tela deles mesmo, e
+trazer a requisição real capturada (URL, headers, body) — mesma técnica que
+resolveu o mesmo tipo de bloqueio com a SyncPay no início do projeto.
+
+**Milestone 4 — Downsell implementado (2026-08-19)**: usuário mandou prints
+de referência com duas abas — "Geral" (dispara N minutos após o `/start`
+pra leads que nunca geraram pagamento) e "PIX Gerado" (dispara N minutos
+depois de um PIX gerado e não pago; quando tem sequência ativa, cancela de
+vez os envios "Geral" pendentes do lead — confirmado com o usuário:
+cancelamento definitivo, não pausa). Um único toggle `DownsellConfig.active`
+liga/desliga as duas abas (bate com o print, que mostra o mesmo estado nas
+duas). Cada `DownsellSequence` tem `delayMinutes`, desconto (`PERCENT` 0-100
+ou `FIXED` em centavos), mensagem (HTML+variáveis), até 3 mídias, e Planos
+anexados (reaproveita `Plan` existente — preço final calculado na hora,
+`applyDiscount` em `src/bot/downsellMessage.ts`). Compra usa
+`OrderItemKind.DOWNSELL` e não passa pela fila de Order Bump (a intenção é
+recuperar a venda mais barata, não empurrar mais itens). Poller
+`src/bot/downsellScheduler.ts` (mesmo padrão setInterval de
+`upsellScheduler.ts`/`reconciliation.ts`, 30s) reavalia a condição na hora
+de enviar (cancela sem mandar se o Order/lead já converteu nesse meio
+tempo). Painel em `/admin/flows/:id/downsell` (duas abas, `?tab=geral|pix`),
+com duplicar/pausar/excluir sequência. Escopo deliberadamente cortado do
+print de referência, confirmado com o usuário: **"Criar planos" (planos
+ad-hoc só pra uma oferta) ficou de fora** — só planos já cadastrados no
+funil, com desconto aplicado em cima; o campo "Entrega do Downsell" do print
+também ficou de fora por depender do mesmo recurso adiado (Planos ad-hoc não
+têm `deliveryType` próprio pra precisar de override — Planos normais já
+carregam sua própria config de entrega). Verificado no painel via browser
+(criar sequência, salvar desconto, anexar plano, conferir preço com desconto
+calculado certo, trocar de aba preservando estado). Suíte de testes cobre
+`applyDiscount`/parse do callback (`downsellMessage.test.ts`) e o scheduler
+completo (`downsellScheduler.test.ts`) — incluindo os guards de
+cancelamento em cima da hora. **Teste real de envio no bot (lead abandonando
+um PIX / nunca comprando) ainda pendente com o usuário** — like sempre,
+funcionalidade só é considerada 100% fechada depois disso.
+
+**Próximo**: Milestone 3 (WiinPay) segue bloqueado esperando a captura real
+do usuário (ver acima). Milestone 5 (assinatura/renovação) não depende
+disso e pode ser adiantado enquanto isso, mesmo padrão já usado pro
+Milestone 4. Plano em
 `C:\Users\gusta\.claude\plans\rippling-rolling-castle.md` já atualizado
-pra refletir o rebuild do Upsell.
+pra refletir o rebuild do Upsell (Downsell segue documentado lá como
+"desenho original, histórico" — atualizar lá também na próxima passada).
 
 ## Redesign pro modelo Shark Bot (2026-08-19)
 
