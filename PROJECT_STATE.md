@@ -67,11 +67,52 @@ menos de 1 minuto aparecia como "0d 2h 0m 7s". Corrigido pra usar sempre
 `order.createdAt → order.paidAt`, com teste de regressão simulando um lead
 antigo + order recente.
 
-**Próximo**: Milestone 4 (Ofertas: Order Bump/Upsell/Downsell) adiantado
-na frente do Milestone 3 (multi-gateway) — só depende do Milestone 1
-(já pronto), enquanto o Milestone 3 fica bloqueado esperando a API key da
-WiinPay do usuário. Ver plano em
-`C:\Users\gusta\.claude\plans\rippling-rolling-castle.md`.
+**Milestone 4 concluído (2026-08-19) — Order Bump**: modelo `Offer`
+(`triggerPlanId`/`offeredPlanId`/`kind`/`message`/`acceptLabel`/
+`declineLabel`). Painel em `/admin/flows/:id/offers`. Verificado com
+compra real. **Correção pedida pelo usuário depois do primeiro teste**: a
+UI original era uma lista de checkboxes + botão "Confirmar compra" — o
+usuário queria (e agora é) aceitar/recusar sequencial: cada bump aparece
+um de cada vez com dois botões de texto editável, clicar em qualquer um
+já avança pro próximo bump (ou gera o PIX se acabou), sem botão de
+confirmação separado. Bitmask + índice posicional no `callback_data`
+(limite de 64 bytes do Telegram não permite carregar ids de bump direto).
+
+**Milestone 4 (Upsell) reconstruído do zero (2026-08-19)**: a primeira
+versão (Offer-based, um plano-gatilho específico, botão fixo Sim/Não) foi
+**totalmente substituída** depois que o usuário mandou um print real de
+referência mostrando uma estrutura bem mais rica. Modelo novo:
+`UpsellSequence` (1 por Flow, ativa/pausada) → N `UpsellMessage` em
+sequência (texto, `delayMinutes` — atraso configurável após a compra,
+default 0 = imediato) → cada mensagem tem `UpsellMessagePlan[]` (planos
+anexados, só pra alimentar os botões) e `UpsellMessageButton[]` (texto
+livre, tipo `BUY_PLAN` — reaproveita o callback `plan:<id>` já existente,
+compra normal, engatilha Order Bump se o plano tiver — ou `OPEN_LINK`, só
+abre um link). Dispara depois de **qualquer** compra do funil (não mais
+um plano-gatilho específico). Novo scheduler
+(`src/bot/upsellScheduler.ts`, `setInterval` 30s, mesmo padrão do
+`reconciliation.ts`) processa `ScheduledUpsellSend` — criados no momento
+da compra, um por mensagem da sequência, com `sendAt` calculado a partir
+do `delayMinutes` — sobrevive a restart do processo entre a compra e o
+envio. Verificado via browser (criar mensagem, anexar plano, criar botão
+BUY_PLAN — tudo persistindo certo); teste real de envio no bot pendente
+com o usuário.
+
+**Downsell desacoplado e adiado**: o mecanismo antigo (`Offer.kind=
+DOWNSELL`, disparava quando um Upsell-antigo era recusado) ficou sem uso
+depois do rebuild do Upsell — o Upsell novo não tem mais um botão fixo de
+"recusar". Usuário confirmou que o Downsell real vai ser outra coisa:
+dispara quando um PIX é **gerado mas não pago** depois de N minutos
+configuráveis (ex: 5min, 15min) — não mais ligado a recusar um Upsell.
+Ainda não implementado; usuário vai mandar um print de referência quando
+chegarmos nessa tela.
+
+**Próximo**: Milestone 3 (multi-gateway WiinPay) segue bloqueado esperando
+a API key do usuário. Enquanto isso, avaliar seguir com Milestone 5
+(assinatura) ou aguardar direção do usuário. Ver plano em
+`C:\Users\gusta\.claude\plans\rippling-rolling-castle.md` (plano ainda
+reflete o desenho ANTIGO do Upsell — precisa ser atualizado pra bater com
+o rebuild acima na próxima vez que for consultado a fundo).
 
 ## Redesign pro modelo Shark Bot (2026-08-19)
 
