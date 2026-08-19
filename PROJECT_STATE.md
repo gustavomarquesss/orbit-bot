@@ -51,8 +51,27 @@ atraso) em vez do webhook instantâneo. Corrigido em `src/payments/webhook.ts`
 (`unwrapFields`), com teste de regressão usando o payload real observado
 no log do servidor.
 
-**Próximo**: Milestone 2 (canal de vendas rico + enriquecimento de Lead
-com idioma/premium) — ver plano.
+**Milestone 2 concluído (2026-08-19) — canal de vendas rico**: `Settings`
+(singleton) guarda `salesChannelId`, configurável em `/admin/settings` sem
+redeploy (cai no DM antigo se não configurado). `notifyAdminOfSale`
+reescrita pro formato exato pedido pelo usuário, uma mensagem por
+`OrderItem`. `Lead` ganhou `languageCode`/`isPremium` (capturados de
+`ctx.from` no `/start` e em toda interação). Verificado com compra real —
+mensagem chegou certinha no canal configurado pelo usuário.
+
+**Bug real encontrado e corrigido durante a verificação (2026-08-19)**:
+"Tempo Conversão" usava `lead.createdAt` (primeiro contato histórico do
+lead — pode ser de horas atrás pra cliente recorrente) em vez de
+`order.createdAt` (quando aquele PIX específico foi gerado). Uma compra de
+menos de 1 minuto aparecia como "0d 2h 0m 7s". Corrigido pra usar sempre
+`order.createdAt → order.paidAt`, com teste de regressão simulando um lead
+antigo + order recente.
+
+**Próximo**: Milestone 4 (Ofertas: Order Bump/Upsell/Downsell) adiantado
+na frente do Milestone 3 (multi-gateway) — só depende do Milestone 1
+(já pronto), enquanto o Milestone 3 fica bloqueado esperando a API key da
+WiinPay do usuário. Ver plano em
+`C:\Users\gusta\.claude\plans\rippling-rolling-castle.md`.
 
 ## Redesign pro modelo Shark Bot (2026-08-19)
 
