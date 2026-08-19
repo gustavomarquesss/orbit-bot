@@ -8,6 +8,52 @@
 
 Última atualização: 2026-08-19
 
+## Fase 2 — paridade completa (upsell/downsell/order bump, assinatura, multi-gateway, mailing, dashboard, canal de vendas) — em andamento
+
+Plano completo salvo em
+`C:\Users\gusta\.claude\plans\rippling-rolling-castle.md` (Fase 2 no topo do
+arquivo, Fase 1 arquivada abaixo). Usuário pediu paridade total com
+ApexVips/Shark Bot **antes do deploy em VPS** — deploy real fica bloqueado
+até esta fase fechar. Confirmado com o usuário: modelo de assinatura é
+acesso por N dias + renovação manual + revogação automática (PIX não tem
+cobrança recorrente real); canal de vendas é um único canal global (não por
+bot); segundo gateway é WiinPay (usuário já tem credenciais); mailing é
+escopo básico (sem agendamento).
+
+**Milestone 1 concluído (2026-08-19) — `Order` → `Order` + `OrderItem`**:
+pré-requisito pra Order Bump (cobrar base + adicionais numa única cobrança
+PIX). `Order` perdeu `planId` direto; ganhou `items OrderItem[]` (`kind`
+BASE/ORDER_BUMP/UPSELL/DOWNSELL, `unitPriceCents`, e os campos de
+assinatura `accessExpiresAt`/`renewalReminderSentAt`/`revokedAt` usados no
+Milestone 5). Migration `20260819122500_order_items` migrou os 4 Orders
+reais já existentes (incluindo os pagos de verdade) sem perda de dado —
+editada manualmente em cima do diff do `prisma migrate diff` pra inserir o
+passo de cópia antes de dropar a coluna antiga. Verificado com uma compra
+real de ponta a ponta depois da migração.
+
+Efeito colateral útil: pra gerar essa migration sem rodar `prisma migrate
+reset` (que apagaria o banco), descobri que o Prisma via "drift" por causa
+da tabela `session` do `connect-pg-simple`, que não estava declarada no
+schema. Resolvido com uma migration de baseline
+(`20260819121733_baseline_session_table`, aplicada via `migrate resolve
+--applied`, sem re-executar o SQL) + um `model Session` mapeado (`@@map`)
+declarado só pra o Prisma Migrate parar de achar que a tabela é "órfã" —
+o Prisma Client não gerencia essa tabela, quem cuida é a lib mesmo.
+
+**Bug real encontrado durante a verificação do Milestone 1 (2026-08-19)**:
+o payload de webhook de pagamento confirmado da SyncPay vem aninhado em
+`{data: {idtransaction, status, ...}}`, não no formato plano que a gente
+tinha assumido (nunca confirmado contra um pagamento real até agora — o
+pagamento anterior desta sessão só tinha sido pego pelo polling). O webhook
+estava sendo descartado silenciosamente ("id de transação não encontrado")
+e todo pagamento só confirmava via o polling de reconciliação (até 20s de
+atraso) em vez do webhook instantâneo. Corrigido em `src/payments/webhook.ts`
+(`unwrapFields`), com teste de regressão usando o payload real observado
+no log do servidor.
+
+**Próximo**: Milestone 2 (canal de vendas rico + enriquecimento de Lead
+com idioma/premium) — ver plano.
+
 ## Redesign pro modelo Shark Bot (2026-08-19)
 
 Usuário mostrou 13 telas reais do Shark Bot e confirmou que o painel
