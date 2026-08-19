@@ -63,7 +63,11 @@ describe("isValidWebhookSecret", () => {
 });
 
 describe("extractExternalId / extractStatus", () => {
-  it("extrai id de idTransaction como campo preferido", () => {
+  it("extrai id de idtransaction (minúsculo — campo real da SyncPay) como preferido", () => {
+    expect(extractExternalId({ idtransaction: "real", idTransaction: "abc", id: "outro" })).toBe("real");
+  });
+
+  it("extrai id de idTransaction quando idtransaction (minúsculo) ausente", () => {
     expect(extractExternalId({ idTransaction: "abc", id: "outro" })).toBe("abc");
   });
 
@@ -160,7 +164,7 @@ describe("handleSyncpayWebhook", () => {
       status: "PENDING",
       paidAt: null,
       lead,
-      plan,
+      items: [{ plan }],
     } as never);
     vi.mocked(prisma.order.update).mockResolvedValue({
       id: "order-1",
@@ -168,7 +172,7 @@ describe("handleSyncpayWebhook", () => {
       status: "PAID",
       paidAt: new Date(),
       lead,
-      plan,
+      items: [{ plan }],
     } as never);
 
     await handleSyncpayWebhook(req, res);
@@ -194,6 +198,57 @@ describe("handleSyncpayWebhook", () => {
     expect(res.status).toHaveBeenCalledWith(200);
   });
 
+  it("processa o payload real da SyncPay, aninhado em `data` (regressão: pagamento real em 2026-08-19 foi ignorado por assumirmos campos no nível raiz)", async () => {
+    const req = mockReq({
+      query: { secret: config.SYNCPAY_WEBHOOK_SECRET },
+      body: {
+        data: {
+          id: "tx-real",
+          idtransaction: "tx-real",
+          status: "PAID_OUT",
+          amount: 1,
+          end_to_end: "E0036030520260819122940e07f4a1f9",
+        },
+      },
+    });
+    const res = mockRes();
+
+    const lead = { id: "lead-1", telegramId: 123n };
+    const plan = { id: "plan-1", name: "Plano X", deliveryType: "LINK", customDeliveryTarget: null, flow: { welcomeConfig: { defaultDeliveryTarget: "-100999" } } };
+
+    vi.mocked(prisma.webhookEvent.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.webhookEvent.create).mockResolvedValue({ id: "we-real", processedAt: null } as never);
+    vi.mocked(prisma.webhookEvent.update).mockResolvedValue({} as never);
+    vi.mocked(prisma.order.findUnique).mockResolvedValue({
+      id: "order-real",
+      botId: "bot1",
+      status: "PENDING",
+      paidAt: null,
+      lead,
+      items: [{ plan }],
+    } as never);
+    vi.mocked(prisma.order.update).mockResolvedValue({
+      id: "order-real",
+      botId: "bot1",
+      status: "PAID",
+      paidAt: new Date(),
+      lead,
+      items: [{ plan }],
+    } as never);
+
+    await handleSyncpayWebhook(req, res);
+
+    expect(prisma.order.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { syncpayChargeId: "tx-real" } })
+    );
+    expect(prisma.order.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "PAID" }) })
+    );
+    expect(deliverPlanToLead).toHaveBeenCalledTimes(1);
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
+  });
+
   it("não chama entrega/notificação de novo se o Order já estava PAID", async () => {
     const req = mockReq({
       query: { secret: config.SYNCPAY_WEBHOOK_SECRET },
@@ -216,7 +271,7 @@ describe("handleSyncpayWebhook", () => {
       status: "PAID",
       paidAt: new Date(),
       lead,
-      plan,
+      items: [{ plan }],
     } as never);
     vi.mocked(prisma.order.update).mockResolvedValue({
       id: "order-3",
@@ -224,7 +279,7 @@ describe("handleSyncpayWebhook", () => {
       status: "PAID",
       paidAt: new Date(),
       lead,
-      plan,
+      items: [{ plan }],
     } as never);
 
     await handleSyncpayWebhook(req, res);
@@ -277,7 +332,7 @@ describe("handleSyncpayWebhook", () => {
       status: "PENDING",
       paidAt: null,
       lead,
-      plan,
+      items: [{ plan }],
     } as never);
     vi.mocked(prisma.order.update).mockResolvedValue({
       id: "order-5",
@@ -285,7 +340,7 @@ describe("handleSyncpayWebhook", () => {
       status: "REFUSED",
       paidAt: null,
       lead,
-      plan,
+      items: [{ plan }],
     } as never);
 
     await handleSyncpayWebhook(req, res);

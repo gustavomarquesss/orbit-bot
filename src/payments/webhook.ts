@@ -29,7 +29,7 @@ export function isValidWebhookSecret(receivedSecret: unknown): boolean {
   return crypto.timingSafeEqual(expected, received);
 }
 
-const EXTERNAL_ID_KEYS = ["idTransaction", "id", "transaction_id", "identifier"] as const;
+const EXTERNAL_ID_KEYS = ["idtransaction", "idTransaction", "id", "transaction_id", "identifier"] as const;
 const STATUS_KEYS = ["status_transaction", "status", "transactionStatus"] as const;
 
 export function extractExternalId(payload: Record<string, unknown>): string | undefined {
@@ -53,6 +53,19 @@ function toRecord(body: unknown): Record<string, unknown> {
 }
 
 /**
+ * O payload real de um webhook de pagamento da SyncPay vem aninhado em
+ * `{ data: { idtransaction, status, ... } }` — confirmado num pagamento
+ * real em 2026-08-19 (o formato plano assumido antes nunca tinha sido visto
+ * de verdade, só suposto). `extractExternalId`/`extractStatus` continuam
+ * operando sobre um Record achatado; esta função resolve qual Record usar
+ * (o `data` aninhado, se existir, senão o payload como veio).
+ */
+function unwrapFields(payload: Record<string, unknown>): Record<string, unknown> {
+  const data = payload.data;
+  return typeof data === "object" && data !== null ? (data as Record<string, unknown>) : payload;
+}
+
+/**
  * Handler exportado separadamente do router só pra ser testável sem precisar
  * subir um servidor Express de verdade nos testes (vitest chama esta função
  * diretamente com req/res mockados).
@@ -65,7 +78,8 @@ export async function handleSyncpayWebhook(req: Request, res: Response): Promise
   }
 
   const payload = toRecord(req.body);
-  const externalId = extractExternalId(payload);
+  const fields = unwrapFields(payload);
+  const externalId = extractExternalId(fields);
 
   if (!externalId) {
     console.error(
@@ -111,7 +125,7 @@ export async function handleSyncpayWebhook(req: Request, res: Response): Promise
       return;
     }
 
-    const normalizedStatus = normalizeChargeStatus(extractStatus(payload));
+    const normalizedStatus = normalizeChargeStatus(extractStatus(fields));
 
     // Só entrega/notifica na transição PENDING -> PAID, nunca em reprocessamento
     // (garantido pelo early-return de `existing?.processedAt` acima) nem se o
