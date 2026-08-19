@@ -157,9 +157,17 @@ carregam sua própria config de entrega). Verificado no painel via browser
 calculado certo, trocar de aba preservando estado). Suíte de testes cobre
 `applyDiscount`/parse do callback (`downsellMessage.test.ts`) e o scheduler
 completo (`downsellScheduler.test.ts`) — incluindo os guards de
-cancelamento em cima da hora. **Teste real de envio no bot (lead abandonando
-um PIX / nunca comprando) ainda pendente com o usuário** — like sempre,
-funcionalidade só é considerada 100% fechada depois disso.
+cancelamento em cima da hora. **Verificado de ponta a ponta pelo usuário (2026-08-19), trigger PIX_GERADO**:
+gerou um PIX real e não pagou — 1 minuto depois a mensagem de downsell
+chegou certinha, com o botão de compra já no preço com desconto (Plano
+Mensal VIP, R$2,00 → R$1,70). Achado no processo: a primeira tentativa de
+teste do usuário não disparou nada — não era bug, eu só tinha criado a
+sequência de teste na aba "Geral" (não dispara pra lead já existente) e
+nunca tinha criado uma na aba "PIX Gerado". Corrigido criando a sequência
+certa; confirmado funcionando na tentativa seguinte. **Trigger GERAL ainda
+não verificado com o bot real** (só dispara no primeiro `/start` de um lead
+novo — precisaria de uma conta nova do Telegram ou simulação via banco pra
+testar sem esperar um lead orgânico novo).
 
 **Próximo**: Milestone 3 (WiinPay) segue bloqueado esperando a captura real
 do usuário (ver acima). Milestone 5 (assinatura/renovação) não depende
