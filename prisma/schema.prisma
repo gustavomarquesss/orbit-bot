@@ -1,5 +1,8 @@
 // Schema único — fonte da verdade do modelo de dados.
-// Ver ARCHITECTURE.md para o racional de cada entidade.
+// Ver ARCHITECTURE.md e PROJECT_STATE.md para o racional de cada entidade.
+// Modelo "funil de seções fixas" (Bot -> Flow -> Boas-vindas/Planos/
+// Pagamentos), não um grafo genérico de passos — ver
+// C:\Users\gusta\.claude\plans\rippling-rolling-castle.md para o porquê.
 
 generator client {
   provider = "prisma-client-js"
@@ -30,10 +33,60 @@ enum OriginKind {
   OTHER
 }
 
-/// Usuário do Telegram que já interagiu com o bot.
+/// Um bot do Telegram gerenciado pelo painel (substitui o antigo
+/// TELEGRAM_BOT_TOKEN único no .env — agora dá pra ter vários).
+model Bot {
+  id                String   @id @default(cuid())
+  label             String
+  /// Token do BotFather, criptografado (AES-256-GCM via src/lib/crypto.ts).
+  /// Nunca gravar em texto plano.
+  telegramBotTokenEncrypted String
+  telegramUsername  String?
+  telegramUserId    BigInt?
+  displayName       String?
+  photoFileId       String?
+  description       String?
+  shortDescription  String?
+  /// Usado no path do webhook (/telegram/webhook/:botId/:webhookSecret).
+  webhookSecret     String
+  active            Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  commands BotCommand[]
+  flows    FlowBot[]
+  leads    Lead[]
+  orders   Order[]
+}
+
+enum BotCommandKind {
+  START
+  SUPORTE
+  STATUS
+}
+
+/// Comandos fixos do bot (/start, /suporte, /status) — só emoji e label
+/// são editáveis, os comandos em si não mudam (igual ao Shark Bot).
+model BotCommand {
+  id     String         @id @default(cuid())
+  botId  String
+  bot    Bot            @relation(fields: [botId], references: [id], onDelete: Cascade)
+  kind   BotCommandKind
+  emoji  String
+  label  String
+  order  Int
+
+  @@unique([botId, kind])
+}
+
+/// Usuário do Telegram que já interagiu com um Bot específico. O mesmo
+/// telegramId pode ser um Lead diferente em cada Bot (funis/vendas
+/// separados por bot).
 model Lead {
   id          String   @id @default(cuid())
-  telegramId  BigInt   @unique
+  telegramId  BigInt
+  botId       String
+  bot         Bot      @relation(fields: [botId], references: [id], onDelete: Cascade)
   username    String?
   firstName   String?
   lastName    String?
@@ -42,102 +95,95 @@ model Lead {
   createdAt   DateTime @default(now())
   lastSeenAt  DateTime @default(now())
 
-  orders          Order[]
-  flowExecutions  FlowExecution[]
+  orders Order[]
+
+  @@unique([telegramId, botId])
 }
 
-/// Um fluxo de mensagens configurável (ex: "boas-vindas", "oferta-vip").
+/// Um funil de vendas (pode ser vinculado a múltiplos Bots via FlowBot).
 model Flow {
   id          String   @id @default(cuid())
   key         String   @unique
   name        String
   description String?
-  isEntryPoint Boolean @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  steps           FlowStep[]
-  flowExecutions  FlowExecution[]
+  bots            FlowBot[]
+  welcomeConfig   WelcomeConfig?
+  paymentMessages PaymentMessages?
+  plans           Plan[]
 }
 
-/// Um passo dentro de um fluxo: uma mensagem (texto/mídia) com botões.
-model FlowStep {
-  id          String    @id @default(cuid())
-  flowId      String
-  flow        Flow      @relation(fields: [flowId], references: [id], onDelete: Cascade)
-  order       Int
-  text        String?
-  mediaType   MediaType @default(NONE)
-  mediaFileId String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+/// "Bots Vinculados" de um Flow — quais bots executam este funil.
+model FlowBot {
+  flowId String
+  flow   Flow   @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  botId  String
+  bot    Bot    @relation(fields: [botId], references: [id], onDelete: Cascade)
 
-  buttons Button[]
+  @@id([flowId, botId])
+}
 
-  @@unique([flowId, order])
+/// Configuração da seção "Boas-vindas" — roda no /start.
+model WelcomeConfig {
+  id        String  @id @default(cuid())
+  flowId    String  @unique
+  flow      Flow    @relation(fields: [flowId], references: [id], onDelete: Cascade)
+
+  /// HTML restrito ao subset aceito pelo Telegram (parse_mode HTML):
+  /// <b>/<i>/<u>/<s>/<code>/<blockquote>. Suporta variáveis {nome} etc,
+  /// substituídas em src/bot/templating.ts.
+  text                 String?
+  secondaryMessageEnabled Boolean @default(false)
+  ctaButtonEnabled     Boolean @default(false)
+  ctaLabel             String?
+  miniAppEnabled       Boolean @default(false)
+  miniAppUrl           String?
+  /// Canal/grupo padrão de entrega de conteúdo pra este funil — substitui
+  /// o antigo TELEGRAM_VAULT_CHANNEL_ID global do .env.
+  defaultDeliveryTarget String?
+
+  media           WelcomeMedia[]
+  redirectButtons RedirectButton[]
 }
 
 enum MediaType {
-  NONE
   PHOTO
   VIDEO
   AUDIO
   DOCUMENT
 }
 
-/// Botão inline associado a um passo de fluxo.
-model Button {
-  id          String     @id @default(cuid())
-  flowStepId  String
-  flowStep    FlowStep   @relation(fields: [flowStepId], references: [id], onDelete: Cascade)
-  order       Int
-  label       String
-  action      ButtonAction
-  targetFlowKey String?  // ButtonAction.GOTO_FLOW
-  productId   String?    // ButtonAction.BUY_PRODUCT
-  product     Product?   @relation(fields: [productId], references: [id])
-  url         String?    // ButtonAction.OPEN_LINK / REDIRECT_CHANNEL
-  createdAt   DateTime   @default(now())
-
-  @@unique([flowStepId, order])
-}
-
-enum ButtonAction {
-  GOTO_FLOW
-  BUY_PRODUCT
-  OPEN_LINK
-  REDIRECT_CHANNEL
-}
-
-/// Registra que um Lead está/esteve num Flow, e em qual passo.
-model FlowExecution {
-  id          String   @id @default(cuid())
-  leadId      String
-  lead        Lead     @relation(fields: [leadId], references: [id])
-  flowId      String
-  flow        Flow     @relation(fields: [flowId], references: [id])
-  currentStep Int      @default(0)
-  startedAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-}
-
-/// Produto vendido.
-model Product {
+/// Até 3 mídias da mensagem de boas-vindas, em ordem.
+model WelcomeMedia {
   id              String        @id @default(cuid())
-  name            String
-  description     String?
-  priceCents      Int
-  deliveryType    DeliveryType
-  fileTelegramId  String?       // DeliveryType.FILE — message_id (não file_id!) da mensagem no canal-cofre; copyMessage exige message_id, ver src/bot/delivery.ts
-  fileMediaType   MediaType     @default(NONE)
-  externalLink    String?       // DeliveryType.LINK
-  protectContent  Boolean       @default(true)
-  active          Boolean       @default(true)
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  welcomeConfigId String
+  welcomeConfig   WelcomeConfig @relation(fields: [welcomeConfigId], references: [id], onDelete: Cascade)
+  order           Int
+  mediaType       MediaType
+  fileId          String
 
-  buttons Button[]
-  orders  Order[]
+  @@unique([welcomeConfigId, order])
+}
+
+/// Até 3 botões de redirecionamento (URL externa) nas boas-vindas.
+model RedirectButton {
+  id              String        @id @default(cuid())
+  welcomeConfigId String
+  welcomeConfig   WelcomeConfig @relation(fields: [welcomeConfigId], references: [id], onDelete: Cascade)
+  order           Int
+  label           String
+  url             String
+
+  @@unique([welcomeConfigId, order])
+}
+
+enum PlanButtonColor {
+  PADRAO
+  AZUL
+  VERDE
+  VERMELHO
 }
 
 enum DeliveryType {
@@ -145,27 +191,71 @@ enum DeliveryType {
   LINK
 }
 
+/// O que é vendido. `durationDays` nulo = pagamento único/vitalício;
+/// preenchido = assinatura recorrente (renovação é fase futura).
+model Plan {
+  id             String          @id @default(cuid())
+  flowId         String
+  flow           Flow            @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  name           String
+  priceCents     Int
+  durationDays   Int?
+  buttonColor    PlanButtonColor @default(PADRAO)
+  deliveryType   DeliveryType
+  /// DeliveryType.FILE — message_id (não file_id) da mensagem no canal-cofre.
+  fileTelegramId String?
+  externalLink   String?
+  /// Override do WelcomeConfig.defaultDeliveryTarget só pra este plano.
+  customDeliveryTarget String?
+  protectContent Boolean         @default(true)
+  active         Boolean         @default(true)
+  order          Int             @default(0)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  orders Order[]
+}
+
+enum PaymentButtonStyle {
+  PADRAO
+  COMPACTO
+}
+
+/// Mensagens da seção "Pagamentos" (PIX gerado / aprovado).
+model PaymentMessages {
+  id     String @id @default(cuid())
+  flowId String @unique
+  flow   Flow   @relation(fields: [flowId], references: [id], onDelete: Cascade)
+
+  pixGeneratedMessage String?
+  pixApprovedMessage  String?
+  buttonStyle         PaymentButtonStyle @default(PADRAO)
+  showConfirmationStep Boolean @default(false)
+}
+
 /// Uma cobrança PIX gerada. Registro próprio para auditoria cruzada com a gateway.
 model Order {
-  id                String      @id @default(cuid())
-  leadId            String
-  lead              Lead        @relation(fields: [leadId], references: [id])
-  productId         String
-  product           Product     @relation(fields: [productId], references: [id])
-  originId          String?
-  origin            Origin?     @relation(fields: [originId], references: [id])
+  id          String @id @default(cuid())
+  leadId      String
+  lead        Lead   @relation(fields: [leadId], references: [id])
+  planId      String
+  plan        Plan   @relation(fields: [planId], references: [id])
+  botId       String
+  bot         Bot    @relation(fields: [botId], references: [id])
+  originId    String?
+  origin      Origin? @relation(fields: [originId], references: [id])
 
-  syncpayChargeId   String      @unique
-  amountCents       Int
-  status            OrderStatus @default(PENDING)
-  pixCopyPaste      String?
-  qrCodeUrl         String?
+  syncpayChargeId String      @unique
+  amountCents     Int
+  status          OrderStatus @default(PENDING)
+  pixCopyPaste    String?
+  qrCodeUrl       String?
 
-  createdAt         DateTime    @default(now())
-  paidAt            DateTime?
-  expiresAt         DateTime?
+  createdAt   DateTime  @default(now())
+  paidAt      DateTime?
+  expiresAt   DateTime?
 
-  webhookEvents     WebhookEvent[]
+  webhookEvents WebhookEvent[]
 
   @@index([status])
 }

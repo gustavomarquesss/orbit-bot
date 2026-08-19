@@ -1,0 +1,53 @@
+<%- include("../partials/header", { title: bot.label, active: "bots" }) %>
+
+<div class="actions" style="margin-bottom: 20px;">
+  <a class="btn secondary" href="/admin/bots">&larr; Todos os bots</a>
+</div>
+
+<section>
+  <h2>
+    <%= bot.label %> —
+    <span class="badge <%= live ? "entry" : "inactive" %>"><%= live ? "online" : "offline" %></span>
+  </h2>
+  <p class="hint">@<%= bot.telegramUsername || "desconhecido" %></p>
+
+  <form method="POST" action="/admin/bots/<%= bot.id %>">
+    <label for="displayName">Nome exibido no Telegram</label>
+    <input type="text" id="displayName" name="displayName" value="<%= bot.displayName || "" %>" />
+
+    <label for="description">Descrição (aparece antes do /start)</label>
+    <textarea id="description" name="description"><%= bot.description || "" %></textarea>
+
+    <label for="shortDescription">Descrição curta (aparece no perfil do bot)</label>
+    <textarea id="shortDescription" name="shortDescription"><%= bot.shortDescription || "" %></textarea>
+
+    <div class="actions">
+      <button class="btn" type="submit">Salvar perfil</button>
+    </div>
+  </form>
+</section>
+
+<section>
+  <h2>Comandos do bot</h2>
+  <p class="hint">Os comandos em si (/start, /suporte, /status) não mudam — só o emoji e o texto.</p>
+  <form method="POST" action="/admin/bots/<%= bot.id %>/commands">
+    <% bot.commands.forEach(function(cmd) { %>
+      <label>/<%= cmd.kind.toLowerCase() %></label>
+      <div style="display:flex; gap:8px;">
+        <input type="text" name="<%= cmd.kind %>_emoji" value="<%= cmd.emoji %>" style="max-width:70px;" maxlength="4" />
+        <input type="text" name="<%= cmd.kind %>_label" value="<%= cmd.label %>" />
+      </div>
+    <% }); %>
+    <div class="actions">
+      <button class="btn" type="submit">Salvar comandos</button>
+    </div>
+  </form>
+</section>
+
+<section>
+  <form method="POST" action="/admin/bots/<%= bot.id %>/delete" onsubmit="return confirm('Excluir este bot? O webhook será removido do Telegram.');">
+    <button class="btn danger" type="submit">Excluir bot</button>
+  </form>
+</section>
+
+<%- include("../partials/footer") %>

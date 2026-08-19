@@ -16,12 +16,12 @@ vi.mock("../../db/client.js", () => ({
 }));
 
 vi.mock("../../bot/delivery.js", () => ({
-  deliverProductToLead: vi.fn(),
+  deliverPlanToLead: vi.fn(),
   notifyAdminOfSale: vi.fn(),
 }));
 
 import { prisma } from "../../db/client.js";
-import { deliverProductToLead, notifyAdminOfSale } from "../../bot/delivery.js";
+import { deliverPlanToLead, notifyAdminOfSale } from "../../bot/delivery.js";
 import { config } from "../../config.js";
 import {
   handleSyncpayWebhook,
@@ -120,7 +120,7 @@ describe("handleSyncpayWebhook", () => {
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ duplicate: true }));
     expect(prisma.order.findUnique).not.toHaveBeenCalled();
-    expect(deliverProductToLead).not.toHaveBeenCalled();
+    expect(deliverPlanToLead).not.toHaveBeenCalled();
     expect(notifyAdminOfSale).not.toHaveBeenCalled();
   });
 
@@ -145,7 +145,7 @@ describe("handleSyncpayWebhook", () => {
     const res = mockRes();
 
     const lead = { id: "lead-1", telegramId: 123n };
-    const product = { id: "prod-1", name: "Produto X" };
+    const plan = { id: "plan-1", name: "Plano X", deliveryType: "LINK", customDeliveryTarget: null, flow: { welcomeConfig: { defaultDeliveryTarget: "-100999" } } };
 
     vi.mocked(prisma.webhookEvent.findUnique).mockResolvedValue(null);
     vi.mocked(prisma.webhookEvent.create).mockResolvedValue({
@@ -155,17 +155,19 @@ describe("handleSyncpayWebhook", () => {
     vi.mocked(prisma.webhookEvent.update).mockResolvedValue({} as never);
     vi.mocked(prisma.order.findUnique).mockResolvedValue({
       id: "order-1",
+      botId: "bot1",
       status: "PENDING",
       paidAt: null,
       lead,
-      product,
+      plan,
     } as never);
     vi.mocked(prisma.order.update).mockResolvedValue({
       id: "order-1",
+      botId: "bot1",
       status: "PAID",
       paidAt: new Date(),
       lead,
-      product,
+      plan,
     } as never);
 
     await handleSyncpayWebhook(req, res);
@@ -176,9 +178,9 @@ describe("handleSyncpayWebhook", () => {
         data: expect.objectContaining({ status: "PAID" }),
       })
     );
-    expect(deliverProductToLead).toHaveBeenCalledTimes(1);
-    expect(deliverProductToLead).toHaveBeenCalledWith(
-      expect.objectContaining({ leadTelegramId: 123n, product })
+    expect(deliverPlanToLead).toHaveBeenCalledTimes(1);
+    expect(deliverPlanToLead).toHaveBeenCalledWith(
+      expect.objectContaining({ botId: "bot1", leadTelegramId: 123n, plan, deliveryTarget: "-100999" })
     );
     expect(notifyAdminOfSale).toHaveBeenCalledTimes(1);
     expect(prisma.webhookEvent.update).toHaveBeenCalledWith(
@@ -198,7 +200,7 @@ describe("handleSyncpayWebhook", () => {
     const res = mockRes();
 
     const lead = { id: "lead-1", telegramId: 123n };
-    const product = { id: "prod-1", name: "Produto X" };
+    const plan = { id: "plan-1", name: "Plano X", deliveryType: "LINK", customDeliveryTarget: null, flow: { welcomeConfig: { defaultDeliveryTarget: "-100999" } } };
 
     vi.mocked(prisma.webhookEvent.findUnique).mockResolvedValue(null);
     vi.mocked(prisma.webhookEvent.create).mockResolvedValue({
@@ -208,22 +210,24 @@ describe("handleSyncpayWebhook", () => {
     vi.mocked(prisma.webhookEvent.update).mockResolvedValue({} as never);
     vi.mocked(prisma.order.findUnique).mockResolvedValue({
       id: "order-3",
+      botId: "bot1",
       status: "PAID",
       paidAt: new Date(),
       lead,
-      product,
+      plan,
     } as never);
     vi.mocked(prisma.order.update).mockResolvedValue({
       id: "order-3",
+      botId: "bot1",
       status: "PAID",
       paidAt: new Date(),
       lead,
-      product,
+      plan,
     } as never);
 
     await handleSyncpayWebhook(req, res);
 
-    expect(deliverProductToLead).not.toHaveBeenCalled();
+    expect(deliverPlanToLead).not.toHaveBeenCalled();
     expect(notifyAdminOfSale).not.toHaveBeenCalled();
   });
 
@@ -257,7 +261,7 @@ describe("handleSyncpayWebhook", () => {
     const res = mockRes();
 
     const lead = { id: "lead-1", telegramId: 123n };
-    const product = { id: "prod-1", name: "Produto X" };
+    const plan = { id: "plan-1", name: "Plano X", deliveryType: "LINK", customDeliveryTarget: null, flow: { welcomeConfig: { defaultDeliveryTarget: "-100999" } } };
 
     vi.mocked(prisma.webhookEvent.findUnique).mockResolvedValue(null);
     vi.mocked(prisma.webhookEvent.create).mockResolvedValue({
@@ -267,17 +271,19 @@ describe("handleSyncpayWebhook", () => {
     vi.mocked(prisma.webhookEvent.update).mockResolvedValue({} as never);
     vi.mocked(prisma.order.findUnique).mockResolvedValue({
       id: "order-5",
+      botId: "bot1",
       status: "PENDING",
       paidAt: null,
       lead,
-      product,
+      plan,
     } as never);
     vi.mocked(prisma.order.update).mockResolvedValue({
       id: "order-5",
+      botId: "bot1",
       status: "REFUSED",
       paidAt: null,
       lead,
-      product,
+      plan,
     } as never);
 
     await handleSyncpayWebhook(req, res);
@@ -285,7 +291,7 @@ describe("handleSyncpayWebhook", () => {
     expect(prisma.order.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: "REFUSED" }) })
     );
-    expect(deliverProductToLead).not.toHaveBeenCalled();
+    expect(deliverPlanToLead).not.toHaveBeenCalled();
     expect(notifyAdminOfSale).not.toHaveBeenCalled();
   });
 });

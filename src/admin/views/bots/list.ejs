@@ -1,0 +1,40 @@
+<%- include("../partials/header", { title: "Bots", active: "bots" }) %>
+
+<div class="actions" style="margin-bottom: 20px;">
+  <a class="btn" href="/admin/bots/new">+ Novo bot</a>
+</div>
+
+<section>
+  <h2>Meus bots</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Nome</th>
+        <th>Username</th>
+        <th>Leads</th>
+        <th>Vendas</th>
+        <th>Faturamento</th>
+        <th>Status</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      <% bots.forEach(function(b) { %>
+        <tr>
+          <td><a href="/admin/bots/<%= b.id %>/edit" style="color:var(--accent);text-decoration:none;"><%= b.label %></a></td>
+          <td><%= b.telegramUsername ? "@" + b.telegramUsername : "—" %></td>
+          <td><%= b._count.leads %></td>
+          <td><%= b._count.orders %></td>
+          <td><%= formatBRL(revenueMap.get(b.id) || 0) %></td>
+          <td><% if (b.active) { %><span class="badge entry">ativo</span><% } else { %><span class="badge inactive">inativo</span><% } %></td>
+          <td><a class="btn small secondary" href="/admin/bots/<%= b.id %>/edit">Editar</a></td>
+        </tr>
+      <% }); %>
+      <% if (bots.length === 0) { %>
+        <tr><td colspan="7" class="empty">Nenhum bot cadastrado ainda.</td></tr>
+      <% } %>
+    </tbody>
+  </table>
+</section>
+
+<%- include("../partials/footer") %>

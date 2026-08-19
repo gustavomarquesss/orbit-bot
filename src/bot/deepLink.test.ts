@@ -20,6 +20,7 @@ import { prisma } from "../db/client.js";
 import { resolveOriginAndUpsertLead, touchLead } from "./deepLink.js";
 
 const mockedPrisma = vi.mocked(prisma, { deep: true });
+const BOT_ID = "bot1";
 
 function fakeCtx(from: { id: number; username?: string; first_name?: string; last_name?: string }): Context {
   return { from } as unknown as Context;
@@ -38,7 +39,7 @@ describe("resolveOriginAndUpsertLead", () => {
       originId: null,
     } as never);
 
-    const result = await resolveOriginAndUpsertLead(fakeCtx({ id: 111 }), undefined);
+    const result = await resolveOriginAndUpsertLead(fakeCtx({ id: 111 }), BOT_ID, undefined);
 
     expect(result?.isNewLead).toBe(true);
     expect(result?.origin).toBeNull();
@@ -58,7 +59,7 @@ describe("resolveOriginAndUpsertLead", () => {
       originId: origin.id,
     } as never);
 
-    const result = await resolveOriginAndUpsertLead(fakeCtx({ id: 222 }), "campanha-x");
+    const result = await resolveOriginAndUpsertLead(fakeCtx({ id: 222 }), BOT_ID, "campanha-x");
 
     expect(result?.origin).toEqual(origin);
     expect(mockedPrisma.lead.create).toHaveBeenCalledWith(
@@ -77,7 +78,7 @@ describe("resolveOriginAndUpsertLead", () => {
     mockedPrisma.lead.findUnique.mockResolvedValue(null);
     mockedPrisma.lead.create.mockResolvedValue({ id: "lead3", telegramId: 333n } as never);
 
-    const result = await resolveOriginAndUpsertLead(fakeCtx({ id: 333 }), "param-nunca-visto");
+    const result = await resolveOriginAndUpsertLead(fakeCtx({ id: 333 }), BOT_ID, "param-nunca-visto");
 
     expect(mockedPrisma.origin.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -104,7 +105,7 @@ describe("resolveOriginAndUpsertLead", () => {
       originId: "origin-original",
     } as never);
 
-    const result = await resolveOriginAndUpsertLead(fakeCtx({ id: 444 }), "segundo");
+    const result = await resolveOriginAndUpsertLead(fakeCtx({ id: 444 }), BOT_ID, "segundo");
 
     expect(mockedPrisma.lead.update).toHaveBeenCalled();
     expect(result?.origin?.id).toBe("origin-original");
@@ -116,19 +117,19 @@ describe("touchLead", () => {
   it("faz upsert por telegramId atualizando lastSeenAt", async () => {
     mockedPrisma.lead.upsert.mockResolvedValue({ id: "lead5", telegramId: 555n } as never);
 
-    await touchLead(fakeCtx({ id: 555, username: "fulano" }));
+    await touchLead(fakeCtx({ id: 555, username: "fulano" }), BOT_ID);
 
     expect(mockedPrisma.lead.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { telegramId: 555n },
+        where: { telegramId_botId: { telegramId: 555n, botId: BOT_ID } },
         update: expect.objectContaining({ username: "fulano" }),
-        create: expect.objectContaining({ telegramId: 555n, username: "fulano" }),
+        create: expect.objectContaining({ telegramId: 555n, botId: BOT_ID, username: "fulano" }),
       })
     );
   });
 
   it("retorna null quando o update não tem `from` (ex: update sem usuário)", async () => {
-    const result = await touchLead({ from: undefined } as unknown as Context);
+    const result = await touchLead({ from: undefined } as unknown as Context, BOT_ID);
     expect(result).toBeNull();
     expect(mockedPrisma.lead.upsert).not.toHaveBeenCalled();
   });

@@ -2,10 +2,13 @@ import "dotenv/config";
 import { z } from "zod";
 
 const envSchema = z.object({
-  TELEGRAM_BOT_TOKEN: z.string().min(1),
-  TELEGRAM_WEBHOOK_SECRET: z.string().min(1),
+  // Bots são cadastrados pelo painel (/admin/bots), não mais via env var
+  // fixa — só a identidade do operador (vale pra todos os bots) fica aqui.
   TELEGRAM_ADMIN_USER_ID: z.coerce.number().int(),
-  TELEGRAM_VAULT_CHANNEL_ID: z.coerce.number().int(),
+  // Chave usada pra criptografar o token de cada Bot no banco (AES-256-GCM,
+  // ver src/lib/crypto.ts). Qualquer string longa serve — normalizada com
+  // SHA-256 internamente.
+  BOT_TOKEN_ENCRYPTION_KEY: z.string().min(16),
 
   SYNCPAY_CLIENT_ID: z.string().min(1),
   SYNCPAY_CLIENT_SECRET: z.string().min(1),

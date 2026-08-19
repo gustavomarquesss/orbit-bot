@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("../../db/client.js", () => ({
   prisma: {
     lead: { findUnique: vi.fn() },
-    product: { findUnique: vi.fn() },
+    plan: { findUnique: vi.fn() },
     order: { create: vi.fn() },
   },
 }));
@@ -17,6 +17,8 @@ import { prisma } from "../../db/client.js";
 import { createCharge } from "../syncpay.js";
 import { createOrderAndCharge } from "../orders.js";
 
+const BOT_ID = "bot1";
+
 describe("createOrderAndCharge", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -24,7 +26,7 @@ describe("createOrderAndCharge", () => {
 
   it("lança erro claro se o lead não existe", async () => {
     vi.mocked(prisma.lead.findUnique).mockResolvedValue(null);
-    vi.mocked(prisma.product.findUnique).mockResolvedValue({
+    vi.mocked(prisma.plan.findUnique).mockResolvedValue({
       id: "p1",
       active: true,
       name: "X",
@@ -32,30 +34,30 @@ describe("createOrderAndCharge", () => {
     } as never);
 
     await expect(
-      createOrderAndCharge({ leadId: "lead-x", productId: "p1" })
+      createOrderAndCharge({ botId: BOT_ID, leadId: "lead-x", planId: "p1" })
     ).rejects.toThrow(/lead lead-x não encontrado/);
     expect(createCharge).not.toHaveBeenCalled();
   });
 
-  it("lança erro claro se o produto não existe", async () => {
+  it("lança erro claro se o plano não existe", async () => {
     vi.mocked(prisma.lead.findUnique).mockResolvedValue({
       id: "lead-1",
       telegramId: 1n,
     } as never);
-    vi.mocked(prisma.product.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.plan.findUnique).mockResolvedValue(null);
 
     await expect(
-      createOrderAndCharge({ leadId: "lead-1", productId: "p-x" })
-    ).rejects.toThrow(/produto p-x não encontrado/);
+      createOrderAndCharge({ botId: BOT_ID, leadId: "lead-1", planId: "p-x" })
+    ).rejects.toThrow(/plano p-x não encontrado/);
     expect(createCharge).not.toHaveBeenCalled();
   });
 
-  it("lança erro claro se o produto está inativo", async () => {
+  it("lança erro claro se o plano está inativo", async () => {
     vi.mocked(prisma.lead.findUnique).mockResolvedValue({
       id: "lead-1",
       telegramId: 1n,
     } as never);
-    vi.mocked(prisma.product.findUnique).mockResolvedValue({
+    vi.mocked(prisma.plan.findUnique).mockResolvedValue({
       id: "p1",
       name: "X",
       active: false,
@@ -63,21 +65,21 @@ describe("createOrderAndCharge", () => {
     } as never);
 
     await expect(
-      createOrderAndCharge({ leadId: "lead-1", productId: "p1" })
+      createOrderAndCharge({ botId: BOT_ID, leadId: "lead-1", planId: "p1" })
     ).rejects.toThrow(/está inativo/);
     expect(createCharge).not.toHaveBeenCalled();
   });
 
-  it("chama createCharge com o valor do produto e cria o Order com os dados retornados", async () => {
+  it("chama createCharge com o valor do plano e cria o Order com os dados retornados", async () => {
     vi.mocked(prisma.lead.findUnique).mockResolvedValue({
       id: "lead-1",
       telegramId: 42n,
       firstName: "Fulano",
       username: null,
     } as never);
-    vi.mocked(prisma.product.findUnique).mockResolvedValue({
+    vi.mocked(prisma.plan.findUnique).mockResolvedValue({
       id: "p1",
-      name: "Produto X",
+      name: "Plano X",
       active: true,
       priceCents: 5000,
     } as never);
@@ -90,21 +92,23 @@ describe("createOrderAndCharge", () => {
     vi.mocked(prisma.order.create).mockResolvedValue({
       id: "order-1",
       leadId: "lead-1",
-      productId: "p1",
+      planId: "p1",
+      botId: BOT_ID,
       syncpayChargeId: "tx-1",
       status: "PENDING",
     } as never);
 
-    const result = await createOrderAndCharge({ leadId: "lead-1", productId: "p1" });
+    const result = await createOrderAndCharge({ botId: BOT_ID, leadId: "lead-1", planId: "p1" });
 
     expect(createCharge).toHaveBeenCalledWith(
-      expect.objectContaining({ amountCents: 5000, description: "Produto X" })
+      expect.objectContaining({ amountCents: 5000, description: "Plano X" })
     );
     expect(prisma.order.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           leadId: "lead-1",
-          productId: "p1",
+          planId: "p1",
+          botId: BOT_ID,
           syncpayChargeId: "tx-1",
           status: "PENDING",
           amountCents: 5000,
@@ -124,16 +128,16 @@ describe("createOrderAndCharge", () => {
       firstName: "Fulano",
       username: null,
     } as never);
-    vi.mocked(prisma.product.findUnique).mockResolvedValue({
+    vi.mocked(prisma.plan.findUnique).mockResolvedValue({
       id: "p1",
-      name: "Produto X",
+      name: "Plano X",
       active: true,
       priceCents: 5000,
     } as never);
     vi.mocked(createCharge).mockRejectedValue(new Error("gateway fora do ar"));
 
     await expect(
-      createOrderAndCharge({ leadId: "lead-1", productId: "p1" })
+      createOrderAndCharge({ botId: BOT_ID, leadId: "lead-1", planId: "p1" })
     ).rejects.toThrow(/gateway fora do ar/);
     expect(prisma.order.create).not.toHaveBeenCalled();
   });

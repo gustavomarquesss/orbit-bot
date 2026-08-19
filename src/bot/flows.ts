@@ -1,112 +1,110 @@
 import { Markup, type Telegraf, type Context } from "telegraf";
-import type { Button, FlowStep, Lead } from "@prisma/client";
+import type { InlineKeyboardButton } from "telegraf/types";
+import type { Lead, Plan, WelcomeConfig, WelcomeMedia, RedirectButton, Bot } from "@prisma/client";
 import { prisma } from "../db/client.js";
 import { createOrderAndCharge } from "../payments/orders.js";
 import { resolveOriginAndUpsertLead, touchLead } from "./deepLink.js";
-import { buildButtonCallbackData, parseButtonCallbackData } from "./util.js";
+import { renderTemplate } from "./templating.js";
 
-async function getEntryFlow() {
-  return prisma.flow.findFirst({
-    where: { isEntryPoint: true },
-    orderBy: { createdAt: "asc" },
+type WelcomeWithRelations = WelcomeConfig & { media: WelcomeMedia[]; redirectButtons: RedirectButton[] };
+
+const CTA_CALLBACK = "cta";
+const PLAN_CALLBACK_PREFIX = "plan:";
+
+async function getFlowForBot(botId: string) {
+  const flowBot = await prisma.flowBot.findFirst({
+    where: { botId },
+    include: {
+      flow: {
+        include: {
+          welcomeConfig: { include: { media: true, redirectButtons: true } },
+          plans: { where: { active: true }, orderBy: { order: "asc" } },
+        },
+      },
+    },
   });
+  return flowBot?.flow ?? null;
 }
 
-async function getFlowByKey(key: string) {
-  return prisma.flow.findUnique({ where: { key } });
-}
+function buildWelcomeKeyboard(welcome: WelcomeWithRelations, hasPlans: boolean) {
+  const rows: InlineKeyboardButton[][] = [];
 
-type StepWithButtons = FlowStep & { buttons: Button[] };
-
-async function getFirstStep(flowId: string): Promise<StepWithButtons | null> {
-  return prisma.flowStep.findFirst({
-    where: { flowId },
-    orderBy: { order: "asc" },
-    include: { buttons: { orderBy: { order: "asc" } } },
-  });
-}
-
-async function upsertFlowExecution(leadId: string, flowId: string, currentStep: number) {
-  const existing = await prisma.flowExecution.findFirst({ where: { leadId, flowId } });
-  if (existing) {
-    return prisma.flowExecution.update({
-      where: { id: existing.id },
-      data: { currentStep },
-    });
+  if (welcome.ctaButtonEnabled && hasPlans) {
+    rows.push([Markup.button.callback(welcome.ctaLabel || "Ver planos", CTA_CALLBACK)]);
   }
-  return prisma.flowExecution.create({ data: { leadId, flowId, currentStep } });
+  for (const rb of welcome.redirectButtons) {
+    rows.push([Markup.button.url(rb.label, rb.url)]);
+  }
+  if (welcome.miniAppEnabled && welcome.miniAppUrl) {
+    rows.push([Markup.button.url("Abrir", welcome.miniAppUrl)]);
+  }
+
+  return rows.length > 0 ? Markup.inlineKeyboard(rows) : undefined;
 }
 
-function buildKeyboard(buttons: Button[]) {
-  if (buttons.length === 0) return undefined;
-
-  const rows = buttons.map((button) => {
-    if (button.action === "OPEN_LINK" || button.action === "REDIRECT_CHANNEL") {
-      return [Markup.button.url(button.label, button.url ?? "https://t.me")];
-    }
-    return [Markup.button.callback(button.label, buildButtonCallbackData(button.id))];
-  });
-
-  return Markup.inlineKeyboard(rows);
-}
-
-async function renderStep(ctx: Context, step: StepWithButtons): Promise<void> {
-  const keyboard = buildKeyboard(step.buttons);
+async function renderWelcome(
+  ctx: Context,
+  botRow: Bot,
+  lead: Lead,
+  welcome: WelcomeWithRelations,
+  hasPlans: boolean
+): Promise<void> {
+  const text = welcome.text ? renderTemplate(welcome.text, { lead, bot: botRow }) : "";
+  const keyboard = buildWelcomeKeyboard(welcome, hasPlans);
   const replyMarkup = keyboard?.reply_markup;
-  const caption = step.text ?? undefined;
+  const media = welcome.media.slice(0, 3);
+  // Legenda na própria mídia só quando faz sentido (1 mídia só, sem pedir
+  // mensagem separada) — grupo de mídia (>1) não aceita reply_markup nem
+  // parse_mode por item de forma confiável, então nesse caso o texto+botões
+  // sempre vão numa mensagem à parte.
+  const useCaption = media.length === 1 && !welcome.secondaryMessageEnabled;
 
   try {
-    if (step.mediaType !== "NONE" && step.mediaFileId) {
-      switch (step.mediaType) {
+    if (media.length === 1) {
+      const m = media[0];
+      const opts = useCaption
+        ? { caption: text || undefined, parse_mode: "HTML" as const, reply_markup: replyMarkup }
+        : {};
+      switch (m.mediaType) {
         case "PHOTO":
-          await ctx.replyWithPhoto(step.mediaFileId, { caption, reply_markup: replyMarkup });
-          return;
+          await ctx.replyWithPhoto(m.fileId, opts);
+          break;
         case "VIDEO":
-          await ctx.replyWithVideo(step.mediaFileId, { caption, reply_markup: replyMarkup });
-          return;
+          await ctx.replyWithVideo(m.fileId, opts);
+          break;
         case "AUDIO":
-          await ctx.replyWithAudio(step.mediaFileId, { caption, reply_markup: replyMarkup });
-          return;
+          await ctx.replyWithAudio(m.fileId, opts);
+          break;
         case "DOCUMENT":
-          await ctx.replyWithDocument(step.mediaFileId, { caption, reply_markup: replyMarkup });
-          return;
+          await ctx.replyWithDocument(m.fileId, opts);
+          break;
       }
+      if (useCaption) return;
+    } else if (media.length > 1) {
+      await ctx.replyWithMediaGroup(
+        media.map((m) => ({
+          type: m.mediaType.toLowerCase() as "photo" | "video",
+          media: m.fileId,
+        }))
+      );
     }
   } catch (err) {
-    console.error(`[flows] falha ao enviar mídia do step ${step.id}, caindo para texto`, err);
+    console.error("[flows] falha ao enviar mídia de boas-vindas, seguindo com o texto", err);
   }
 
-  const text = step.text?.trim();
-  if (!text) {
-    console.warn(`[flows] step ${step.id} não tem texto nem mídia utilizável`);
-    if (!replyMarkup) return;
-  }
-  await ctx.reply(text || "​", { reply_markup: replyMarkup });
+  await ctx.reply(text || "​", { parse_mode: "HTML", reply_markup: replyMarkup });
 }
 
-async function startFlow(ctx: Context, leadId: string, flowId: string, flowKey: string): Promise<void> {
-  const firstStep = await getFirstStep(flowId);
-  if (!firstStep) {
-    console.warn(`[flows] flow "${flowKey}" não tem nenhum FlowStep configurado`);
-    await ctx.reply("Esse fluxo ainda está sendo configurado. Volte em breve.");
-    return;
-  }
-  await upsertFlowExecution(leadId, flowId, firstStep.order);
-  await renderStep(ctx, firstStep);
+function buildPlansKeyboard(plans: Plan[]) {
+  return Markup.inlineKeyboard(
+    plans.map((p) => [
+      Markup.button.callback(`${p.name} — ${formatBRL(p.priceCents)}`, `${PLAN_CALLBACK_PREFIX}${p.id}`),
+    ])
+  );
 }
 
-async function handleGotoFlow(ctx: Context, lead: Lead, button: Button): Promise<void> {
-  if (!button.targetFlowKey) {
-    await ctx.reply("Esse botão não tem um destino configurado.");
-    return;
-  }
-  const targetFlow = await getFlowByKey(button.targetFlowKey);
-  if (!targetFlow) {
-    console.warn(`[flows] botão ${button.id} aponta para flow inexistente "${button.targetFlowKey}"`);
-    await ctx.reply("Esse destino não está mais disponível.");
-    return;
-  }
-  await startFlow(ctx, lead.id, targetFlow.id, targetFlow.key);
+function formatBRL(cents: number): string {
+  return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
 const DATA_URI_PREFIX = /^data:image\/[a-zA-Z0-9.+-]+;base64,/;
@@ -114,8 +112,7 @@ const DATA_URI_PREFIX = /^data:image\/[a-zA-Z0-9.+-]+;base64,/;
 // A SyncPay devolve o QR code como imagem base64 (src/payments/syncpay.ts
 // converte pra data URI); `replyWithPhoto` do Telegraf não aceita uma string
 // `data:` — só file_id, URL http(s), ou `{ source: Buffer }`. Decodifica o
-// base64 pra Buffer quando for o caso; se um dia vier uma URL http(s) de
-// verdade, passa direto.
+// base64 pra Buffer quando for o caso.
 function buildPhotoInput(qrCodeUrl: string): string | { source: Buffer } {
   const match = qrCodeUrl.match(DATA_URI_PREFIX);
   if (!match) return qrCodeUrl;
@@ -123,16 +120,12 @@ function buildPhotoInput(qrCodeUrl: string): string | { source: Buffer } {
   return { source: Buffer.from(base64, "base64") };
 }
 
-async function handleBuyProduct(ctx: Context, lead: Lead, button: Button): Promise<void> {
-  if (!button.productId) {
-    await ctx.reply("Esse botão não tem um produto configurado.");
-    return;
-  }
-
+async function handleBuyPlan(ctx: Context, botId: string, lead: Lead, planId: string): Promise<void> {
   try {
     const { pixCopyPaste, qrCodeUrl } = await createOrderAndCharge({
+      botId,
       leadId: lead.id,
-      productId: button.productId,
+      planId,
       originId: lead.originId,
     });
 
@@ -153,58 +146,51 @@ async function handleBuyProduct(ctx: Context, lead: Lead, button: Button): Promi
       }
     }
   } catch (err) {
-    // Esperado até feature/pagamento-pix ser mesclada: createOrderAndCharge
-    // é um stub que sempre lança "implementação pendente".
     console.error("[flows] falha ao gerar cobrança", err);
     await ctx.reply("Pagamento temporariamente indisponível. Tente novamente em instantes.");
   }
 }
 
-export function registerFlowHandlers(bot: Telegraf): void {
+export function registerFlowHandlers(bot: Telegraf, botId: string): void {
   bot.start(async (ctx) => {
-    const result = await resolveOriginAndUpsertLead(ctx, ctx.startPayload);
+    const result = await resolveOriginAndUpsertLead(ctx, botId, ctx.startPayload);
     if (!result) return;
 
-    const entryFlow = await getEntryFlow();
-    if (!entryFlow) {
-      console.warn("[flows] nenhum Flow com isEntryPoint=true configurado");
+    const flow = await getFlowForBot(botId);
+    if (!flow || !flow.welcomeConfig) {
       await ctx.reply(
         "Olá! Ainda não configurei minhas mensagens de boas-vindas. Tente novamente em breve."
       );
       return;
     }
 
-    await startFlow(ctx, result.lead.id, entryFlow.id, entryFlow.key);
+    const botRow = await prisma.bot.findUniqueOrThrow({ where: { id: botId } });
+    await renderWelcome(ctx, botRow, result.lead, flow.welcomeConfig, flow.plans.length > 0);
   });
 
-  bot.action(/^btn:.+/, async (ctx) => {
+  bot.action(CTA_CALLBACK, async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
-
-    const callbackQuery = ctx.callbackQuery;
-    const data = callbackQuery && "data" in callbackQuery ? callbackQuery.data : undefined;
-    const buttonId = data ? parseButtonCallbackData(data) : null;
-    if (!buttonId) return;
-
-    const lead = await touchLead(ctx);
+    const lead = await touchLead(ctx, botId);
     if (!lead) return;
 
-    const button = await prisma.button.findUnique({ where: { id: buttonId } });
-    if (!button) {
-      await ctx.reply("Esse botão não existe mais.");
+    const flow = await getFlowForBot(botId);
+    if (!flow || flow.plans.length === 0) {
+      await ctx.reply("Nenhum plano disponível no momento.");
       return;
     }
+    await ctx.reply("Escolha um plano:", { reply_markup: buildPlansKeyboard(flow.plans).reply_markup });
+  });
 
-    switch (button.action) {
-      case "GOTO_FLOW":
-        await handleGotoFlow(ctx, lead, button);
-        break;
-      case "BUY_PRODUCT":
-        await handleBuyProduct(ctx, lead, button);
-        break;
-      default:
-        // OPEN_LINK / REDIRECT_CHANNEL são botões `url` nativos do Telegram —
-        // o clique é tratado pelo próprio cliente Telegram, nunca chega aqui.
-        break;
-    }
+  bot.action(new RegExp(`^${PLAN_CALLBACK_PREFIX}.+`), async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+    const callbackQuery = ctx.callbackQuery;
+    const data = callbackQuery && "data" in callbackQuery ? callbackQuery.data : undefined;
+    const planId = data?.startsWith(PLAN_CALLBACK_PREFIX) ? data.slice(PLAN_CALLBACK_PREFIX.length) : null;
+    if (!planId) return;
+
+    const lead = await touchLead(ctx, botId);
+    if (!lead) return;
+
+    await handleBuyPlan(ctx, botId, lead, planId);
   });
 }

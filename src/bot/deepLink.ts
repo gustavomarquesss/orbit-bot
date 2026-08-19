@@ -33,12 +33,14 @@ async function resolveOrigin(startPayload: string | undefined): Promise<Origin |
 
 /**
  * Chamado no `/start`. Resolve a Origin do deep link (se houver) e cria ou
- * atualiza o Lead pelo `telegramId`. A Origin só é gravada no primeiro
- * contato — leads já existentes nunca têm sua origem sobrescrita, mesmo que
- * voltem por um `start` payload diferente depois.
+ * atualiza o Lead pelo par (`telegramId`, `botId`) — o mesmo usuário do
+ * Telegram é um Lead distinto em cada Bot (funis/vendas separados por bot).
+ * A Origin só é gravada no primeiro contato — leads já existentes nunca têm
+ * sua origem sobrescrita, mesmo que voltem por um `start` payload diferente.
  */
 export async function resolveOriginAndUpsertLead(
   ctx: Context,
+  botId: string,
   startPayload: string | undefined
 ): Promise<DeepLinkResult | null> {
   const from = ctx.from;
@@ -47,11 +49,13 @@ export async function resolveOriginAndUpsertLead(
   const telegramId = BigInt(from.id);
   const origin = await resolveOrigin(startPayload);
 
-  const existingLead = await prisma.lead.findUnique({ where: { telegramId } });
+  const existingLead = await prisma.lead.findUnique({
+    where: { telegramId_botId: { telegramId, botId } },
+  });
 
   if (existingLead) {
     const lead = await prisma.lead.update({
-      where: { telegramId },
+      where: { id: existingLead.id },
       data: {
         username: from.username ?? null,
         firstName: from.first_name ?? null,
@@ -70,6 +74,7 @@ export async function resolveOriginAndUpsertLead(
   const lead = await prisma.lead.create({
     data: {
       telegramId,
+      botId,
       username: from.username ?? null,
       firstName: from.first_name ?? null,
       lastName: from.last_name ?? null,
@@ -84,14 +89,14 @@ export async function resolveOriginAndUpsertLead(
  * Atualiza `lastSeenAt`/dados básicos do Lead em qualquer interação que não
  * seja um `/start` (ex: clique em botão), sem mexer na Origin já atribuída.
  */
-export async function touchLead(ctx: Context): Promise<Lead | null> {
+export async function touchLead(ctx: Context, botId: string): Promise<Lead | null> {
   const from = ctx.from;
   if (!from) return null;
 
   const telegramId = BigInt(from.id);
 
   return prisma.lead.upsert({
-    where: { telegramId },
+    where: { telegramId_botId: { telegramId, botId } },
     update: {
       username: from.username ?? null,
       firstName: from.first_name ?? null,
@@ -100,6 +105,7 @@ export async function touchLead(ctx: Context): Promise<Lead | null> {
     },
     create: {
       telegramId,
+      botId,
       username: from.username ?? null,
       firstName: from.first_name ?? null,
       lastName: from.last_name ?? null,

@@ -4,7 +4,7 @@ import type { OrderStatus, Prisma } from "@prisma/client";
 import { config } from "../config.js";
 import { prisma } from "../db/client.js";
 import { normalizeChargeStatus } from "./syncpay.js";
-import { deliverProductToLead, notifyAdminOfSale } from "../bot/delivery.js";
+import { deliverPlanToLead, notifyAdminOfSale } from "../bot/delivery.js";
 
 const PROVIDER = "syncpay";
 
@@ -99,7 +99,7 @@ export async function handleSyncpayWebhook(req: Request, res: Response): Promise
 
     const order = await prisma.order.findUnique({
       where: { syncpayChargeId: externalId },
-      include: { lead: true, product: true },
+      include: { lead: true, plan: { include: { flow: { include: { welcomeConfig: true } } } } },
     });
 
     if (!order) {
@@ -138,28 +138,32 @@ export async function handleSyncpayWebhook(req: Request, res: Response): Promise
     // (garantido pelo early-return de `existing?.processedAt` acima) nem se o
     // Order já estava PAID por um evento anterior.
     if (nextStatus === "PAID" && !wasAlreadyPaid) {
-      try {
-        await deliverProductToLead({
-          leadTelegramId: order.lead.telegramId,
-          product: order.product,
-        });
-      } catch (err) {
+      const deliveryTarget = order.plan.customDeliveryTarget ?? order.plan.flow.welcomeConfig?.defaultDeliveryTarget;
+      if (!deliveryTarget && order.plan.deliveryType === "FILE") {
         console.error(
-          "[syncpay-webhook] falha ao entregar produto (esperado até feature/telegram-bot-core ser mesclada):",
-          err
+          `[syncpay-webhook] plano ${order.plan.id} é do tipo FILE mas não tem canal de entrega configurado (nem custom nem padrão do funil)`
         );
+      } else {
+        try {
+          await deliverPlanToLead({
+            botId: order.botId,
+            leadTelegramId: order.lead.telegramId,
+            plan: order.plan,
+            deliveryTarget: deliveryTarget ?? "",
+          });
+        } catch (err) {
+          console.error("[syncpay-webhook] falha ao entregar plano", err);
+        }
       }
       try {
         await notifyAdminOfSale({
+          botId: order.botId,
           order: updatedOrder,
-          product: order.product,
+          plan: order.plan,
           lead: order.lead,
         });
       } catch (err) {
-        console.error(
-          "[syncpay-webhook] falha ao notificar admin (esperado até feature/telegram-bot-core ser mesclada):",
-          err
-        );
+        console.error("[syncpay-webhook] falha ao notificar admin", err);
       }
     }
 

@@ -1,0 +1,24 @@
+<%- include("../partials/header", { title: "Novo bot", active: "bots" }) %>
+
+<section>
+  <h2>Conectar bot</h2>
+  <% if (error) { %><p style="color:var(--danger);"><%= error %></p><% } %>
+  <form method="POST" action="/admin/bots">
+    <label for="label">Nome interno (só pra você identificar no painel)</label>
+    <input type="text" id="label" name="label" required placeholder="Bot principal" />
+
+    <label for="token">Token do @BotFather</label>
+    <input type="text" id="token" name="token" required placeholder="123456789:AAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
+    <div class="hint">
+      Vamos validar o token chamando a API do Telegram antes de salvar. Nunca
+      é exibido de novo depois de salvo (fica criptografado no banco).
+    </div>
+
+    <div class="actions">
+      <button class="btn" type="submit">Conectar</button>
+      <a class="btn secondary" href="/admin/bots">Cancelar</a>
+    </div>
+  </form>
+</section>
+
+<%- include("../partials/footer") %>

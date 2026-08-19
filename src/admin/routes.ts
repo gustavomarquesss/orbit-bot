@@ -5,8 +5,7 @@ import pg from "pg";
 import { timingSafeEqual } from "node:crypto";
 import { prisma } from "../db/client.js";
 import { config } from "../config.js";
-import { createFlowsRouter } from "./flowsRoutes.js";
-import { createProductsRouter } from "./productsRoutes.js";
+import { createBotsRouter } from "./botsRoutes.js";
 
 // Pool dedicado do connect-pg-simple (ele gerencia sua própria tabela de
 // sessões, "session", criada automaticamente com createTableIfMissing).
@@ -80,8 +79,7 @@ export function createAdminRouter(): Router {
 
   router.use(requireAuth);
 
-  router.use("/flows", createFlowsRouter());
-  router.use("/products", createProductsRouter());
+  router.use("/bots", createBotsRouter());
 
   router.get("/", async (_req, res) => {
     const [statusCounts, revenueAgg, leadCount, buyerCount, recentOrders, dailyOrdersRaw] =
@@ -100,7 +98,7 @@ export function createAdminRouter(): Router {
         prisma.order.findMany({
           take: 20,
           orderBy: { createdAt: "desc" },
-          include: { lead: true, product: true, origin: true },
+          include: { lead: true, plan: true, origin: true },
         }),
         prisma.$queryRaw<Array<{ day: Date; count: bigint }>>`
           SELECT date_trunc('day', "createdAt") AS day, COUNT(*) AS count

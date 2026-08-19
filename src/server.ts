@@ -2,7 +2,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import express from "express";
 import { config } from "./config.js";
-import { createBotWebhookRouter } from "./bot/index.js";
+import { webhookRouter, loadAllBotsFromDb } from "./bot/botManager.js";
 import { syncpayWebhookRouter } from "./payments/webhook.js";
 import { createAdminRouter } from "./admin/routes.js";
 
@@ -20,8 +20,11 @@ async function main() {
   });
 
   // Monta o webhook do Telegram ANTES do express.json() global: o Telegraf
-  // já faz seu próprio parsing do corpo da requisição internamente.
-  app.use(await createBotWebhookRouter());
+  // já faz seu próprio parsing do corpo da requisição internamente. O
+  // router é montado uma vez aqui, mas bots cadastrados depois pelo painel
+  // adicionam suas próprias rotas nele em runtime (ver botManager.ts).
+  app.use(webhookRouter);
+  await loadAllBotsFromDb();
 
   app.use(express.json());
   app.use("/webhooks/syncpay", syncpayWebhookRouter);
