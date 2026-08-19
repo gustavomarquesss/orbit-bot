@@ -107,12 +107,17 @@ configuráveis (ex: 5min, 15min) — não mais ligado a recusar um Upsell.
 Ainda não implementado; usuário vai mandar um print de referência quando
 chegarmos nessa tela.
 
+**Milestone 4 (Order Bump + Upsell) verificado de ponta a ponta pelo
+usuário (2026-08-19)**: compra com bump marcado funcionou; mensagem de
+Upsell agendada (1min de atraso) chegou certinha, botão BUY_PLAN gerou PIX
+novo separado. Milestone 4 considerado fechado (Downsell explicitamente
+adiado, ver acima).
+
 **Próximo**: Milestone 3 (multi-gateway WiinPay) segue bloqueado esperando
-a API key do usuário. Enquanto isso, avaliar seguir com Milestone 5
-(assinatura) ou aguardar direção do usuário. Ver plano em
-`C:\Users\gusta\.claude\plans\rippling-rolling-castle.md` (plano ainda
-reflete o desenho ANTIGO do Upsell — precisa ser atualizado pra bater com
-o rebuild acima na próxima vez que for consultado a fundo).
+a API key do usuário. Milestone 5 (assinatura/renovação) não depende disso
+e pode ser adiantado enquanto isso, mesmo padrão do Milestone 4. Plano em
+`C:\Users\gusta\.claude\plans\rippling-rolling-castle.md` já atualizado
+pra refletir o rebuild do Upsell.
 
 ## Redesign pro modelo Shark Bot (2026-08-19)
 
