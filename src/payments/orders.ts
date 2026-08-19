@@ -46,17 +46,11 @@ export async function createOrderAndCharge(params: {
   // garantido no banco toda vez que a chamada à SyncPay falhar — pior no caso
   // comum (erro de validação, gateway fora do ar) para evitar um caso raro
   // (crash no meio do processo).
+  // Confirmado com chamada real à SyncPay (ver PROJECT_STATE.md): a cobrança
+  // não pede nenhum dado do comprador (nome/email/CPF) — só valor e descrição.
   const charge = await createCharge({
     amountCents: product.priceCents,
     description: product.name,
-    customer: {
-      name: lead.firstName ?? lead.username ?? `lead-${lead.telegramId}`,
-      // Telegram não expõe e-mail do usuário. SyncPay exige customer.email no
-      // payload — usamos um placeholder determinístico até confirmar com
-      // credenciais reais se a gateway aceita/exige e-mail real (ver relatório).
-      email: `lead-${lead.telegramId}@dgbot.invalid`,
-    },
-    externalRef: lead.id,
   });
 
   const order = await prisma.order.create({

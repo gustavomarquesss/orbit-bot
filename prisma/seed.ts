@@ -33,7 +33,10 @@ async function main() {
     create: {
       id: "seed-product-ebook",
       name: "Ebook de exemplo",
-      priceCents: 2990,
+      // Baixo de propósito: a conta SyncPay em teste tem um teto de valor
+      // sem taxa ("max_cashin_without_fee") — visto em teste real que
+      // R$123,45 foi recusado mas R$1,00 passou. Ver PROJECT_STATE.md.
+      priceCents: 100,
       deliveryType: "LINK",
       externalLink: "https://example.com/ebook",
       protectContent: true,

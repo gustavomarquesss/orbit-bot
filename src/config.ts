@@ -7,8 +7,9 @@ const envSchema = z.object({
   TELEGRAM_ADMIN_USER_ID: z.coerce.number().int(),
   TELEGRAM_VAULT_CHANNEL_ID: z.coerce.number().int(),
 
-  SYNCPAY_API_KEY: z.string().min(1),
-  SYNCPAY_API_BASE_URL: z.string().url().default("https://api.syncpay.pro"),
+  SYNCPAY_CLIENT_ID: z.string().min(1),
+  SYNCPAY_CLIENT_SECRET: z.string().min(1),
+  SYNCPAY_API_BASE_URL: z.string().url().default("https://api.syncpayments.com.br"),
   SYNCPAY_WEBHOOK_SECRET: z.string().min(1),
 
   DATABASE_URL: z.string().min(1),

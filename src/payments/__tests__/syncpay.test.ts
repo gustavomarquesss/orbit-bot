@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { createCharge, normalizeChargeStatus } from "../syncpay.js";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { createCharge, normalizeChargeStatus, _resetTokenCacheForTests } from "../syncpay.js";
 
 const originalFetch = global.fetch;
 
@@ -10,10 +10,23 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+const authTokenResponse = () =>
+  jsonResponse({ access_token: "test-access-token", expires_in: 3600 });
+
+// createCharge agora busca um Bearer token (POST /api/partner/v1/auth-token)
+// antes de criar a cobrança — o mock precisa distinguir as duas chamadas por
+// URL em vez de responder a mesma coisa pra tudo.
+function mockFetchForCharge(chargeResponse: () => Response): typeof fetch {
+  return vi.fn(async (input: Parameters<typeof fetch>[0]) => {
+    const url = typeof input === "string" ? input : input.toString();
+    if (url.includes("auth-token")) return authTokenResponse();
+    return chargeResponse();
+  }) as unknown as typeof fetch;
+}
+
 const baseParams = {
   amountCents: 1990,
   description: "Produto Teste",
-  customer: { name: "Fulano", email: "fulano@example.com" },
 };
 
 describe("normalizeChargeStatus", () => {
@@ -33,87 +46,86 @@ describe("normalizeChargeStatus", () => {
 });
 
 describe("createCharge", () => {
+  beforeEach(() => {
+    _resetTokenCacheForTests();
+  });
+
   afterEach(() => {
     global.fetch = originalFetch;
     vi.restoreAllMocks();
   });
 
-  it("faz parse de uma resposta bem-sucedida (idTransaction/paymentCode/paymentCodeBase64)", async () => {
-    global.fetch = vi.fn().mockResolvedValue(
+  it("faz parse de uma resposta bem-sucedida (identifier/pix_code) e gera o QR a partir do código", async () => {
+    global.fetch = mockFetchForCharge(() =>
       jsonResponse({
-        status: "success",
-        idTransaction: "tx-abc",
-        paymentCode: "00020126...",
-        paymentCodeBase64: "aGVsbG8=",
-        status_transaction: "WAITING_FOR_APPROVAL",
+        message: "Cashin request successfully submitted",
+        identifier: "f7f3ac07-a772-4bf3-8932-6e604786ddc2",
+        pix_code: "00020126850014br.gov.bcb.pix...",
       })
-    ) as unknown as typeof fetch;
+    );
 
     const result = await createCharge(baseParams);
 
-    expect(result.externalId).toBe("tx-abc");
-    expect(result.pixCopyPaste).toBe("00020126...");
-    expect(result.qrCodeUrl).toBe("data:image/png;base64,aGVsbG8=");
-    expect(result.expiresAt.getTime()).toBeGreaterThan(Date.now());
-  });
-
-  it("aceita nomes de campo alternativos (id/pix_code/qr_code_base64)", async () => {
-    global.fetch = vi.fn().mockResolvedValue(
-      jsonResponse({ id: "tx-xyz", pix_code: "codigo-alt", qr_code_base64: "d29ybGQ=" })
-    ) as unknown as typeof fetch;
-
-    const result = await createCharge(baseParams);
-
-    expect(result.externalId).toBe("tx-xyz");
-    expect(result.pixCopyPaste).toBe("codigo-alt");
+    expect(result.externalId).toBe("f7f3ac07-a772-4bf3-8932-6e604786ddc2");
+    expect(result.pixCopyPaste).toBe("00020126850014br.gov.bcb.pix...");
+    // A API não devolve imagem — geramos o QR nós mesmos a partir do pix_code.
+    expect(result.qrCodeUrl).toMatch(/^data:image\/png;base64,/);
+    expect(result.expiresAt).toBeNull();
   });
 
   it("lança SyncPayError kind=validation em erro 4xx", async () => {
-    global.fetch = vi.fn().mockResolvedValue(
-      jsonResponse({ message: "cpf inválido" }, 400)
-    ) as unknown as typeof fetch;
+    global.fetch = mockFetchForCharge(() => jsonResponse({ message: "cpf inválido" }, 400));
 
     await expect(createCharge(baseParams)).rejects.toMatchObject({ kind: "validation" });
   });
 
   it("lança SyncPayError kind=gateway em erro 5xx", async () => {
-    global.fetch = vi.fn().mockResolvedValue(
-      jsonResponse({ message: "erro interno" }, 502)
-    ) as unknown as typeof fetch;
+    global.fetch = mockFetchForCharge(() => jsonResponse({ message: "erro interno" }, 502));
 
     await expect(createCharge(baseParams)).rejects.toMatchObject({ kind: "gateway" });
   });
 
   it("lança SyncPayError kind=gateway em erro 429 (rate limit)", async () => {
-    global.fetch = vi.fn().mockResolvedValue(
-      jsonResponse({ message: "too many requests" }, 429)
-    ) as unknown as typeof fetch;
+    global.fetch = mockFetchForCharge(() => jsonResponse({ message: "too many requests" }, 429));
 
     await expect(createCharge(baseParams)).rejects.toMatchObject({ kind: "gateway" });
   });
 
   it("lança SyncPayError kind=network em falha de rede", async () => {
-    global.fetch = vi.fn().mockRejectedValue(new Error("ECONNREFUSED")) as unknown as typeof fetch;
+    global.fetch = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("auth-token")) return authTokenResponse();
+      throw new Error("ECONNREFUSED");
+    }) as unknown as typeof fetch;
 
     await expect(createCharge(baseParams)).rejects.toMatchObject({ kind: "network" });
   });
 
   it("lança SyncPayError kind=gateway quando resposta 200 não tem os campos esperados", async () => {
-    global.fetch = vi.fn().mockResolvedValue(
-      jsonResponse({ status: "success" })
-    ) as unknown as typeof fetch;
+    global.fetch = mockFetchForCharge(() => jsonResponse({ status: "success" }));
 
     await expect(createCharge(baseParams)).rejects.toMatchObject({ kind: "gateway" });
   });
 
   it("lança SyncPayError kind=gateway quando o corpo da resposta não é JSON", async () => {
-    global.fetch = vi.fn().mockResolvedValue(
-      new Response("<html>não é json</html>", {
-        status: 200,
-        headers: { "content-type": "text/html" },
-      })
-    ) as unknown as typeof fetch;
+    global.fetch = mockFetchForCharge(
+      () =>
+        new Response("<html>não é json</html>", {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        })
+    );
 
     await expect(createCharge(baseParams)).rejects.toMatchObject({ kind: "gateway" });
+  });
+
+  it("lança SyncPayError se a autenticação (auth-token) falhar", async () => {
+    global.fetch = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("auth-token")) return jsonResponse({ message: "credenciais inválidas" }, 401);
+      throw new Error("não deveria chamar a cobrança sem token");
+    }) as unknown as typeof fetch;
+
+    await expect(createCharge(baseParams)).rejects.toMatchObject({ kind: "validation" });
   });
 });

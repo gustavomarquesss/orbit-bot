@@ -1,12 +1,7 @@
+import QRCode from "qrcode";
 import { config } from "../config.js";
 
 const REQUEST_TIMEOUT_MS = 15_000;
-
-// Prazo padrão de expiração da cobrança PIX. A API da SyncPay não devolve um
-// timestamp de expiração no corpo da resposta de criação (ver doc pesquisada
-// em syncpay.apidog.io/cashin-20187696e0), só recebe `pix.expiresInDays` como
-// input — então calculamos `expiresAt` localmente a partir desse mesmo valor.
-const PIX_EXPIRATION_DAYS = 1;
 
 export type SyncPayErrorKind = "network" | "gateway" | "validation";
 
@@ -30,45 +25,36 @@ export class SyncPayError extends Error {
 export interface CreateChargeParams {
   amountCents: number;
   description: string;
-  customer: {
-    name: string;
-    email: string;
-    cpf?: string;
-    phone?: string;
-  };
-  externalRef?: string;
 }
 
 export interface CreateChargeResult {
   externalId: string;
   pixCopyPaste: string;
   qrCodeUrl: string;
-  expiresAt: Date;
+  // A API não devolve prazo de expiração na criação (confirmado em teste real
+  // — ver PROJECT_STATE.md). Null até termos como saber isso de verdade.
+  expiresAt: Date | null;
 }
 
-function buildPostbackUrl(): string {
-  const url = new URL("/webhooks/syncpay", config.PUBLIC_BASE_URL);
-  // A doc oficial (web.syncpay.pro/documentacao/) não estava acessível a partir
-  // deste ambiente e a doc espelhada (syncpay.apidog.io) não expõe nenhum
-  // mecanismo de assinatura (HMAC/etc) para o postback. Até confirmar isso com
-  // credenciais reais, usamos SYNCPAY_WEBHOOK_SECRET como shared-secret embutido
-  // na própria postbackUrl — validado em src/payments/webhook.ts. Ver relatório
-  // da task para o checklist de validação manual.
-  url.searchParams.set("secret", config.SYNCPAY_WEBHOOK_SECRET);
-  return url.toString();
+interface CachedToken {
+  accessToken: string;
+  expiresAtMs: number;
 }
 
-interface RawChargeResponse {
-  idTransaction?: string;
-  id?: string;
-  transaction_id?: string;
-  paymentCode?: string;
-  pix_code?: string;
-  paymentCodeBase64?: string;
-  qr_code_base64?: string;
-  status_transaction?: string;
-  status?: string;
-  message?: string;
+let cachedToken: CachedToken | null = null;
+
+/** Só para testes — força a próxima chamada a buscar um token novo. */
+export function _resetTokenCacheForTests(): void {
+  cachedToken = null;
+}
+
+// Margem de segurança pra renovar antes do token expirar de fato (evita usar
+// um token que vence no meio de uma requisição em voo).
+const TOKEN_REFRESH_MARGIN_MS = 60_000;
+
+interface AuthTokenResponse {
+  access_token?: string;
+  expires_in?: number;
 }
 
 function extractErrorMessage(payload: unknown): string | undefined {
@@ -80,84 +66,120 @@ function extractErrorMessage(payload: unknown): string | undefined {
   return undefined;
 }
 
-// Nomes de campo com mais de uma variante: a doc real da SyncPay não estava
-// totalmente acessível na pesquisa (ver relatório). Parsing defensivo aceita
-// as variantes encontradas nas fontes consultadas (syncpay.apidog.io) e no
-// SDK não-oficial (github.com/b7k3/syncpay) sem quebrar se um campo mudar de nome.
-function parseChargeResponse(payload: unknown): CreateChargeResult {
-  if (typeof payload !== "object" || payload === null) {
+/**
+ * Troca client_id/client_secret por um Bearer token.
+ * Endpoint e payload confirmados com uma chamada real em 2026-08-19 (ver
+ * PROJECT_STATE.md): POST /api/partner/v1/auth-token, base
+ * https://api.syncpayments.com.br (NÃO api.syncpay.pro — esse domínio nem
+ * existe, era de uma doc espelhada desatualizada/errada usada antes).
+ * Resposta real: { access_token, token_type, expires_in, expires_at }.
+ * Cacheado em memória do processo; single-instância (VPS única, sem
+ * múltiplos workers), então cache local é suficiente sem precisar de Redis.
+ */
+async function getAccessToken(): Promise<string> {
+  const now = Date.now();
+  if (cachedToken && cachedToken.expiresAtMs - TOKEN_REFRESH_MARGIN_MS > now) {
+    return cachedToken.accessToken;
+  }
+
+  const endpoint = new URL("/api/partner/v1/auth-token", config.SYNCPAY_API_BASE_URL).toString();
+
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_id: config.SYNCPAY_CLIENT_ID,
+        client_secret: config.SYNCPAY_CLIENT_SECRET,
+      }),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch (err) {
+    throw new SyncPayError("Falha de rede ao autenticar na SyncPay.", "network", err);
+  }
+
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch (err) {
     throw new SyncPayError(
-      "Resposta da SyncPay não é um objeto JSON válido.",
+      `Resposta de autenticação inválida da SyncPay (HTTP ${response.status}).`,
+      "gateway",
+      err
+    );
+  }
+
+  if (!response.ok) {
+    throw new SyncPayError(
+      `SyncPay recusou a autenticação: ${extractErrorMessage(payload) ?? `HTTP ${response.status}`}`,
+      response.status >= 500 ? "gateway" : "validation",
+      payload
+    );
+  }
+
+  const { access_token, expires_in } = payload as AuthTokenResponse;
+  if (!access_token) {
+    throw new SyncPayError(
+      `Resposta de autenticação da SyncPay sem access_token. Corpo: ${JSON.stringify(payload)}`,
       "gateway",
       payload
     );
   }
 
-  const raw = payload as RawChargeResponse;
-  const externalId = raw.idTransaction ?? raw.id ?? raw.transaction_id;
-  const pixCopyPaste = raw.paymentCode ?? raw.pix_code;
-  const qrCodeBase64 = raw.paymentCodeBase64 ?? raw.qr_code_base64;
-
-  if (!externalId || !pixCopyPaste) {
-    throw new SyncPayError(
-      `Resposta da SyncPay não contém os campos esperados (idTransaction/paymentCode). Corpo: ${JSON.stringify(
-        payload
-      )}`,
-      "gateway",
-      payload
-    );
-  }
-
-  return {
-    externalId,
-    pixCopyPaste,
-    // A API devolve o QR code como imagem em base64, não uma URL hospedada.
-    // Convertido pra data URI pra manter o campo utilizável como "qrCodeUrl"
-    // (ex: <img src>) sem precisar hospedar a imagem nós mesmos.
-    qrCodeUrl: qrCodeBase64 ? `data:image/png;base64,${qrCodeBase64}` : "",
-    expiresAt: new Date(Date.now() + PIX_EXPIRATION_DAYS * 24 * 60 * 60 * 1000),
+  cachedToken = {
+    accessToken: access_token,
+    expiresAtMs: now + (expires_in ?? 3600) * 1000,
   };
+  return access_token;
+}
+
+function buildPostbackUrl(): string {
+  const url = new URL("/webhooks/syncpay", config.PUBLIC_BASE_URL);
+  // Mecanismo de assinatura do webhook não documentado publicamente (ver
+  // PROJECT_STATE.md). Usamos SYNCPAY_WEBHOOK_SECRET como shared-secret
+  // embutido na própria postbackUrl, validado em src/payments/webhook.ts.
+  url.searchParams.set("secret", config.SYNCPAY_WEBHOOK_SECRET);
+  return url.toString();
+}
+
+interface RawChargeResponse {
+  identifier?: string;
+  pix_code?: string;
+  message?: string;
+}
+
+/**
+ * Gera a imagem do QR code a partir do "pix copia-e-cola" (string EMV/BR
+ * Code) nós mesmos — a API não devolve uma imagem pronta (confirmado em
+ * teste real, ver PROJECT_STATE.md), só o texto do código.
+ */
+async function buildQrCodeDataUri(pixCopyPaste: string): Promise<string> {
+  return QRCode.toDataURL(pixCopyPaste, { margin: 1, width: 400 });
 }
 
 /**
  * Cria uma cobrança PIX na SyncPay.
  *
- * Endpoint e formato de payload baseados na doc espelhada em
- * syncpay.apidog.io/cashin-20187696e0 (a doc oficial não estava acessível
- * neste ambiente — DNS de web.syncpay.pro falhou). CONFIRMAR contra a API
- * real com credenciais de produção antes de ir pra produção.
+ * Endpoint, payload e resposta confirmados com chamadas reais em 2026-08-19
+ * contra a API de produção (ver PROJECT_STATE.md para o log completo):
+ *   POST https://api.syncpayments.com.br/api/partner/v1/cash-in
+ *   body: { amount (centavos), description, postbackUrl }
+ *   resposta: { message, pix_code, identifier }
+ * Nenhum dado do comprador (nome/email/CPF) é exigido — diferente do que a
+ * doc espelhada usada antes sugeria. Isso bate com o modelo real do negócio
+ * (bot vende para qualquer um, sem cadastro do comprador).
  */
 export async function createCharge(
   params: CreateChargeParams
 ): Promise<CreateChargeResult> {
-  const endpoint = new URL("/v1/gateway/api", config.SYNCPAY_API_BASE_URL).toString();
+  const accessToken = await getAccessToken();
+  const endpoint = new URL("/api/partner/v1/cash-in", config.SYNCPAY_API_BASE_URL).toString();
 
   const body = {
     amount: params.amountCents,
-    // A SyncPay exige IP do cliente no payload; não existe um IP real de
-    // origem em compras feitas dentro do Telegram, então usamos um placeholder.
-    // CONFIRMAR se a gateway aceita isso sem rejeitar a cobrança.
-    ip: "0.0.0.0",
-    items: [
-      {
-        title: params.description,
-        quantity: 1,
-        tangible: false,
-        unitPrice: params.amountCents,
-      },
-    ],
-    pix: {
-      expiresInDays: String(PIX_EXPIRATION_DAYS),
-    },
-    customer: {
-      name: params.customer.name,
-      email: params.customer.email,
-      cpf: params.customer.cpf,
-      phone: params.customer.phone,
-      externaRef: params.externalRef,
-    },
+    description: params.description,
     postbackUrl: buildPostbackUrl(),
-    traceable: true,
   };
 
   let response: Response;
@@ -166,12 +188,7 @@ export async function createCharge(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        // SYNCPAY_API_KEY tratada como Bearer token estático. A doc espelhada
-        // mostra um fluxo de troca client_id+client_secret -> access_token
-        // (POST /api/partner/v1/auth-token, expira em 1h) que nosso config.ts
-        // atual (só SYNCPAY_API_KEY) não suporta. CONFIRMAR com credenciais
-        // reais qual dos dois modelos a conta do usuário usa — ver relatório.
-        Authorization: `Bearer ${config.SYNCPAY_API_KEY}`,
+        Authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
@@ -205,7 +222,9 @@ export async function createCharge(
   if (!response.ok) {
     const message = extractErrorMessage(payload) ?? `HTTP ${response.status}`;
     // 5xx/429: problema do lado da gateway, vale tentar de novo depois.
-    // 4xx restante: dado que enviamos está errado, repetir não resolve.
+    // 4xx restante: dado que enviamos está errado (ou, ex: limite de valor
+    // da conta — "max_cashin_without_fee", visto em teste real), repetir com
+    // o mesmo valor não resolve.
     const kind: SyncPayErrorKind =
       response.status >= 500 || response.status === 429 ? "gateway" : "validation";
     throw new SyncPayError(
@@ -215,7 +234,21 @@ export async function createCharge(
     );
   }
 
-  return parseChargeResponse(payload);
+  const raw = payload as RawChargeResponse;
+  if (!raw.identifier || !raw.pix_code) {
+    throw new SyncPayError(
+      `Resposta da SyncPay não contém os campos esperados (identifier/pix_code). Corpo: ${JSON.stringify(payload)}`,
+      "gateway",
+      payload
+    );
+  }
+
+  return {
+    externalId: raw.identifier,
+    pixCopyPaste: raw.pix_code,
+    qrCodeUrl: await buildQrCodeDataUri(raw.pix_code),
+    expiresAt: null,
+  };
 }
 
 export type NormalizedChargeStatus = "PAID" | "REFUSED" | "EXPIRED" | "PENDING" | "UNKNOWN";
@@ -226,11 +259,12 @@ const EXPIRED_TOKENS = ["EXPIRED"];
 
 /**
  * Normaliza o status de transação vindo do webhook da SyncPay pro nosso
- * OrderStatus. A doc consultada não deixou claro o conjunto exato de valores
- * de `status_transaction` (só documentou "WAITING_FOR_APPROVAL" na criação);
- * por isso o matching é por substring (case-insensitive) em vez de valor
- * exato — mais tolerante a variações não documentadas, mas precisa ser
- * validado contra webhooks reais (ver relatório).
+ * OrderStatus. Confirmado por teste real (GET /api/partner/v1/transaction/:id,
+ * ver PROJECT_STATE.md): o status de uma cobrança recém-criada é "pending"
+ * (minúsculo). Os valores de PAID/REFUSED/EXPIRED ainda não foram observados
+ * — nenhum pagamento real foi completado no teste. Matching por substring
+ * (case-insensitive) é uma aproximação tolerante até isso ser confirmado
+ * contra um webhook de pagamento de verdade.
  */
 export function normalizeChargeStatus(
   rawStatus: string | undefined | null
