@@ -59,10 +59,20 @@ cor de botão via Business API (funcionalidade real do Telegram, não do
 painel — só funciona em contas com Business Premium), abstração de
 múltiplos gateways de pagamento com fallback automático.
 
-**Pendente antes de considerar a Fase 1 "pronta pra valer"**: testar a
-compra de ponta a ponta com os templates de pagamento customizados contra
-um pagamento real (segue bloqueado pelo limite `max_cashin_without_fee` da
-conta SyncPay — ver seção acima).
+**Pendente antes de considerar a Fase 1 "pronta pra valer"**: confirmar a
+aprovação real do pagamento (webhook PAID) — o PIX já é gerado e a cobrança
+aparece PENDING tanto no painel quanto no dashboard da SyncPay (testado em
+2026-08-19 pelo usuário, plano de R$1,00). Falta só confirmar que o webhook
+de aprovação chega e dispara entrega + `notifyLeadOfApproval`.
+
+**Bug encontrado e corrigido em 2026-08-19**: `createCharge` (
+`src/payments/syncpay.ts`) mandava `amount: amountCents` direto pro campo
+`amount` da SyncPay, assumindo que era em centavos. Não é — é em reais. Um
+plano de R$1,00 (`priceCents: 100`) gerava uma cobrança real de R$100,00 na
+SyncPay (confirmado no dashboard deles pelo usuário). Corrigido para
+`amount: amountCents / 100`, com teste de regressão em
+`src/payments/__tests__/syncpay.test.ts` que verifica o corpo da requisição
+enviada.
 
 ## Protocolo de trabalho (feedback explícito do usuário, 2026-08-19)
 
@@ -115,7 +125,8 @@ contra a API de produção:
   → `{access_token, token_type, expires_in, expires_at}`. Token dura 1h,
   cacheado em memória do processo (`src/payments/syncpay.ts`).
 - **Criar cobrança**: `POST /api/partner/v1/cash-in`, body mínimo
-  `{amount (centavos), description, postbackUrl}`. **Nenhum dado do
+  `{amount (REAIS, ex: 1.00 para R$1,00 — não centavos, ver bug corrigido
+  em 2026-08-19 na seção "Fase 1"), description, postbackUrl}`. **Nenhum dado do
   comprador é exigido** (nome/email/CPF) — confirmado testando sem esses
   campos e recebendo sucesso. Uma tentativa anterior de exigir CPF (baseada
   na doc errada) foi implementada e **revertida** no mesmo dia (schema,

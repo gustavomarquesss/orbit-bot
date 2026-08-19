@@ -164,11 +164,16 @@ async function buildQrCodeDataUri(pixCopyPaste: string): Promise<string> {
  * Endpoint, payload e resposta confirmados com chamadas reais em 2026-08-19
  * contra a API de produção (ver PROJECT_STATE.md para o log completo):
  *   POST https://api.syncpayments.com.br/api/partner/v1/cash-in
- *   body: { amount (centavos), description, postbackUrl }
+ *   body: { amount (REAIS, não centavos — ver correção abaixo), description, postbackUrl }
  *   resposta: { message, pix_code, identifier }
  * Nenhum dado do comprador (nome/email/CPF) é exigido — diferente do que a
  * doc espelhada usada antes sugeria. Isso bate com o modelo real do negócio
  * (bot vende para qualquer um, sem cadastro do comprador).
+ *
+ * BUG CORRIGIDO em 2026-08-19: a suposição inicial de que `amount` era em
+ * centavos estava errada — mandar `amountCents` direto gerou uma cobrança
+ * 100x maior na SyncPay (plano de R$1,00 virou cobrança de R$100,00, visto
+ * em teste real no dashboard deles). O campo é em reais (decimal).
  */
 export async function createCharge(
   params: CreateChargeParams
@@ -177,7 +182,7 @@ export async function createCharge(
   const endpoint = new URL("/api/partner/v1/cash-in", config.SYNCPAY_API_BASE_URL).toString();
 
   const body = {
-    amount: params.amountCents,
+    amount: params.amountCents / 100,
     description: params.description,
     postbackUrl: buildPostbackUrl(),
   };

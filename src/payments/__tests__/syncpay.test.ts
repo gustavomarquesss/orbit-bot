@@ -73,6 +73,25 @@ describe("createCharge", () => {
     expect(result.expiresAt).toBeNull();
   });
 
+  it("converte amountCents para reais no campo `amount` enviado à SyncPay (regressão: bug que gerou cobrança 100x maior em produção)", async () => {
+    const fetchMock = mockFetchForCharge(() =>
+      jsonResponse({
+        message: "Cashin request successfully submitted",
+        identifier: "f7f3ac07-a772-4bf3-8932-6e604786ddc2",
+        pix_code: "00020126850014br.gov.bcb.pix...",
+      })
+    );
+    global.fetch = fetchMock;
+
+    await createCharge({ amountCents: 100, description: "Plano R$1,00" });
+
+    const chargeCall = vi
+      .mocked(fetchMock)
+      .mock.calls.find(([input]) => !(typeof input === "string" ? input : input.toString()).includes("auth-token"));
+    const sentBody = JSON.parse(chargeCall![1]!.body as string);
+    expect(sentBody.amount).toBe(1);
+  });
+
   it("lança SyncPayError kind=validation em erro 4xx", async () => {
     global.fetch = mockFetchForCharge(() => jsonResponse({ message: "cpf inválido" }, 400));
 
