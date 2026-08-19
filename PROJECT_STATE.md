@@ -92,9 +92,10 @@ SyncPay** — não há doc oficial acessível, mas uma lib de terceiros no GitHu
 **`webhook_url`**. A SyncPay provavelmente ignorava silenciosamente o campo
 desconhecido — por isso nenhum webhook chegava, apesar do nosso endpoint
 funcionar perfeitamente. Corrigido em `src/payments/syncpay.ts`
-(`buildWebhookUrl`, antes `buildPostbackUrl`), com teste de regressão. O
-polling de reconciliação continua ativo como rede de segurança até um novo
-pagamento real confirmar que o webhook chega de verdade agora.
+(`buildWebhookUrl`, antes `buildPostbackUrl`), com teste de regressão.
+**Confirmado com um novo pagamento real (2026-08-19)**: o webhook chegou na
+hora, sem precisar do polling de reconciliação — que continua ativo mesmo
+assim, como rede de segurança (custo zero, só roda quando há Order PENDING).
 
 ## Protocolo de trabalho (feedback explícito do usuário, 2026-08-19)
 
