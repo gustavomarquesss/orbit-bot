@@ -18,9 +18,28 @@ npm run dev
 
 ## Editando mensagens, botões e fluxos (sem tocar em código)
 
-Todo o conteúdo do bot — mensagens, mídia, botões e para onde cada botão leva —
-fica salvo no banco de dados, não em código. Para editar, use os comandos
-administrativos direto no chat com o bot (disponíveis só para o
+Todo o conteúdo do bot — mensagens, mídia, botões, produtos e para onde cada
+botão leva — fica salvo no banco de dados, não em código. Duas formas de editar:
+
+### Painel web (`/admin`, protegido por senha) — recomendado
+
+Acesse `https://SEU_DOMINIO/admin`, faça login com `ADMIN_PANEL_PASSWORD`, e use:
+
+- **Dashboard** — métricas de vendas (receita, conversão, últimas cobranças).
+- **Fluxos** — criar/editar/excluir fluxos, passos (texto e mídia) e botões,
+  com autocomplete pra apontar botões de "ir para outro fluxo" ou "vender produto".
+- **Produtos** — criar/editar/excluir produtos (preço, tipo de entrega,
+  proteção de conteúdo, ativo/inativo).
+
+Único ponto que o painel não faz por você: campos de mídia (foto/vídeo/áudio
+de um passo) pedem o `file_id` do Telegram colado manualmente — não há upload
+direto pela tela ainda, porque isso exigiria rotear o arquivo pelo próprio bot
+pra capturar o `file_id`. Se isso virar fricção no dia a dia, é uma extensão
+natural do painel (ver `PROJECT_STATE.md`).
+
+### Comandos no bot (alternativa)
+
+Também dá pra editar direto no chat com o bot (disponível só para o
 `TELEGRAM_ADMIN_USER_ID` configurado no `.env`; qualquer outro usuário que
 tentar usá-los é ignorado silenciosamente).
 
@@ -59,8 +78,6 @@ Messages" e olhando os detalhes, ou via um bot auxiliar tipo @userinfobot em
 canais). A entrega usa `copyMessage`, que exige `message_id`, não `file_id`
 — decisão documentada em `src/bot/delivery.ts` e no `prisma/schema.prisma`.
 
-O painel web (`/admin`, protegido por senha) complementa isso com métricas e
-histórico de vendas — é somente leitura na v1.
 
 ## Fluxo de branches
 

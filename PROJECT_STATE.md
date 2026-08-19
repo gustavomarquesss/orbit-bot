@@ -6,7 +6,14 @@
 > relevantes. Este arquivo substitui a necessidade de reconstruir contexto a
 > partir do histórico do chat.
 
-Última atualização: 2026-08-18
+Última atualização: 2026-08-19
+
+## Protocolo de trabalho (feedback explícito do usuário, 2026-08-19)
+
+**Commitar incrementalmente, a cada etapa concluída — não só no fechamento
+da sessão.** Motivo: o usuário quer o histórico do git refletindo o avanço
+real do projeto, não um punhado de commits gigantes no final. Cada
+funcionalidade/correção fechada = um commit, na hora.
 
 ## Decisões tomadas (validadas com o usuário)
 
@@ -24,17 +31,60 @@
   `ARCHITECTURE.md`, não vale mais.
 - Banco: **Postgres em container Docker**, no mesmo `docker-compose.yml` da
   app (não mais Neon/Supabase — não se aplica mais desde a revisão de hosting acima).
-- Gateway PIX: **SyncPay**. Usuário já tem conta e API key.
+- Gateway PIX: **SyncPay**. Usuário já tem conta e credenciais OAuth
+  (`client_id`/`client_secret` — **não** é API key estática, ver seção
+  "Integração SyncPay — endpoints reais" abaixo).
 - Bot Telegram: usuário já tem token criado no @BotFather.
 - Config de fluxos/mensagens/botões: guardada no **banco**, editável via
-  comandos administrativos no próprio bot (não arquivo JSON estático) — evita
-  precisar de redeploy a cada edição de texto.
-- Entrega de conteúdo: canal privado "cofre" no Telegram + `file_id` +
-  `copyMessage` com `protect_content: true`. Sem storage externo.
-- Painel admin: Express + EJS server-rendered, login único via senha em env
-  var. v1 é somente leitura (métricas/vendas); edição de conteúdo fica só nos
-  comandos do bot por enquanto.
+  comandos administrativos no bot **e** pelo painel web (ver decisão revisada
+  abaixo) — evita precisar de redeploy a cada edição de texto.
+- Entrega de conteúdo: canal privado "cofre" no Telegram + `message_id` (não
+  `file_id` — `copyMessage` exige `message_id`) + `protect_content: true`.
+  Sem storage externo.
+- **Painel admin (revisado em 2026-08-19, a pedido explícito do usuário):**
+  não é mais somente leitura. Tem CRUD completo de Flows/FlowSteps/Buttons/
+  Products pela tela web, além do dashboard de métricas. Decisão original
+  ("v1 somente leitura, edição só via bot") não vale mais.
 - Branches: `main` / `homolog` / `dev` / `feature/*`, Conventional Commits.
+
+## Integração SyncPay — endpoints reais (confirmado em 2026-08-19)
+
+A doc usada durante a implementação original (`syncpay.apidog.io`, um espelho
+de terceiro) estava **errada** — apontava pro domínio `syncpay.pro`, que nem
+existe (NXDOMAIN confirmado). Testado com credenciais reais do usuário
+contra a API de produção:
+
+- **Base URL real**: `https://api.syncpayments.com.br` (não `api.syncpay.pro`).
+- **Auth**: `POST /api/partner/v1/auth-token`, body `{client_id, client_secret}`
+  → `{access_token, token_type, expires_in, expires_at}`. Token dura 1h,
+  cacheado em memória do processo (`src/payments/syncpay.ts`).
+- **Criar cobrança**: `POST /api/partner/v1/cash-in`, body mínimo
+  `{amount (centavos), description, postbackUrl}`. **Nenhum dado do
+  comprador é exigido** (nome/email/CPF) — confirmado testando sem esses
+  campos e recebendo sucesso. Uma tentativa anterior de exigir CPF (baseada
+  na doc errada) foi implementada e **revertida** no mesmo dia (schema,
+  `bot/flows.ts`, `bot/util.ts` — sem rastro no histórico do git, tudo squash
+  antes do commit).
+- **Resposta da criação**: `{message, pix_code, identifier}` — **sem** imagem
+  de QR code pronta. `pix_code` é o texto copia-e-cola (EMV/BR Code);
+  `identifier` é o id da transação (mapeado pra `Order.syncpayChargeId`). O
+  QR code agora é **gerado por nós** a partir do `pix_code` (lib `qrcode`).
+- **Consulta de status**: `GET /api/partner/v1/transaction/{identifier}` →
+  `{data: {reference_id, currency, amount, status, description, pix_code}}`.
+  Status observado: `"pending"` (minúsculo). Endpoint não usado no código
+  ainda (webhook cobre o caso principal), mas é o caminho pra reconciliação
+  manual/futuro polling de fallback caso o webhook falhe.
+- **Limite de conta**: a conta de testes do usuário recebeu erro
+  `"Cashin exceeds max_cashin_without_fee"` mesmo em valores baixos (R$1,00
+  funcionou uma vez, depois passou a falhar — parece ser um teto cumulativo,
+  não por transação). **Não é bug de código** — é configuração/verificação
+  pendente na conta SyncPay do usuário. Ele precisa checar o painel da
+  SyncPay ou falar com o suporte deles antes de operar em produção.
+- Mecanismo de assinatura do webhook **ainda não confirmado** (nenhuma doc
+  acessível documentou isso) — continua usando shared-secret na query string
+  da `postbackUrl` como fallback. Nenhum pagamento real foi completado no
+  teste (por causa do limite acima), então o payload real de um webhook de
+  confirmação também **ainda não foi visto**.
 
 ## O que já foi implementado
 
@@ -64,8 +114,15 @@
       validação de shared-secret + idempotência real via `WebhookEvent`
       (`webhook.ts`) — só entrega/notifica na transição `PENDING→PAID`.
 - [x] **Painel admin web** — `src/admin/*`: login por senha (`timingSafeEqual`,
-      sessão via `express-session`), dashboard com receita/contagens por
-      status/leads/conversão/tabela de vendas recentes/gráfico Chart.js.
+      sessão via `connect-pg-simple`, não MemoryStore), dashboard com receita/
+      contagens por status/leads/conversão/tabela de vendas recentes/gráfico
+      Chart.js. **CRUD completo** de Flows/FlowSteps/Buttons (`flowsRoutes.ts`)
+      e Products (`productsRoutes.ts`) — criar, editar, excluir tudo pela
+      tela, com autocomplete pra apontar botões de compra/navegação. Views
+      EJS com partials de header/footer compartilhados
+      (`views/partials/`, `views/flows/`, `views/products/`). Único ponto que
+      o painel não resolve: colar `file_id` de mídia manualmente (sem upload
+      direto) — anotado como possível extensão futura.
 - [x] 62 testes automatizados (`vitest`) cobrindo lógica pura de bot e
       pagamentos (deep link, formatação, callback_data, cliente SyncPay,
       idempotência do webhook) — todos mockados (Prisma/fetch/Telegram).
@@ -105,43 +162,53 @@ Postgres real rodando em container e um servidor Express real:
   sem TLS (esperado — o Caddy termina HTTPS antes de proxyar pro app; em
   produção o browser sempre fala HTTPS com o Caddy).
 
+## Ambiente de homologação local (técnica reutilizável)
+
+Antes de contratar VPS/domínio, validamos boa parte do sistema de graça,
+localmente, assim (repita quando precisar testar de novo sem gastar dinheiro):
+
+1. Postgres real via Docker: `docker run -d --name dgbot-homolog-db -e
+   POSTGRES_USER=dgbot -e POSTGRES_PASSWORD=... -e POSTGRES_DB=dgbot -p
+   55432:5432 postgres:16-alpine`.
+2. Túnel público HTTPS grátis, sem conta, via Cloudflare:
+   `docker run -d --name dgbot-tunnel cloudflare/cloudflared:latest tunnel
+   --url http://host.docker.internal:3000` (usar `host.docker.internal`, não
+   `localhost` — no Docker Desktop Windows/Mac, `--network host` não dá
+   acesso ao host real). A URL pública aparece no log do container
+   (`docker logs dgbot-tunnel | grep trycloudflare`).
+3. `.env` local com credenciais reais do usuário (Telegram + SyncPay) e
+   `DATABASE_URL`/`PUBLIC_BASE_URL` apontando pro Postgres/túnel acima.
+4. `npx prisma migrate dev` + `npx tsx prisma/seed.ts` + `npx tsx src/server.ts`.
+
+Isso validou, com dado real (não mock): webhook do Telegram registra e
+responde, `/start` funciona, painel admin CRUD persiste no banco, e a API da
+SyncPay foi inspecionada diretamente (achou o domínio/endpoints certos — ver
+seção acima). **Lembrete de segurança**: o `.env` usado aqui tem credenciais
+reais — nunca commitar (já coberto pelo `.gitignore`), e o usuário colou
+essas credenciais no chat uma vez — sugerido rotacionar por higiene quando
+o projeto estabilizar.
+
 ## Pendente (ver task list da sessão para detalhes)
 
-- [ ] **Bloqueador para produção real** — preciso do usuário para:
-      1. Confirmar `TELEGRAM_BOT_TOKEN` e `TELEGRAM_ADMIN_USER_ID` reais no `.env` da VPS.
-      2. Confirmar `SYNCPAY_API_KEY` real e resolver os pontos em aberto
-         levantados pela integração de pagamentos (ver checklist abaixo).
-      3. Criar (ou apontar) o canal privado "cofre" e adicionar o bot como admin.
-      4. Contratar a VPS (ainda não escolhida — usuário pediu recomendação,
-         referência Hetzner CX22 ~€5-8/mês) e registrar um domínio/subdomínio
-         (usuário ainda não tem um — **obrigatório** pro Caddy emitir TLS).
-- [ ] **Checklist crítico da integração SyncPay antes de produção** (dinheiro real):
-      1. Confirmar se `SYNCPAY_API_KEY` funciona como Bearer estático ou se é
-         necessário o fluxo OAuth `client_id`/`client_secret` → `access_token`
-         (a doc espelhada consultada, syncpay.apidog.io, sugere OAuth; a doc
-         oficial web.syncpay.pro/documentacao/ estava inacessível na pesquisa —
-         DNS falhou neste ambiente).
-      2. Confirmar o endpoint e payload reais de criação de cobrança (usado
-         `/v1/gateway/api`, campos `amount`/`items`/`pix.expiresInDays`/
-         `customer` — especialmente se `customer.cpf` é obrigatório, já que
-         Telegram não fornece CPF do lead).
-      3. **Confirmar o mecanismo real de assinatura do webhook.** Hoje é um
-         shared-secret (`SYNCPAY_WEBHOOK_SECRET`) na query string da
-         `postbackUrl` — funcional e testado, mas é um fallback: nenhuma doc
-         acessível documentou HMAC/assinatura oficial. Trocar por HMAC se a
-         SyncPay oferecer, é mais seguro.
-      4. Disparar uma cobrança de teste real pra conferir nomes de campo
-         exatos da resposta/webhook (o parsing hoje aceita várias variantes
-         de nome de campo por segurança, mas não foi validado contra a API real).
-      5. Confirmar se enviar o QR code como `data:image/png;base64,...`
-         (convertido pra Buffer em `src/bot/flows.ts`) funciona bem no cliente
-         Telegram — testado só localmente com uma imagem PNG genérica, não
-         com um QR real da SyncPay.
+- [ ] **Resolver o limite `max_cashin_without_fee` na conta SyncPay do
+      usuário** — bloqueador pra testar um pagamento real de ponta a ponta
+      (o código está pronto, só falta a conta aceitar a cobrança). Usuário
+      precisa checar o painel/suporte da SyncPay.
+- [ ] **Confirmar o payload real de um webhook de pagamento confirmado** —
+      não foi possível completar um pagamento real ainda (bloqueado pelo item
+      acima). `normalizeChargeStatus` em `syncpay.ts` é uma aproximação
+      tolerante (substring matching) até isso ser validado.
+- [ ] **Confirmar o mecanismo real de assinatura do webhook** — nenhuma doc
+      acessível documentou isso; continua em shared-secret via query string
+      como fallback funcional.
+- [ ] Contratar a VPS (usuário pediu recomendação, referência Hetzner CX22
+      ~€5-8/mês) e registrar um domínio/subdomínio (usuário ainda não tem um
+      — obrigatório pro Caddy emitir TLS). Sem isso, não dá pra fazer o
+      deploy real, mas dá pra continuar testando localmente (ver seção acima).
 - [ ] Deploy via Docker Compose na VPS real + configurar domínio/TLS + backup
       agendado do Postgres (`pg_dump` + destino externo).
-- [ ] Teste manual de conversa real com o bot no Telegram (não dá pra
-      automatizar sem token real) — fluxo `/start` → deep link → navegação →
-      compra → recebimento do PIX.
+- [ ] Upload de mídia direto pelo painel web (hoje precisa colar `file_id`
+      manualmente) — extensão possível se virar fricção no uso real.
 - [ ] Revisar `npm audit`: vulnerabilidades restantes são só em
       devDependencies (vitest/vite/esbuild, deepmerge-ts via prisma CLI) —
       não afetam produção, mas reavaliar se o audit apontar algo em
@@ -154,7 +221,9 @@ Postgres real rodando em container e um servidor Express real:
   na nuvem, está seguro"; a task de deploy precisa cobrir isso de verdade
   (backup agendado do Postgres é bloqueador antes de considerar produção).
 - Config de conteúdo fica no banco, não em arquivo — qualquer agente que for
-  mexer em mensagens/fluxos deve editar via seed/comando admin, não hardcoded
-  em `src/`.
-- Painel admin v1 é somente leitura. Se o usuário pedir edição de conteúdo por
-  lá também, é uma extensão da task 8, não do escopo do bot.
+  mexer em mensagens/fluxos deve editar via seed/painel/comando admin, não
+  hardcoded em `src/`.
+- **Nunca confiar em doc espelhada de terceiro sem validar contra a API real**
+  assim que houver credenciais disponíveis — a doc usada pra SyncPay estava
+  errada em endpoint, domínio, payload e resposta. Testar com uma chamada
+  real é mais barato do que parecia.
