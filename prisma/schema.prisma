@@ -243,7 +243,40 @@ model Plan {
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
 
-  orderItems OrderItem[]
+  orderItems      OrderItem[]
+  triggerOffers   Offer[]         @relation("OfferTrigger")
+  offeredInOffers Offer[]         @relation("OfferOffered")
+}
+
+enum OfferKind {
+  ORDER_BUMP
+  UPSELL
+  DOWNSELL
+}
+
+/// Regra "quando o cliente compra/recusa X, ofereça Y". O que é ofertado
+/// (`offeredPlan`) é sempre um Plan normal — reaproveita preço/duração/
+/// entrega já existentes. Order Bump dispara na tela de confirmação antes
+/// do PIX (soma ao mesmo pagamento); Upsell dispara depois da entrega
+/// (novo PIX à parte); Downsell dispara quando um Upsell é recusado
+/// (`parentOfferId` aponta pro Upsell recusado).
+model Offer {
+  id            String    @id @default(cuid())
+  triggerPlanId String
+  triggerPlan   Plan      @relation("OfferTrigger", fields: [triggerPlanId], references: [id], onDelete: Cascade)
+  offeredPlanId String
+  offeredPlan   Plan      @relation("OfferOffered", fields: [offeredPlanId], references: [id], onDelete: Cascade)
+  kind          OfferKind
+  parentOfferId String?
+  parentOffer   Offer?    @relation("OfferParent", fields: [parentOfferId], references: [id], onDelete: SetNull)
+  childOffers   Offer[]   @relation("OfferParent")
+  /// Texto do convite (HTML + variáveis, mesmo padrão de templating.ts).
+  /// Vazio = usa um texto padrão genérico.
+  message       String?
+  order         Int       @default(0)
+  active        Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 }
 
 enum PaymentButtonStyle {

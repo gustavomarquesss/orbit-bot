@@ -43,9 +43,7 @@
     <a href="/admin/flows/<%= flow.id %>/plans" class="<%= section === 'plans' ? 'active' : '' %>">Planos</a>
 
     <div class="flow-sidebar-group">Conversão</div>
-    <span class="disabled">Upsell <span class="soon">em breve</span></span>
-    <span class="disabled">Downsell <span class="soon">em breve</span></span>
-    <span class="disabled">Order Bump <span class="soon">em breve</span></span>
+    <a href="/admin/flows/<%= flow.id %>/offers" class="<%= section === 'offers' ? 'active' : '' %>">Ofertas (Upsell/Downsell/Bump)</a>
     <span class="disabled">Packs <span class="soon">em breve</span></span>
     <span class="disabled">Prévias <span class="soon">em breve</span></span>
 

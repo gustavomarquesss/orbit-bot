@@ -1,15 +1,20 @@
 import { Markup, type Telegraf, type Context } from "telegraf";
 import type { InlineKeyboardButton } from "telegraf/types";
-import type { Lead, Plan, WelcomeConfig, WelcomeMedia, RedirectButton, Bot } from "@prisma/client";
+import type { Lead, Plan, WelcomeConfig, WelcomeMedia, RedirectButton, Bot, OrderItemKind } from "@prisma/client";
 import { prisma } from "../db/client.js";
-import { createOrderAndCharge } from "../payments/orders.js";
+import { createOrderAndCharge, type OrderItemInput } from "../payments/orders.js";
 import { resolveOriginAndUpsertLead, touchLead } from "./deepLink.js";
 import { renderTemplate } from "./templating.js";
+import { buildOfferKeyboard, buildOfferText, parseOfferAcceptId, parseOfferDeclineId } from "./offerMessage.js";
 
 type WelcomeWithRelations = WelcomeConfig & { media: WelcomeMedia[]; redirectButtons: RedirectButton[] };
 
 const CTA_CALLBACK = "cta";
 const PLAN_CALLBACK_PREFIX = "plan:";
+export const BUMP_TOGGLE_PREFIX = "bmp:";
+export const BUMP_CONFIRM_PREFIX = "bmpgo:";
+const OFFER_ACCEPT_PREFIX = "ofYes:";
+const OFFER_DECLINE_PREFIX = "ofNo:";
 
 async function getFlowForBot(botId: string) {
   const flowBot = await prisma.flowBot.findFirst({
@@ -120,17 +125,24 @@ function buildPhotoInput(qrCodeUrl: string): string | { source: Buffer } {
   return { source: Buffer.from(base64, "base64") };
 }
 
-async function handleBuyPlan(ctx: Context, botId: string, lead: Lead, planId: string): Promise<void> {
+/**
+ * Gera a cobrança PIX pra 1+ itens (Plano base + Order Bumps marcados, ou
+ * um Upsell/Downsell isolado) e manda pro comprador. Reaproveita o preview
+ * (`pixGeneratedMessage`) do funil do plano BASE — ou do primeiro item, se
+ * não houver BASE (caso de Upsell/Downsell gerando seu próprio PIX à parte).
+ */
+async function handleBuyItems(ctx: Context, botId: string, lead: Lead, items: OrderItemInput[]): Promise<void> {
   try {
     const { order, pixCopyPaste, qrCodeUrl } = await createOrderAndCharge({
       botId,
       leadId: lead.id,
-      items: [{ planId, kind: "BASE" }],
+      items,
       originId: lead.originId,
     });
 
+    const primaryPlanId = items.find((i) => (i.kind ?? "BASE") === "BASE")?.planId ?? items[0].planId;
     const plan = await prisma.plan.findUnique({
-      where: { id: planId },
+      where: { id: primaryPlanId },
       include: { flow: { include: { paymentMessages: true } } },
     });
     const botRow = await prisma.bot.findUniqueOrThrow({ where: { id: botId } });
@@ -167,6 +179,59 @@ async function handleBuyPlan(ctx: Context, botId: string, lead: Lead, planId: st
   }
 }
 
+// --- Order Bump (tela de confirmação antes do PIX) ---
+//
+// callback_data do Telegram tem limite de 64 bytes, então em vez de
+// carregar a lista de bumps selecionados por id (cuid tem 25 chars — não
+// cabe mais de um), cada bump ganha um ÍNDICE posicional (0, 1, 2...) na
+// lista ordenada de Offers daquele plano-gatilho, e o estado "quais estão
+// marcados" vira um bitmask (int) embutido no próprio callback_data.
+// `bmp:<planId>:<bitmask>:<índice>` = alterna o bit `índice`;
+// `bmpgo:<planId>:<bitmask>` = confirma a compra com os bits marcados.
+
+function buildOrderBumpKeyboard(planId: string, bumpPlans: Plan[], bitmask: number) {
+  const rows: InlineKeyboardButton[][] = bumpPlans.map((bump, i) => {
+    const checked = (bitmask & (1 << i)) !== 0;
+    const label = `${checked ? "☑" : "☐"} ${bump.name} — +${formatBRL(bump.priceCents)}`;
+    return [Markup.button.callback(label, `${BUMP_TOGGLE_PREFIX}${planId}:${bitmask}:${i}`)];
+  });
+  rows.push([Markup.button.callback("Confirmar compra", `${BUMP_CONFIRM_PREFIX}${planId}:${bitmask}`)]);
+  return Markup.inlineKeyboard(rows);
+}
+
+function buildOrderBumpText(plan: Plan): string {
+  return `Você escolheu: ${plan.name} — ${formatBRL(plan.priceCents)}\n\nQuer adicionar algo antes de pagar?`;
+}
+
+function getCallbackData(ctx: Context): string | undefined {
+  const cq = ctx.callbackQuery;
+  return cq && "data" in cq ? cq.data : undefined;
+}
+
+export interface BumpCallback {
+  planId: string;
+  bitmask: number;
+  index?: number;
+}
+
+export function parseBumpCallback(data: string, prefix: string): BumpCallback | null {
+  const [planId, bitmaskStr, indexStr] = data.slice(prefix.length).split(":");
+  const bitmask = Number(bitmaskStr);
+  if (!planId || !Number.isFinite(bitmask)) return null;
+  if (indexStr === undefined) return { planId, bitmask };
+  const index = Number(indexStr);
+  if (!Number.isFinite(index)) return null;
+  return { planId, bitmask, index };
+}
+
+async function loadOrderBumpOffers(planId: string) {
+  return prisma.offer.findMany({
+    where: { kind: "ORDER_BUMP", triggerPlanId: planId, active: true },
+    orderBy: { order: "asc" },
+    include: { offeredPlan: true },
+  });
+}
+
 export function registerFlowHandlers(bot: Telegraf, botId: string): void {
   bot.start(async (ctx) => {
     const result = await resolveOriginAndUpsertLead(ctx, botId, ctx.startPayload);
@@ -199,14 +264,112 @@ export function registerFlowHandlers(bot: Telegraf, botId: string): void {
 
   bot.action(new RegExp(`^${PLAN_CALLBACK_PREFIX}.+`), async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
-    const callbackQuery = ctx.callbackQuery;
-    const data = callbackQuery && "data" in callbackQuery ? callbackQuery.data : undefined;
+    const data = getCallbackData(ctx);
     const planId = data?.startsWith(PLAN_CALLBACK_PREFIX) ? data.slice(PLAN_CALLBACK_PREFIX.length) : null;
     if (!planId) return;
 
     const lead = await touchLead(ctx, botId);
     if (!lead) return;
 
-    await handleBuyPlan(ctx, botId, lead, planId);
+    const bumpOffers = await loadOrderBumpOffers(planId);
+    if (bumpOffers.length === 0) {
+      await handleBuyItems(ctx, botId, lead, [{ planId, kind: "BASE" }]);
+      return;
+    }
+
+    const plan = await prisma.plan.findUnique({ where: { id: planId } });
+    if (!plan) return;
+
+    const bumpPlans = bumpOffers.map((o) => o.offeredPlan);
+    await ctx.reply(buildOrderBumpText(plan), {
+      reply_markup: buildOrderBumpKeyboard(planId, bumpPlans, 0).reply_markup,
+    });
+  });
+
+  bot.action(new RegExp(`^${BUMP_TOGGLE_PREFIX}.+`), async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+    const data = getCallbackData(ctx);
+    const parsed = data ? parseBumpCallback(data, BUMP_TOGGLE_PREFIX) : null;
+    if (!parsed || parsed.index === undefined) return;
+
+    const bumpOffers = await loadOrderBumpOffers(parsed.planId);
+    const bumpPlans = bumpOffers.map((o) => o.offeredPlan);
+    const newBitmask = parsed.bitmask ^ (1 << parsed.index);
+
+    try {
+      await ctx.editMessageReplyMarkup(buildOrderBumpKeyboard(parsed.planId, bumpPlans, newBitmask).reply_markup);
+    } catch (err) {
+      console.error("[flows] falha ao atualizar teclado de order bump", err);
+    }
+  });
+
+  bot.action(new RegExp(`^${BUMP_CONFIRM_PREFIX}.+`), async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+    const data = getCallbackData(ctx);
+    const parsed = data ? parseBumpCallback(data, BUMP_CONFIRM_PREFIX) : null;
+    if (!parsed) return;
+
+    const lead = await touchLead(ctx, botId);
+    if (!lead) return;
+
+    const bumpOffers = await loadOrderBumpOffers(parsed.planId);
+    const items: OrderItemInput[] = [{ planId: parsed.planId, kind: "BASE" }];
+    bumpOffers.forEach((offer, i) => {
+      if (parsed.bitmask & (1 << i)) {
+        items.push({ planId: offer.offeredPlanId, kind: "ORDER_BUMP" });
+      }
+    });
+
+    await handleBuyItems(ctx, botId, lead, items);
+  });
+
+  bot.action(new RegExp(`^${OFFER_ACCEPT_PREFIX}.+`), async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+    const data = getCallbackData(ctx);
+    const offerId = data ? parseOfferAcceptId(data) : null;
+    if (!offerId) return;
+
+    const offer = await prisma.offer.findUnique({ where: { id: offerId } });
+    if (!offer || !offer.active) {
+      await ctx.reply("Essa oferta não está mais disponível.");
+      return;
+    }
+
+    const lead = await touchLead(ctx, botId);
+    if (!lead) return;
+
+    const kind: OrderItemKind = offer.kind === "DOWNSELL" ? "DOWNSELL" : "UPSELL";
+    await handleBuyItems(ctx, botId, lead, [{ planId: offer.offeredPlanId, kind }]);
+  });
+
+  bot.action(new RegExp(`^${OFFER_DECLINE_PREFIX}.+`), async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+    const data = getCallbackData(ctx);
+    const offerId = data ? parseOfferDeclineId(data) : null;
+    if (!offerId) return;
+
+    // Downsell encadeado só existe pra recusa de Upsell (não pra recusa de
+    // Downsell — evita corrente infinita de ofertas).
+    const offer = await prisma.offer.findUnique({ where: { id: offerId } });
+    if (offer?.kind === "UPSELL") {
+      const downsell = await prisma.offer.findFirst({
+        where: { kind: "DOWNSELL", parentOfferId: offer.id, active: true },
+        include: { offeredPlan: true },
+      });
+      if (downsell) {
+        const lead = await touchLead(ctx, botId);
+        if (lead) {
+          const botRow = await prisma.bot.findUniqueOrThrow({ where: { id: botId } });
+          const text = buildOfferText(downsell, downsell.offeredPlan, lead, botRow);
+          await ctx.reply(text, {
+            parse_mode: "HTML",
+            reply_markup: buildOfferKeyboard(downsell.id).reply_markup,
+          });
+        }
+        return;
+      }
+    }
+
+    await ctx.reply("Sem problemas!");
   });
 }

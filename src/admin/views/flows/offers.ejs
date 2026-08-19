@@ -1,0 +1,98 @@
+<%- include("../partials/header", { title: flow.name + " — Ofertas", active: "flows" }) %>
+<%- include("./partials/nav", { flow, section: "offers" }) %>
+
+<style>
+  .offer-kind-badge { font-size:0.7rem; padding:2px 8px; border-radius:999px; background:var(--surface-2); color:var(--text-muted); }
+</style>
+
+<section>
+  <h2>Ofertas cadastradas</h2>
+  <p class="hint">
+    <b>Order Bump</b>: mostrado antes do PIX, na tela de confirmação do plano-gatilho — soma ao mesmo pagamento.
+    <b>Upsell</b>: mandado depois da entrega do plano-gatilho, como um PIX novo à parte.
+    <b>Downsell</b>: mandado se um Upsell específico for recusado.
+  </p>
+  <table>
+    <thead>
+      <tr><th>Tipo</th><th>Gatilho</th><th>Oferece</th><th>Status</th><th></th></tr>
+    </thead>
+    <tbody>
+      <% offers.forEach(function(o) { %>
+        <tr>
+          <td><span class="offer-kind-badge"><%= o.kind %></span><% if (o.kind === "DOWNSELL" && o.parentOffer) { %><div class="hint">recusa de: <%= o.parentOffer.offeredPlan.name %></div><% } %></td>
+          <td><%= o.triggerPlan.name %></td>
+          <td><%= o.offeredPlan.name %> — <%= formatBRL(o.offeredPlan.priceCents) %></td>
+          <td>
+            <form method="POST" action="/admin/flows/<%= flow.id %>/offers/<%= o.id %>/toggle" class="inline-form">
+              <button class="btn small secondary" type="submit">
+                <% if (o.active) { %><span class="badge entry">ativa</span><% } else { %><span class="badge inactive">pausada</span><% } %>
+              </button>
+            </form>
+          </td>
+          <td class="row-actions">
+            <form method="POST" action="/admin/flows/<%= flow.id %>/offers/<%= o.id %>/delete" class="inline-form" onsubmit="return confirm('Excluir esta oferta?');">
+              <button class="btn small danger" type="submit">Excluir</button>
+            </form>
+          </td>
+        </tr>
+      <% }); %>
+      <% if (offers.length === 0) { %><tr><td colspan="5" class="empty">Nenhuma oferta cadastrada ainda.</td></tr><% } %>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Nova oferta</h2>
+  <% if (error) { %><p style="color:var(--danger);"><%= error %></p><% } %>
+  <form method="POST" action="/admin/flows/<%= flow.id %>/offers" id="offer-form">
+    <label for="kind">Tipo</label>
+    <select id="kind" name="kind" onchange="document.getElementById('parent-offer-field').style.display = this.value === 'DOWNSELL' ? 'block' : 'none';">
+      <option value="ORDER_BUMP">Order Bump (antes do PIX)</option>
+      <option value="UPSELL">Upsell (depois da entrega)</option>
+      <option value="DOWNSELL">Downsell (se um Upsell for recusado)</option>
+    </select>
+
+    <label for="triggerPlanId">Plano-gatilho</label>
+    <select id="triggerPlanId" name="triggerPlanId" required>
+      <% flow.plans.forEach(function(p) { %>
+        <option value="<%= p.id %>"><%= p.name %></option>
+      <% }); %>
+    </select>
+
+    <label for="offeredPlanId">Plano ofertado</label>
+    <select id="offeredPlanId" name="offeredPlanId" required>
+      <% flow.plans.forEach(function(p) { %>
+        <option value="<%= p.id %>"><%= p.name %> — <%= formatBRL(p.priceCents) %></option>
+      <% }); %>
+    </select>
+
+    <div id="parent-offer-field" style="display:none;">
+      <label for="parentOfferId">Upsell recusado que dispara este Downsell</label>
+      <select id="parentOfferId" name="parentOfferId">
+        <option value="">—</option>
+        <% upsellOffers.forEach(function(o) { %>
+          <option value="<%= o.id %>"><%= o.triggerPlan.name %> → <%= o.offeredPlan.name %></option>
+        <% }); %>
+      </select>
+    </div>
+
+    <label for="message">Texto do convite (opcional — vazio usa um texto padrão)</label>
+    <div class="rte-toolbar">
+      <button type="button" onclick="dgWrapSelection('message','&lt;b&gt;','&lt;/b&gt;')"><b>B</b></button>
+      <button type="button" onclick="dgWrapSelection('message','&lt;i&gt;','&lt;/i&gt;')"><i>I</i></button>
+      <button type="button" onclick="dgWrapSelection('message','&lt;u&gt;','&lt;/u&gt;')"><u>U</u></button>
+    </div>
+    <textarea id="message" name="message" rows="4" placeholder="Que tal levar também {plano} por {valor}?"></textarea>
+    <div class="var-chips">
+      <% ["nome","valor","plano","saudacao","bot.username"].forEach(function(v) { %>
+        <button type="button" onclick="dgInsertAtCursor('message', '{<%= v %>}')">{<%= v %>}</button>
+      <% }); %>
+    </div>
+
+    <div class="actions"><button class="btn" type="submit">Criar oferta</button></div>
+  </form>
+</section>
+
+  </div>
+</div>
+<%- include("../partials/footer") %>

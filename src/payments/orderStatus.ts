@@ -1,6 +1,6 @@
 import type { OrderStatus, Prisma } from "@prisma/client";
 import { prisma } from "../db/client.js";
-import { deliverPlanToLead, notifyAdminOfSale, notifyLeadOfApproval } from "../bot/delivery.js";
+import { deliverPlanToLead, notifyAdminOfSale, notifyLeadOfApproval, offerUpsellIfAny } from "../bot/delivery.js";
 import type { NormalizedChargeStatus } from "./syncpay.js";
 
 export const ORDER_INCLUDE = {
@@ -98,6 +98,11 @@ export async function applyNormalizedStatus(
         });
       } catch (err) {
         console.error("[order-status] falha ao notificar comprador da aprovação", err);
+      }
+      try {
+        await offerUpsellIfAny(order.botId, order.lead.telegramId, plan.id);
+      } catch (err) {
+        console.error("[order-status] falha ao oferecer upsell", err);
       }
     }
   }

@@ -294,6 +294,83 @@ export function createFlowsRouter(): Router {
     res.redirect(`/admin/flows/${flowId}/payments`);
   });
 
+  // --- Ofertas (Order Bump / Upsell / Downsell) ---
+
+  async function loadOffers(flowId: string) {
+    return prisma.offer.findMany({
+      where: { triggerPlan: { flowId } },
+      include: { triggerPlan: true, offeredPlan: true, parentOffer: { include: { offeredPlan: true } } },
+      orderBy: { order: "asc" },
+    });
+  }
+
+  router.get("/:id/offers", async (req, res) => {
+    const flow = await loadFlow(req.params.id);
+    if (!flow) return res.status(404).send("Fluxo não encontrado.");
+    const offers = await loadOffers(flow.id);
+    res.render("flows/offers", {
+      flow,
+      offers,
+      upsellOffers: offers.filter((o) => o.kind === "UPSELL"),
+      error: null,
+    });
+  });
+
+  router.post("/:id/offers", async (req, res) => {
+    const flowId = req.params.id;
+    const kind = String(req.body.kind ?? "ORDER_BUMP");
+    const triggerPlanId = String(req.body.triggerPlanId ?? "").trim();
+    const offeredPlanId = String(req.body.offeredPlanId ?? "").trim();
+    const parentOfferId = String(req.body.parentOfferId ?? "").trim() || null;
+    const message = String(req.body.message ?? "").trim() || null;
+
+    if (!triggerPlanId || !offeredPlanId || (kind === "DOWNSELL" && !parentOfferId)) {
+      const flow = await loadFlow(flowId);
+      const offers = flow ? await loadOffers(flow.id) : [];
+      return res.status(400).render("flows/offers", {
+        flow,
+        offers,
+        upsellOffers: offers.filter((o) => o.kind === "UPSELL"),
+        error:
+          kind === "DOWNSELL"
+            ? "Plano-gatilho, plano ofertado e o Upsell recusado são obrigatórios pra um Downsell."
+            : "Plano-gatilho e plano ofertado são obrigatórios.",
+      });
+    }
+
+    const last = await prisma.offer.findFirst({
+      where: { triggerPlan: { flowId } },
+      orderBy: { order: "desc" },
+      select: { order: true },
+    });
+
+    await prisma.offer.create({
+      data: {
+        triggerPlanId,
+        offeredPlanId,
+        kind: kind as never,
+        parentOfferId: kind === "DOWNSELL" ? parentOfferId : null,
+        message,
+        order: nextOrder(last?.order),
+      },
+    });
+
+    res.redirect(`/admin/flows/${flowId}/offers`);
+  });
+
+  router.post("/:id/offers/:offerId/toggle", async (req, res) => {
+    const offer = await prisma.offer.findUnique({ where: { id: req.params.offerId } });
+    if (offer) {
+      await prisma.offer.update({ where: { id: offer.id }, data: { active: !offer.active } });
+    }
+    res.redirect(`/admin/flows/${req.params.id}/offers`);
+  });
+
+  router.post("/:id/offers/:offerId/delete", async (req, res) => {
+    await prisma.offer.delete({ where: { id: req.params.offerId } });
+    res.redirect(`/admin/flows/${req.params.id}/offers`);
+  });
+
   router.post("/:id/delete", async (req, res) => {
     await prisma.flow.delete({ where: { id: req.params.id } });
     res.redirect("/admin/flows");

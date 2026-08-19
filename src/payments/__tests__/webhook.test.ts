@@ -19,10 +19,11 @@ vi.mock("../../bot/delivery.js", () => ({
   deliverPlanToLead: vi.fn(),
   notifyAdminOfSale: vi.fn(),
   notifyLeadOfApproval: vi.fn(),
+  offerUpsellIfAny: vi.fn(),
 }));
 
 import { prisma } from "../../db/client.js";
-import { deliverPlanToLead, notifyAdminOfSale, notifyLeadOfApproval } from "../../bot/delivery.js";
+import { deliverPlanToLead, notifyAdminOfSale, notifyLeadOfApproval, offerUpsellIfAny } from "../../bot/delivery.js";
 import { config } from "../../config.js";
 import {
   handleSyncpayWebhook,
@@ -189,6 +190,7 @@ describe("handleSyncpayWebhook", () => {
     );
     expect(notifyAdminOfSale).toHaveBeenCalledTimes(1);
     expect(notifyLeadOfApproval).toHaveBeenCalledTimes(1);
+    expect(offerUpsellIfAny).toHaveBeenCalledTimes(1);
     expect(prisma.webhookEvent.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: "we-2" },
