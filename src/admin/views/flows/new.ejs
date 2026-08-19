@@ -1,0 +1,29 @@
+<%- include("../partials/header", { title: "Novo fluxo", active: "flows" }) %>
+
+<section>
+  <h2>Novo fluxo</h2>
+  <% if (error) { %><p style="color:#f87171;"><%= error %></p><% } %>
+  <form method="POST" action="/admin/flows">
+    <label for="key">Chave (identificador único, ex: <code>boas-vindas</code>)</label>
+    <input type="text" id="key" name="key" required pattern="[a-z0-9\-]+" placeholder="boas-vindas" />
+    <div class="hint">Só letras minúsculas, números e hífen — é o que os botões "ir para outro fluxo" usam para apontar aqui.</div>
+
+    <label for="name">Nome (só pra você identificar no painel)</label>
+    <input type="text" id="name" name="name" required placeholder="Boas-vindas" />
+
+    <label for="description">Descrição (opcional)</label>
+    <textarea id="description" name="description"></textarea>
+
+    <div class="checkbox-row">
+      <input type="checkbox" id="isEntryPoint" name="isEntryPoint" />
+      <label for="isEntryPoint">Este é o fluxo de entrada (roda quando alguém manda /start)</label>
+    </div>
+
+    <div class="actions">
+      <button class="btn" type="submit">Criar fluxo</button>
+      <a class="btn secondary" href="/admin/flows">Cancelar</a>
+    </div>
+  </form>
+</section>
+
+<%- include("../partials/footer") %>

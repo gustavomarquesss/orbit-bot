@@ -1,168 +1,108 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>DG Bot — Dashboard</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
-  <style>
-    * { box-sizing: border-box; }
-    body {
-      font-family: -apple-system, system-ui, sans-serif;
-      background: #0f1115;
-      color: #e6e6e6;
-      margin: 0;
-      padding: 24px 16px 60px;
-    }
-    .wrap { max-width: 1000px; margin: 0 auto; }
-    header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 24px;
-      flex-wrap: wrap;
-      gap: 12px;
-    }
-    h1 { font-size: 1.2rem; margin: 0; color: #fff; }
-    form.logout button {
-      background: transparent;
-      border: 1px solid #2c303a;
-      color: #aaa;
-      padding: 6px 12px;
-      border-radius: 8px;
-      cursor: pointer;
-    }
-    .stats {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-      gap: 12px;
-      margin-bottom: 28px;
-    }
-    .card {
-      background: #1a1d24;
-      border-radius: 12px;
-      padding: 16px;
-    }
-    .card .label { font-size: 0.8rem; color: #8a8f9c; margin-bottom: 6px; }
-    .card .value { font-size: 1.5rem; font-weight: 600; color: #fff; }
-    .card.paid .value { color: #4ade80; }
-    .card.pending .value { color: #facc15; }
-    .card.refused .value { color: #f87171; }
-    section {
-      background: #1a1d24;
-      border-radius: 12px;
-      padding: 20px;
-      margin-bottom: 20px;
-      overflow-x: auto;
-    }
-    section h2 { font-size: 1rem; margin: 0 0 14px; color: #fff; }
-    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; min-width: 560px; }
-    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #2c303a; white-space: nowrap; }
-    th { color: #8a8f9c; font-weight: 500; }
-    .status { padding: 2px 8px; border-radius: 999px; font-size: 0.75rem; }
-    .status-PAID { background: rgba(74,222,128,0.15); color: #4ade80; }
-    .status-PENDING { background: rgba(250,204,21,0.15); color: #facc15; }
-    .status-REFUSED { background: rgba(248,113,113,0.15); color: #f87171; }
-    .status-EXPIRED { background: rgba(148,163,184,0.15); color: #94a3b8; }
-    canvas { max-height: 220px; }
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <header>
-      <h1>DG Bot — Vendas &amp; métricas</h1>
-      <form class="logout" method="POST" action="/admin/logout">
-        <button type="submit">Sair</button>
-      </form>
-    </header>
+<%- include("partials/header", { title: "Dashboard", active: "dashboard" }) %>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .card .label { font-size: 0.8rem; color: #8a8f9c; margin-bottom: 6px; }
+  .card .value { font-size: 1.5rem; font-weight: 600; color: #fff; }
+  .card.paid .value { color: #4ade80; }
+  .card.pending .value { color: #facc15; }
+  .card.refused .value { color: #f87171; }
+  section { overflow-x: auto; }
+  table { min-width: 560px; }
+  td, th { white-space: nowrap; }
+  .status { padding: 2px 8px; border-radius: 999px; font-size: 0.75rem; }
+  .status-PAID { background: rgba(74,222,128,0.15); color: #4ade80; }
+  .status-PENDING { background: rgba(250,204,21,0.15); color: #facc15; }
+  .status-REFUSED { background: rgba(248,113,113,0.15); color: #f87171; }
+  .status-EXPIRED { background: rgba(148,163,184,0.15); color: #94a3b8; }
+  canvas { max-height: 220px; }
+</style>
 
-    <div class="stats">
-      <div class="card paid">
-        <div class="label">Receita aprovada</div>
-        <div class="value"><%= formatBRL(revenueCents) %></div>
-      </div>
-      <div class="card paid">
-        <div class="label">Vendas aprovadas</div>
-        <div class="value"><%= counts.PAID %></div>
-      </div>
-      <div class="card pending">
-        <div class="label">Pendentes</div>
-        <div class="value"><%= counts.PENDING %></div>
-      </div>
-      <div class="card refused">
-        <div class="label">Recusadas/expiradas</div>
-        <div class="value"><%= counts.REFUSED + counts.EXPIRED %></div>
-      </div>
-      <div class="card">
-        <div class="label">Leads</div>
-        <div class="value"><%= leadCount %></div>
-      </div>
-      <div class="card">
-        <div class="label">Taxa de conversão</div>
-        <div class="value"><%= conversionRate.toFixed(1) %>%</div>
-      </div>
-    </div>
-
-    <section>
-      <h2>Cobranças por dia (últimos 14 dias)</h2>
-      <canvas id="dailyChart"></canvas>
-    </section>
-
-    <section>
-      <h2>Últimas cobranças</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>Data</th>
-            <th>Produto</th>
-            <th>Lead</th>
-            <th>Origem</th>
-            <th>Valor</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          <% recentOrders.forEach(function(o) { %>
-            <tr>
-              <td><%= new Date(o.createdAt).toLocaleString("pt-BR") %></td>
-              <td><%= o.product.name %></td>
-              <td><%= o.lead.username ? "@" + o.lead.username : o.lead.firstName || o.leadId %></td>
-              <td><%= o.origin ? o.origin.label : "—" %></td>
-              <td><%= formatBRL(o.amountCents) %></td>
-              <td><span class="status status-<%= o.status %>"><%= o.status %></span></td>
-            </tr>
-          <% }); %>
-          <% if (recentOrders.length === 0) { %>
-            <tr><td colspan="6" style="color:#8a8f9c;">Nenhuma cobrança registrada ainda.</td></tr>
-          <% } %>
-        </tbody>
-      </table>
-    </section>
+<div class="stats">
+  <div class="card paid">
+    <div class="label">Receita aprovada</div>
+    <div class="value"><%= formatBRL(revenueCents) %></div>
   </div>
+  <div class="card paid">
+    <div class="label">Vendas aprovadas</div>
+    <div class="value"><%= counts.PAID %></div>
+  </div>
+  <div class="card pending">
+    <div class="label">Pendentes</div>
+    <div class="value"><%= counts.PENDING %></div>
+  </div>
+  <div class="card refused">
+    <div class="label">Recusadas/expiradas</div>
+    <div class="value"><%= counts.REFUSED + counts.EXPIRED %></div>
+  </div>
+  <div class="card">
+    <div class="label">Leads</div>
+    <div class="value"><%= leadCount %></div>
+  </div>
+  <div class="card">
+    <div class="label">Taxa de conversão</div>
+    <div class="value"><%= conversionRate.toFixed(1) %>%</div>
+  </div>
+</div>
 
-  <script>
-    const dailyOrders = <%- JSON.stringify(dailyOrders) %>;
-    const ctx = document.getElementById("dailyChart");
-    new Chart(ctx, {
-      type: "bar",
-      data: {
-        labels: dailyOrders.map(d => new Date(d.day).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })),
-        datasets: [{
-          label: "Cobranças",
-          data: dailyOrders.map(d => d.count),
-          backgroundColor: "#4f7dfb",
-          borderRadius: 4,
-        }],
+<section>
+  <h2>Cobranças por dia (últimos 14 dias)</h2>
+  <canvas id="dailyChart"></canvas>
+</section>
+
+<section>
+  <h2>Últimas cobranças</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Data</th>
+        <th>Produto</th>
+        <th>Lead</th>
+        <th>Origem</th>
+        <th>Valor</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% recentOrders.forEach(function(o) { %>
+        <tr>
+          <td><%= new Date(o.createdAt).toLocaleString("pt-BR") %></td>
+          <td><%= o.product.name %></td>
+          <td><%= o.lead.username ? "@" + o.lead.username : o.lead.firstName || o.leadId %></td>
+          <td><%= o.origin ? o.origin.label : "—" %></td>
+          <td><%= formatBRL(o.amountCents) %></td>
+          <td><span class="status status-<%= o.status %>"><%= o.status %></span></td>
+        </tr>
+      <% }); %>
+      <% if (recentOrders.length === 0) { %>
+        <tr><td colspan="6" class="empty">Nenhuma cobrança registrada ainda.</td></tr>
+      <% } %>
+    </tbody>
+  </table>
+</section>
+
+<script>
+  const dailyOrders = <%- JSON.stringify(dailyOrders) %>;
+  const ctx = document.getElementById("dailyChart");
+  new Chart(ctx, {
+    type: "bar",
+    data: {
+      labels: dailyOrders.map(d => new Date(d.day).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })),
+      datasets: [{
+        label: "Cobranças",
+        data: dailyOrders.map(d => d.count),
+        backgroundColor: "#4f7dfb",
+        borderRadius: 4,
+      }],
+    },
+    options: {
+      animation: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: "#8a8f9c" } },
+        y: { beginAtZero: true, ticks: { color: "#8a8f9c", precision: 0 } },
       },
-      options: {
-        animation: false,
-        plugins: { legend: { display: false } },
-        scales: {
-          x: { grid: { display: false }, ticks: { color: "#8a8f9c" } },
-          y: { beginAtZero: true, ticks: { color: "#8a8f9c", precision: 0 } },
-        },
-      },
-    });
-  </script>
-</body>
-</html>
+    },
+  });
+</script>
+<%- include("partials/footer") %>

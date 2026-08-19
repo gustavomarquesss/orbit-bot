@@ -5,6 +5,8 @@ import pg from "pg";
 import { timingSafeEqual } from "node:crypto";
 import { prisma } from "../db/client.js";
 import { config } from "../config.js";
+import { createFlowsRouter } from "./flowsRoutes.js";
+import { createProductsRouter } from "./productsRoutes.js";
 
 // Pool dedicado do connect-pg-simple (ele gerencia sua própria tabela de
 // sessões, "session", criada automaticamente com createTableIfMissing).
@@ -77,6 +79,9 @@ export function createAdminRouter(): Router {
   });
 
   router.use(requireAuth);
+
+  router.use("/flows", createFlowsRouter());
+  router.use("/products", createProductsRouter());
 
   router.get("/", async (_req, res) => {
     const [statusCounts, revenueAgg, leadCount, buyerCount, recentOrders, dailyOrdersRaw] =

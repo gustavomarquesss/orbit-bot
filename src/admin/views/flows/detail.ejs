@@ -1,0 +1,138 @@
+<%- include("../partials/header", { title: flow.name, active: "flows" }) %>
+
+<div class="actions" style="margin-bottom: 20px;">
+  <a class="btn secondary" href="/admin/flows">&larr; Todos os fluxos</a>
+</div>
+
+<section>
+  <h2>Dados do fluxo</h2>
+  <form method="POST" action="/admin/flows/<%= flow.id %>">
+    <label>Chave</label>
+    <input type="text" value="<%= flow.key %>" disabled />
+    <div class="hint">A chave não pode ser alterada depois de criada (outros botões podem apontar pra ela).</div>
+
+    <label for="name">Nome</label>
+    <input type="text" id="name" name="name" required value="<%= flow.name %>" />
+
+    <label for="description">Descrição</label>
+    <textarea id="description" name="description"><%= flow.description || "" %></textarea>
+
+    <div class="checkbox-row">
+      <input type="checkbox" id="isEntryPoint" name="isEntryPoint" <%= flow.isEntryPoint ? "checked" : "" %> />
+      <label for="isEntryPoint">Este é o fluxo de entrada (roda no /start)</label>
+    </div>
+
+    <div class="actions">
+      <button class="btn" type="submit">Salvar</button>
+    </div>
+  </form>
+</section>
+
+<section>
+  <h2>Passos da conversa</h2>
+
+  <% flow.steps.forEach(function(step, idx) { %>
+    <div class="step-block">
+      <h3>Passo <%= idx + 1 %></h3>
+      <form method="POST" action="/admin/flows/<%= flow.id %>/steps/<%= step.id %>">
+        <label>Texto da mensagem</label>
+        <textarea name="text"><%= step.text || "" %></textarea>
+
+        <label>Mídia (opcional)</label>
+        <select name="mediaType">
+          <% ["NONE","PHOTO","VIDEO","AUDIO","DOCUMENT"].forEach(function(t) { %>
+            <option value="<%= t %>" <%= step.mediaType === t ? "selected" : "" %>><%= t %></option>
+          <% }); %>
+        </select>
+        <input type="text" name="mediaFileId" value="<%= step.mediaFileId || "" %>" placeholder="file_id do Telegram (se houver mídia)" style="margin-top:8px;" />
+        <div class="hint">Pra pegar o file_id: envie a mídia pro bot (ou pra um bot auxiliar) e capture o retorno da API.</div>
+
+        <div class="actions">
+          <button class="btn small" type="submit">Salvar passo</button>
+        </div>
+      </form>
+      <form method="POST" action="/admin/flows/<%= flow.id %>/steps/<%= step.id %>/delete" class="inline-form" onsubmit="return confirm('Excluir este passo e todos os seus botões?');">
+        <button class="btn small danger" type="submit" style="margin-top:8px;">Excluir passo</button>
+      </form>
+
+      <h3 style="margin-top:18px;">Botões</h3>
+      <% step.buttons.forEach(function(btn) { %>
+        <div class="button-row">
+          <span>
+            <strong><%= btn.label %></strong>
+            — <%= btn.action %>
+            <% if (btn.action === "GOTO_FLOW") { %>→ <code><%= btn.targetFlowKey %></code><% } %>
+            <% if (btn.action === "BUY_PRODUCT") { %>→ <%= (products.find(p => p.id === btn.productId) || {}).name || btn.productId %><% } %>
+            <% if (btn.action === "OPEN_LINK" || btn.action === "REDIRECT_CHANNEL") { %>→ <%= btn.url %><% } %>
+          </span>
+          <form method="POST" action="/admin/flows/<%= flow.id %>/steps/<%= step.id %>/buttons/<%= btn.id %>/delete" onsubmit="return confirm('Excluir este botão?');">
+            <button class="btn small danger" type="submit">Excluir</button>
+          </form>
+        </div>
+      <% }); %>
+      <% if (step.buttons.length === 0) { %><p class="empty">Nenhum botão neste passo.</p><% } %>
+
+      <details style="margin-top:12px;">
+        <summary style="cursor:pointer; color:#4f7dfb; font-size:0.9rem;">+ Adicionar botão</summary>
+        <form method="POST" action="/admin/flows/<%= flow.id %>/steps/<%= step.id %>/buttons" style="margin-top:10px;">
+          <label>Texto do botão</label>
+          <input type="text" name="label" required placeholder="Comprar agora" />
+
+          <label>Ação</label>
+          <select name="action" onchange="this.form.target_hint.value=''">
+            <option value="GOTO_FLOW">Ir para outro fluxo</option>
+            <option value="BUY_PRODUCT">Vender produto (gera PIX)</option>
+            <option value="OPEN_LINK">Abrir link</option>
+            <option value="REDIRECT_CHANNEL">Redirecionar para canal</option>
+          </select>
+
+          <label>Destino</label>
+          <input type="text" name="target" placeholder="chave do fluxo, id do produto, ou URL" list="target-options" />
+          <datalist id="target-options">
+            <% allFlows.forEach(function(f) { %><option value="<%= f.key %>">fluxo: <%= f.name %></option><% }); %>
+            <% products.forEach(function(p) { %><option value="<%= p.id %>">produto: <%= p.name %></option><% }); %>
+          </datalist>
+          <div class="hint">
+            "Ir para outro fluxo" → chave do fluxo. "Vender produto" → escolha o produto na lista (autocomplete). "Abrir link"/"Redirecionar" → URL completa.
+          </div>
+
+          <div class="actions">
+            <button class="btn small" type="submit">Adicionar botão</button>
+          </div>
+        </form>
+      </details>
+    </div>
+  <% }); %>
+
+  <% if (flow.steps.length === 0) { %><p class="empty">Nenhum passo ainda — adicione o primeiro abaixo.</p><% } %>
+
+  <details <%= flow.steps.length === 0 ? "open" : "" %>>
+    <summary style="cursor:pointer; color:#4f7dfb;">+ Adicionar passo</summary>
+    <form method="POST" action="/admin/flows/<%= flow.id %>/steps" style="margin-top:10px;">
+      <label>Texto da mensagem</label>
+      <textarea name="text" placeholder="Olá! Bem-vindo(a)."></textarea>
+
+      <label>Mídia (opcional)</label>
+      <select name="mediaType">
+        <option value="NONE">Nenhuma</option>
+        <option value="PHOTO">Foto</option>
+        <option value="VIDEO">Vídeo</option>
+        <option value="AUDIO">Áudio</option>
+        <option value="DOCUMENT">Documento</option>
+      </select>
+      <input type="text" name="mediaFileId" placeholder="file_id do Telegram (se houver mídia)" style="margin-top:8px;" />
+
+      <div class="actions">
+        <button class="btn" type="submit">Adicionar passo</button>
+      </div>
+    </form>
+  </details>
+</section>
+
+<section>
+  <form method="POST" action="/admin/flows/<%= flow.id %>/delete" onsubmit="return confirm('Excluir este fluxo inteiro, com todos os passos e botões?');">
+    <button class="btn danger" type="submit">Excluir fluxo</button>
+  </form>
+</section>
+
+<%- include("../partials/footer") %>
