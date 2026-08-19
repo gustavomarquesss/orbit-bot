@@ -4,12 +4,37 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>DG Bot — Login</title>
+  <script>
+    (function () {
+      var saved = localStorage.getItem("dgbot-theme");
+      var theme = saved === "light" || saved === "dark" ? saved : "dark";
+      document.documentElement.setAttribute("data-theme", theme);
+    })();
+  </script>
   <style>
+    :root {
+      --bg: #0f1115;
+      --surface: #1a1d24;
+      --border: #2c303a;
+      --text-strong: #ffffff;
+      --accent: #e11d48;
+      --accent-hover: #be123c;
+      --danger: #ff6b6b;
+    }
+    :root[data-theme="light"] {
+      --bg: #f5f5f7;
+      --surface: #ffffff;
+      --border: #dfe1e6;
+      --text-strong: #0f1115;
+      --accent: #e11d48;
+      --accent-hover: #be123c;
+      --danger: #dc2626;
+    }
     * { box-sizing: border-box; }
     body {
       font-family: -apple-system, system-ui, sans-serif;
-      background: #0f1115;
-      color: #e6e6e6;
+      background: var(--bg);
+      color: var(--text-strong);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -18,21 +43,21 @@
       padding: 16px;
     }
     form {
-      background: #1a1d24;
+      background: var(--surface);
       padding: 32px;
       border-radius: 12px;
       width: 100%;
       max-width: 340px;
       box-shadow: 0 10px 30px rgba(0,0,0,0.3);
     }
-    h1 { font-size: 1.1rem; margin: 0 0 20px; color: #fff; }
+    h1 { font-size: 1.1rem; margin: 0 0 20px; color: var(--text-strong); }
     input {
       width: 100%;
       padding: 10px 12px;
       border-radius: 8px;
-      border: 1px solid #2c303a;
-      background: #0f1115;
-      color: #fff;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text-strong);
       font-size: 1rem;
       margin-bottom: 12px;
     }
@@ -41,13 +66,13 @@
       padding: 10px 12px;
       border-radius: 8px;
       border: none;
-      background: #4f7dfb;
+      background: var(--accent);
       color: #fff;
       font-size: 1rem;
       cursor: pointer;
     }
-    button:hover { background: #3d68e0; }
-    .error { color: #ff6b6b; font-size: 0.9rem; margin-bottom: 12px; }
+    button:hover { background: var(--accent-hover); }
+    .error { color: var(--danger); font-size: 0.9rem; margin-bottom: 12px; }
   </style>
 </head>
 <body>
