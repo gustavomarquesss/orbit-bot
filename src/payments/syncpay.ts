@@ -256,6 +256,61 @@ export async function createCharge(
   };
 }
 
+interface RawTransactionResponse {
+  data?: {
+    status?: string;
+  };
+}
+
+/**
+ * Consulta o status atual de uma cobrança diretamente na SyncPay. Usado pelo
+ * polling de reconciliação (src/payments/reconciliation.ts) — não depende do
+ * webhook deles chegar, que na prática nunca chegou no primeiro pagamento
+ * real testado (ver PROJECT_STATE.md, 2026-08-19), apesar do endpoint de
+ * webhook local funcionar (confirmado via chamada direta).
+ * Endpoint e formato de resposta confirmados em teste real:
+ *   GET /api/partner/v1/transaction/{identifier}
+ *   → { data: { reference_id, currency, amount, status, description, pix_code } }
+ */
+export async function getTransactionStatus(externalId: string): Promise<string | undefined> {
+  const accessToken = await getAccessToken();
+  const endpoint = new URL(
+    `/api/partner/v1/transaction/${encodeURIComponent(externalId)}`,
+    config.SYNCPAY_API_BASE_URL
+  ).toString();
+
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  } catch (err) {
+    throw new SyncPayError("Falha de rede ao consultar status na SyncPay.", "network", err);
+  }
+
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch (err) {
+    throw new SyncPayError(
+      `Resposta de status inválida da SyncPay (HTTP ${response.status}).`,
+      "gateway",
+      err
+    );
+  }
+
+  if (!response.ok) {
+    throw new SyncPayError(
+      `SyncPay recusou a consulta de status: ${extractErrorMessage(payload) ?? `HTTP ${response.status}`}`,
+      response.status >= 500 ? "gateway" : "validation",
+      payload
+    );
+  }
+
+  return (payload as RawTransactionResponse).data?.status;
+}
+
 export type NormalizedChargeStatus = "PAID" | "REFUSED" | "EXPIRED" | "PENDING" | "UNKNOWN";
 
 const PAID_TOKENS = ["PAID", "APPROVED", "COMPLETED", "CONFIRMED", "SUCCESS"];

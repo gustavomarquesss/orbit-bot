@@ -59,20 +59,37 @@ cor de botão via Business API (funcionalidade real do Telegram, não do
 painel — só funciona em contas com Business Premium), abstração de
 múltiplos gateways de pagamento com fallback automático.
 
-**Pendente antes de considerar a Fase 1 "pronta pra valer"**: confirmar a
-aprovação real do pagamento (webhook PAID) — o PIX já é gerado e a cobrança
-aparece PENDING tanto no painel quanto no dashboard da SyncPay (testado em
-2026-08-19 pelo usuário, plano de R$1,00). Falta só confirmar que o webhook
-de aprovação chega e dispara entrega + `notifyLeadOfApproval`.
+**Fase 1 validada de ponta a ponta em 2026-08-19**: `/start` → CTA → plano →
+PIX real de R$1,00 → pagamento confirmado (status PAID) → sem erro de
+entrega/notificação nos logs. Primeiro pagamento real completo do projeto.
 
-**Bug encontrado e corrigido em 2026-08-19**: `createCharge` (
-`src/payments/syncpay.ts`) mandava `amount: amountCents` direto pro campo
-`amount` da SyncPay, assumindo que era em centavos. Não é — é em reais. Um
-plano de R$1,00 (`priceCents: 100`) gerava uma cobrança real de R$100,00 na
-SyncPay (confirmado no dashboard deles pelo usuário). Corrigido para
+**Bug 1 corrigido em 2026-08-19**: `createCharge` (`src/payments/syncpay.ts`)
+mandava `amount: amountCents` direto pro campo `amount` da SyncPay,
+assumindo que era em centavos. Não é — é em reais. Um plano de R$1,00
+(`priceCents: 100`) gerava uma cobrança real de R$100,00 na SyncPay
+(confirmado no dashboard deles pelo usuário). Corrigido para
 `amount: amountCents / 100`, com teste de regressão em
 `src/payments/__tests__/syncpay.test.ts` que verifica o corpo da requisição
 enviada.
+
+**Bug 2 corrigido em 2026-08-19 — postback da SyncPay nunca chega**: no
+primeiro pagamento real completo, o Order ficou PENDING pra sempre — o
+pagamento aprovou no dashboard da SyncPay mas nosso endpoint
+`/webhooks/syncpay` nunca foi chamado (confirmado que o endpoint funciona
+normalmente via `curl` direto). Sem doc oficial confirmando o mecanismo de
+entrega de webhook deles (já era um ponto em aberto), a causa mais provável
+é que `postbackUrl` no body do `cash-in` não é o campo que eles realmente
+usam pra registrar callback (pode exigir configuração no dashboard deles —
+ainda não verificado). **Mitigação implementada**: polling de reconciliação
+(`src/payments/reconciliation.ts`, `startReconciliationPolling`, chamado em
+`server.ts`, intervalo de 20s) — varre Orders PENDING e consulta
+`GET /transaction/:id` diretamente, aplicando a mesma lógica de
+transição/entrega do webhook (extraída pra `src/payments/orderStatus.ts`,
+compartilhada entre webhook e polling, idempotente). Testado e confirmado
+funcionando: pegou o pagamento pendente e marcou PAID sozinho, sem depender
+do webhook. **Ainda pendente**: confirmar com a SyncPay (dashboard/suporte)
+como registrar o webhook de verdade — o polling cobre o caso, mas 20s de
+atraso não é ideal como solução definitiva de produção.
 
 ## Protocolo de trabalho (feedback explícito do usuário, 2026-08-19)
 
@@ -257,17 +274,19 @@ o projeto estabilizar.
 
 ## Pendente (ver task list da sessão para detalhes)
 
-- [ ] **Resolver o limite `max_cashin_without_fee` na conta SyncPay do
-      usuário** — bloqueador pra testar um pagamento real de ponta a ponta
-      (o código está pronto, só falta a conta aceitar a cobrança). Usuário
-      precisa checar o painel/suporte da SyncPay.
-- [ ] **Confirmar o payload real de um webhook de pagamento confirmado** —
-      não foi possível completar um pagamento real ainda (bloqueado pelo item
-      acima). `normalizeChargeStatus` em `syncpay.ts` é uma aproximação
-      tolerante (substring matching) até isso ser validado.
-- [ ] **Confirmar o mecanismo real de assinatura do webhook** — nenhuma doc
-      acessível documentou isso; continua em shared-secret via query string
-      como fallback funcional.
+- [x] ~~Resolver o limite `max_cashin_without_fee`~~ — não bloqueou o
+      pagamento de R$1,00 testado em 2026-08-19 (ficar de olho se voltar a
+      aparecer em valores maiores).
+- [x] ~~Confirmar o payload real de um webhook de pagamento confirmado~~ —
+      **não confirmado porque o webhook da SyncPay nunca chegou** (ver bug 2,
+      seção "Fase 1" acima). Coberto por polling de reconciliação em vez
+      disso. `normalizeChargeStatus` continua sendo aproximação tolerante.
+- [ ] **Descobrir como registrar o webhook de verdade na SyncPay** —
+      `postbackUrl` no body do `cash-in` não disparou nenhuma chamada pro
+      nosso endpoint (testado e confirmado que o endpoint funciona). Precisa
+      checar o dashboard/suporte da SyncPay por uma configuração de webhook
+      separada. Enquanto isso, o polling de reconciliação (20s) cobre o caso
+      — não é bloqueador, só não é ideal pra produção (latência de até 20s).
 - [ ] Contratar a VPS (usuário pediu recomendação, referência Hetzner CX22
       ~€5-8/mês) e registrar um domínio/subdomínio (usuário ainda não tem um
       — obrigatório pro Caddy emitir TLS). Sem isso, não dá pra fazer o

@@ -1,10 +1,10 @@
 import crypto from "node:crypto";
 import express, { type Request, type Response } from "express";
-import type { OrderStatus, Prisma } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 import { config } from "../config.js";
 import { prisma } from "../db/client.js";
 import { normalizeChargeStatus } from "./syncpay.js";
-import { deliverPlanToLead, notifyAdminOfSale, notifyLeadOfApproval } from "../bot/delivery.js";
+import { applyNormalizedStatus, findOrderByChargeId } from "./orderStatus.js";
 
 const PROVIDER = "syncpay";
 
@@ -97,13 +97,7 @@ export async function handleSyncpayWebhook(req: Request, res: Response): Promise
           data: { provider: PROVIDER, externalId, payload: payload as Prisma.InputJsonValue },
         });
 
-    const order = await prisma.order.findUnique({
-      where: { syncpayChargeId: externalId },
-      include: {
-        lead: true,
-        plan: { include: { flow: { include: { welcomeConfig: true, paymentMessages: true } } } },
-      },
-    });
+    const order = await findOrderByChargeId(externalId);
 
     if (!order) {
       console.error(
@@ -118,69 +112,12 @@ export async function handleSyncpayWebhook(req: Request, res: Response): Promise
     }
 
     const normalizedStatus = normalizeChargeStatus(extractStatus(payload));
-    const wasAlreadyPaid = order.status === "PAID";
-
-    let nextStatus: OrderStatus = order.status;
-    if (normalizedStatus === "PAID") nextStatus = "PAID";
-    else if (normalizedStatus === "REFUSED") nextStatus = "REFUSED";
-    else if (normalizedStatus === "EXPIRED") nextStatus = "EXPIRED";
-    // "PENDING" ou "UNKNOWN": mantém o status atual do Order — não regredimos
-    // um Order de PAID/REFUSED/EXPIRED de volta pra PENDING por um evento
-    // ambíguo, e não fazemos nada com status que não reconhecemos.
-
-    const updatedOrder = await prisma.order.update({
-      where: { id: order.id },
-      data: {
-        status: nextStatus,
-        paidAt: nextStatus === "PAID" && !order.paidAt ? new Date() : order.paidAt,
-        webhookEvents: { connect: { id: webhookEvent.id } },
-      },
-    });
 
     // Só entrega/notifica na transição PENDING -> PAID, nunca em reprocessamento
     // (garantido pelo early-return de `existing?.processedAt` acima) nem se o
-    // Order já estava PAID por um evento anterior.
-    if (nextStatus === "PAID" && !wasAlreadyPaid) {
-      const deliveryTarget = order.plan.customDeliveryTarget ?? order.plan.flow.welcomeConfig?.defaultDeliveryTarget;
-      if (!deliveryTarget && order.plan.deliveryType === "FILE") {
-        console.error(
-          `[syncpay-webhook] plano ${order.plan.id} é do tipo FILE mas não tem canal de entrega configurado (nem custom nem padrão do funil)`
-        );
-      } else {
-        try {
-          await deliverPlanToLead({
-            botId: order.botId,
-            leadTelegramId: order.lead.telegramId,
-            plan: order.plan,
-            deliveryTarget: deliveryTarget ?? "",
-          });
-        } catch (err) {
-          console.error("[syncpay-webhook] falha ao entregar plano", err);
-        }
-      }
-      try {
-        await notifyAdminOfSale({
-          botId: order.botId,
-          order: updatedOrder,
-          plan: order.plan,
-          lead: order.lead,
-        });
-      } catch (err) {
-        console.error("[syncpay-webhook] falha ao notificar admin", err);
-      }
-      try {
-        await notifyLeadOfApproval({
-          botId: order.botId,
-          leadTelegramId: order.lead.telegramId,
-          lead: order.lead,
-          plan: order.plan,
-          order: updatedOrder,
-          pixApprovedMessage: order.plan.flow.paymentMessages?.pixApprovedMessage,
-        });
-      } catch (err) {
-        console.error("[syncpay-webhook] falha ao notificar comprador da aprovação", err);
-      }
-    }
+    // Order já estava PAID por um evento anterior (ex: pego antes pelo
+    // polling de reconciliação — ver src/payments/reconciliation.ts).
+    await applyNormalizedStatus(order, normalizedStatus, { webhookEventId: webhookEvent.id });
 
     await prisma.webhookEvent.update({
       where: { id: webhookEvent.id },

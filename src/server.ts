@@ -4,7 +4,13 @@ import express from "express";
 import { config } from "./config.js";
 import { webhookRouter, loadAllBotsFromDb } from "./bot/botManager.js";
 import { syncpayWebhookRouter } from "./payments/webhook.js";
+import { startReconciliationPolling } from "./payments/reconciliation.js";
 import { createAdminRouter } from "./admin/routes.js";
+
+// Varredura de pedidos PENDING pra cobrir o caso do postback da SyncPay não
+// chegar (ver src/payments/reconciliation.ts). 20s é conservador o bastante
+// pra não pesar na API deles com poucos pedidos pendentes de cada vez.
+const RECONCILIATION_INTERVAL_MS = 20_000;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -29,6 +35,8 @@ async function main() {
   app.use(express.json());
   app.use("/webhooks/syncpay", syncpayWebhookRouter);
   app.use("/admin", createAdminRouter());
+
+  startReconciliationPolling(RECONCILIATION_INTERVAL_MS);
 
   app.listen(config.PORT, () => {
     console.log(`[server] ouvindo na porta ${config.PORT} (${config.NODE_ENV})`);
