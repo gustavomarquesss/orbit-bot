@@ -1,0 +1,29 @@
+<%- include("partials/header", { title: "Configurações", active: "settings" }) %>
+
+<section>
+  <h2>Canal de vendas</h2>
+  <p class="hint">
+    Toda venda aprovada, de todos os bots, manda uma notificação detalhada
+    (cliente, plano, valor, origem, IDs de transação etc) pra este canal ou
+    grupo do Telegram. O bot precisa ser membro do canal/grupo com permissão
+    de enviar mensagens.
+  </p>
+  <form method="POST" action="/admin/settings">
+    <label for="salesChannelId">ID do canal/grupo</label>
+    <input
+      type="text"
+      id="salesChannelId"
+      name="salesChannelId"
+      value="<%= settings.salesChannelId || '' %>"
+      placeholder="-1001234567890"
+    />
+    <div class="hint">
+      Deixe em branco pra usar o fallback antigo (mensagem direta pro
+      TELEGRAM_ADMIN_USER_ID configurado no servidor).
+    </div>
+    <div class="actions"><button class="btn" type="submit">Salvar</button></div>
+  </form>
+  <% if (saved) { %><p class="hint" style="color: var(--accent);">Salvo.</p><% } %>
+</section>
+
+<%- include("partials/footer") %>

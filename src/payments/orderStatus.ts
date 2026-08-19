@@ -80,6 +80,7 @@ export async function applyNormalizedStatus(
         await notifyAdminOfSale({
           botId: order.botId,
           order: updatedOrder,
+          item,
           plan,
           lead: order.lead,
         });

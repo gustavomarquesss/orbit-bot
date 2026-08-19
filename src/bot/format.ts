@@ -20,3 +20,16 @@ export function parseBooleanFlag(raw: string | undefined, defaultValue: boolean)
   if (!raw || !raw.trim()) return defaultValue;
   return /^(sim|s|true|1)$/i.test(raw.trim());
 }
+
+/**
+ * Formata a diferença entre duas datas como "0d 0h 3m 19s" — usado no canal
+ * de vendas rico pro campo "Tempo Conversão" (start do Lead até a compra).
+ */
+export function formatConversionDuration(from: Date, to: Date): string {
+  const totalSeconds = Math.max(0, Math.round((to.getTime() - from.getTime()) / 1000));
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return `${days}d ${hours}h ${minutes}m ${seconds}s`;
+}

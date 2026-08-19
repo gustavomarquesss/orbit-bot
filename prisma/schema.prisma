@@ -26,6 +26,17 @@ model Session {
   @@map("session")
 }
 
+/// Linha única (id fixo "singleton") de configurações globais do painel —
+/// hoje só o canal de vendas, mas o padrão fica pronto pra crescer sem
+/// precisar de variável de ambiente nova a cada config (evita redeploy).
+model Settings {
+  id             String  @id @default("singleton")
+  /// Canal/grupo do Telegram (id numérico, ex: "-1001234567890") que recebe
+  /// a notificação de toda venda aprovada de todos os bots. Nulo = cai no
+  /// fallback antigo (DM pro TELEGRAM_ADMIN_USER_ID).
+  salesChannelId String?
+}
+
 /// Fonte de tráfego rastreável: outro bot, canal, campanha etc.
 /// `param` é o valor usado no deep link t.me/seu_bot?start=param
 model Origin {
@@ -103,6 +114,11 @@ model Lead {
   username    String?
   firstName   String?
   lastName    String?
+  /// Código de idioma do cliente Telegram do usuário (ex: "pt-br", "en") —
+  /// vem de ctx.from.language_code, exibido no canal de vendas rico.
+  languageCode String?
+  /// ctx.from.is_premium — exibido no canal de vendas rico.
+  isPremium   Boolean  @default(false)
   originId    String?
   origin      Origin?  @relation(fields: [originId], references: [id])
   createdAt   DateTime @default(now())

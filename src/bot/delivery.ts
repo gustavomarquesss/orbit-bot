@@ -1,7 +1,7 @@
-import type { Order, Plan, Lead } from "@prisma/client";
+import type { Order, OrderItem, OrderItemKind, Plan, Lead } from "@prisma/client";
 import { getTelegraf } from "./botManager.js";
 import { prisma } from "../db/client.js";
-import { formatBRL } from "./format.js";
+import { formatBRL, formatConversionDuration } from "./format.js";
 import { renderTemplate } from "./templating.js";
 import { config } from "../config.js";
 
@@ -55,42 +55,69 @@ export async function deliverPlanToLead(params: {
   });
 }
 
+const ITEM_KIND_LABELS: Record<OrderItemKind, string> = {
+  BASE: "Plano Base",
+  ORDER_BUMP: "Order Bump",
+  UPSELL: "Upsell",
+  DOWNSELL: "Downsell",
+};
+
 /**
- * Envia alerta de venda aprovada pro TELEGRAM_ADMIN_USER_ID. `order.originId`
- * é resolvido aqui (via Prisma) porque o contrato de `notifyAdminOfSale` não
- * inclui a Origin diretamente — mantém a assinatura estável para quem chama.
+ * Envia o alerta de venda aprovada — um por OrderItem (Order Bump/Upsell
+ * viram "vendas" próprias, cada uma com sua Categoria). Vai pro canal
+ * configurado em Settings.salesChannelId (painel /admin/settings); se não
+ * configurado ainda, cai no DM antigo pro TELEGRAM_ADMIN_USER_ID.
+ * `order.originId` é resolvido aqui (via Prisma) porque o contrato de
+ * `notifyAdminOfSale` não inclui a Origin diretamente.
  */
 export async function notifyAdminOfSale(params: {
   botId: string;
   order: Order;
+  item: OrderItem;
   plan: Plan;
   lead: Lead;
 }): Promise<void> {
-  const { botId, order, plan, lead } = params;
+  const { botId, order, item, plan, lead } = params;
   const telegraf = getTelegraf(botId);
   if (!telegraf) {
     throw new Error(`notifyAdminOfSale: bot ${botId} não está registrado/ativo`);
   }
 
-  const leadLabel = lead.username
-    ? `@${lead.username}`
-    : [lead.firstName, lead.lastName].filter(Boolean).join(" ") || lead.telegramId.toString();
+  const [botRow, settings, origin] = await Promise.all([
+    prisma.bot.findUniqueOrThrow({ where: { id: botId } }),
+    prisma.settings.findUnique({ where: { id: "singleton" } }),
+    order.originId ? prisma.origin.findUnique({ where: { id: order.originId } }) : Promise.resolve(null),
+  ]);
 
-  const origin = order.originId
-    ? await prisma.origin.findUnique({ where: { id: order.originId } })
-    : null;
+  const target: number | string = settings?.salesChannelId ?? config.TELEGRAM_ADMIN_USER_ID;
+  const displayName = [lead.firstName, lead.lastName].filter(Boolean).join(" ") || "—";
+  const conversionTime = order.paidAt
+    ? formatConversionDuration(lead.createdAt, order.paidAt)
+    : "—";
 
   const lines = [
-    "Nova venda aprovada!",
-    `Plano: ${plan.name}`,
-    `Valor: ${formatBRL(order.amountCents)}`,
-    `Cliente: ${leadLabel} (id ${lead.telegramId.toString()})`,
+    "🎉 Pagamento Aprovado!",
+    `🤖 Bot: @${botRow.telegramUsername ?? "—"}`,
+    `⚙️ ID Bot: ${botRow.id}`,
+    `🆔 ID Cliente: ${lead.telegramId.toString()}`,
+    `🔗 Username: ${lead.username ? `@${lead.username}` : "—"}`,
+    `👤 Nome de Perfil: ${displayName}`,
+    `🌐 Idioma: ${lead.languageCode ?? "—"}`,
+    `⭐️ Telegram Premium: ${lead.isPremium ? "Sim" : "Não"}`,
+    `📦 Categoria: ${ITEM_KIND_LABELS[item.kind]}`,
+    `🎁 Plano: ${plan.name}`,
+    `📅 Duração: ${plan.durationDays ? `${plan.durationDays} dias` : "Avulso"}`,
+    `💰 Valor: ${formatBRL(item.unitPriceCents)}`,
+    `⏳ Tempo Conversão: ${conversionTime}`,
+    `🔖 Código de Venda: ${origin?.param ?? "start"}`,
+    `🔑 ID Transação Interna: ${order.id}`,
+    `🏷️ ID Transação Gateway: ${order.syncpayChargeId}`,
+    `💱 Tipo Moeda: BRL`,
+    `💳 Método Pagamento: pix`,
+    `🏦 Plataforma Pagamento: syncpay`,
   ];
-  if (origin) {
-    lines.push(`Origem: ${origin.label} (${origin.param})`);
-  }
 
-  await telegraf.telegram.sendMessage(config.TELEGRAM_ADMIN_USER_ID, lines.join("\n"));
+  await telegraf.telegram.sendMessage(target, lines.join("\n"));
 }
 
 /**

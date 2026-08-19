@@ -83,6 +83,26 @@ export function createAdminRouter(): Router {
   router.use("/bots", createBotsRouter());
   router.use("/flows", createFlowsRouter());
 
+  router.get("/settings", async (_req, res) => {
+    const settings = await prisma.settings.findUnique({ where: { id: "singleton" } });
+    res.render("settings", { settings: settings ?? { salesChannelId: null }, saved: false });
+  });
+
+  router.post("/settings", async (req, res) => {
+    const salesChannelId =
+      typeof req.body?.salesChannelId === "string" && req.body.salesChannelId.trim()
+        ? req.body.salesChannelId.trim()
+        : null;
+
+    const settings = await prisma.settings.upsert({
+      where: { id: "singleton" },
+      update: { salesChannelId },
+      create: { id: "singleton", salesChannelId },
+    });
+
+    res.render("settings", { settings, saved: true });
+  });
+
   router.get("/", async (_req, res) => {
     const [statusCounts, revenueAgg, leadCount, buyerCount, recentOrders, dailyOrdersRaw] =
       await Promise.all([

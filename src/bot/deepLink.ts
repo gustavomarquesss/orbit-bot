@@ -60,6 +60,8 @@ export async function resolveOriginAndUpsertLead(
         username: from.username ?? null,
         firstName: from.first_name ?? null,
         lastName: from.last_name ?? null,
+        languageCode: from.language_code ?? null,
+        isPremium: from.is_premium ?? false,
         lastSeenAt: new Date(),
       },
     });
@@ -78,6 +80,8 @@ export async function resolveOriginAndUpsertLead(
       username: from.username ?? null,
       firstName: from.first_name ?? null,
       lastName: from.last_name ?? null,
+      languageCode: from.language_code ?? null,
+      isPremium: from.is_premium ?? false,
       originId: origin?.id,
     },
   });
@@ -101,6 +105,8 @@ export async function touchLead(ctx: Context, botId: string): Promise<Lead | nul
       username: from.username ?? null,
       firstName: from.first_name ?? null,
       lastName: from.last_name ?? null,
+      languageCode: from.language_code ?? null,
+      isPremium: from.is_premium ?? false,
       lastSeenAt: new Date(),
     },
     create: {
@@ -109,6 +115,8 @@ export async function touchLead(ctx: Context, botId: string): Promise<Lead | nul
       username: from.username ?? null,
       firstName: from.first_name ?? null,
       lastName: from.last_name ?? null,
+      languageCode: from.language_code ?? null,
+      isPremium: from.is_premium ?? false,
     },
   });
 }
