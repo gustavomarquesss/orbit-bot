@@ -34,19 +34,35 @@ boas-vindas, planos, pagamentos) está em andamento.
 - Boas-vindas com variáveis (`{nome}`, `{saudacao}`, `{bot.username}`, etc —
   `src/bot/templating.ts`) renderizando de verdade no bot real.
 
-**Pendente da Fase 1** (ver plano completo pro detalhe):
-- UI pra vincular Flow↔Bot pelo painel (hoje só existe via script manual —
-  usado uma vez pra testar, não faz parte do produto).
-- Editor completo de Boas-vindas no painel (upload de mídia — só aceita
-  colar `file_id` hoje —, toolbar de texto rico, chips de variável, botões
-  de redirect, mini app).
-- Planos: CRUD completo no painel (nome, preço, duração, entrega).
-- Pagamentos: mensagens de PIX gerado/aprovado com preview ao vivo estilo
-  Telegram.
-- Documentar como "próxima fase" (fora do escopo agora): Upsell, Downsell,
-  Order Bump, Packs, Prévias autodestrutivas, Assinatura/renovação, Top
-  Assinantes, cor de botão via Business API, abstração de múltiplos
-  gateways com fallback.
+**Fase 1 completa** (todas as milestones do plano feitas e testadas no
+navegador com persistência real):
+- `/admin/flows/:id/bots` — vincula/desvincula bots ao funil (UI, não mais
+  script manual).
+- `/admin/flows/:id/welcome` — mídia (até 3, via `file_id` colado), editor
+  de texto com toolbar (B/I/U/S/code/quote) + chips de variável, CTA,
+  botões de redirect (até 3), mini app, canal-cofre padrão do funil.
+- `/admin/flows/:id/plans` — CRUD completo (nome, preço, duração em dias —
+  vazio = pagamento único, preenchido = assinatura —, cor de botão, entrega
+  FILE/LINK, entrega customizada por plano).
+- `/admin/flows/:id/payments` — mensagens de PIX gerado/aprovado com preview
+  ao vivo estilo bolha de chat do Telegram; `pixGeneratedMessage` já é usado
+  de verdade pelo bot (com fallback pro texto padrão se vazio), assim como
+  `pixApprovedMessage` (enviado ao comprador quando o webhook confirma o
+  pagamento).
+- Sidebar da tela de fluxo já mostra o mapa completo das seções futuras
+  (Upsell/Downsell/Order Bump/Packs/Prévias/Assinatura/Top Assinantes)
+  marcadas "em breve", sem implementação ainda.
+
+**Próxima fase (fora do escopo do plano atual)**: Upsell, Downsell, Order
+Bump, Packs, Prévias autodestrutivas, Assinatura/renovação, Top Assinantes,
+cor de botão via Business API (funcionalidade real do Telegram, não do
+painel — só funciona em contas com Business Premium), abstração de
+múltiplos gateways de pagamento com fallback automático.
+
+**Pendente antes de considerar a Fase 1 "pronta pra valer"**: testar a
+compra de ponta a ponta com os templates de pagamento customizados contra
+um pagamento real (segue bloqueado pelo limite `max_cashin_without_fee` da
+conta SyncPay — ver seção acima).
 
 ## Protocolo de trabalho (feedback explícito do usuário, 2026-08-19)
 
