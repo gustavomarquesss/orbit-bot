@@ -25,7 +25,11 @@ const lead = {
   lastName: "Berenguel",
   languageCode: "pt-br",
   isPremium: false,
-  createdAt: new Date("2026-08-19T10:00:00Z"),
+  // Bem antes do Order — simula um cliente recorrente (primeiro contato há
+  // horas). Regressão: "Tempo Conversão" não pode usar essa data, senão
+  // acusa horas de "conversão" pra uma compra que levou minutos (bug real
+  // reportado pelo usuário em 2026-08-19).
+  createdAt: new Date("2026-08-19T08:00:00Z"),
 };
 const plan = { id: "plan-1", name: "FOTOS E VÍDEOS", durationDays: null };
 const item = { id: "item-1", kind: "BASE" as const, unitPriceCents: 1771 };
@@ -34,6 +38,7 @@ const order = {
   botId: "bot1",
   originId: null,
   syncpayChargeId: "92097cb2-f1d5-4a22-aa9c-23084cbddcc8",
+  createdAt: new Date("2026-08-19T10:00:00Z"),
   paidAt: new Date("2026-08-19T10:03:19Z"),
 };
 

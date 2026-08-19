@@ -91,8 +91,11 @@ export async function notifyAdminOfSale(params: {
 
   const target: number | string = settings?.salesChannelId ?? config.TELEGRAM_ADMIN_USER_ID;
   const displayName = [lead.firstName, lead.lastName].filter(Boolean).join(" ") || "—";
+  // Do momento em que ESTE PIX foi gerado até ser pago — não de
+  // lead.createdAt (primeiro contato do lead, pode ser de dias/horas atrás
+  // pra um cliente recorrente, o que gerava um "Tempo Conversão" absurdo).
   const conversionTime = order.paidAt
-    ? formatConversionDuration(lead.createdAt, order.paidAt)
+    ? formatConversionDuration(order.createdAt, order.paidAt)
     : "—";
 
   const lines = [
