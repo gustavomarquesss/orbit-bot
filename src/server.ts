@@ -5,12 +5,16 @@ import { config } from "./config.js";
 import { webhookRouter, loadAllBotsFromDb } from "./bot/botManager.js";
 import { syncpayWebhookRouter } from "./payments/webhook.js";
 import { startReconciliationPolling } from "./payments/reconciliation.js";
+import { startUpsellScheduler } from "./bot/upsellScheduler.js";
 import { createAdminRouter } from "./admin/routes.js";
 
 // Varredura de pedidos PENDING pra cobrir o caso do postback da SyncPay não
 // chegar (ver src/payments/reconciliation.ts). 20s é conservador o bastante
 // pra não pesar na API deles com poucos pedidos pendentes de cada vez.
 const RECONCILIATION_INTERVAL_MS = 20_000;
+// Varredura de mensagens de Upsell agendadas (src/bot/upsellScheduler.ts).
+// 30s é preciso o bastante pra um atraso configurado em minutos.
+const UPSELL_SCHEDULER_INTERVAL_MS = 30_000;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -37,6 +41,7 @@ async function main() {
   app.use("/admin", createAdminRouter());
 
   startReconciliationPolling(RECONCILIATION_INTERVAL_MS);
+  startUpsellScheduler(UPSELL_SCHEDULER_INTERVAL_MS);
 
   app.listen(config.PORT, () => {
     console.log(`[server] ouvindo na porta ${config.PORT} (${config.NODE_ENV})`);

@@ -5,8 +5,6 @@ vi.mock("../db/client.js", () => ({
     bot: { findUniqueOrThrow: vi.fn() },
     settings: { findUnique: vi.fn() },
     origin: { findUnique: vi.fn() },
-    offer: { findMany: vi.fn() },
-    lead: { findFirst: vi.fn() },
   },
 }));
 
@@ -16,7 +14,7 @@ vi.mock("./botManager.js", () => ({
 }));
 
 import { prisma } from "../db/client.js";
-import { notifyAdminOfSale, offerUpsellIfAny } from "./delivery.js";
+import { notifyAdminOfSale } from "./delivery.js";
 
 const botRow = { id: "bot1", telegramUsername: "meu_bot" };
 const lead = {
@@ -126,38 +124,5 @@ describe("notifyAdminOfSale", () => {
 
     const message: string = sendMessage.mock.calls[0][1];
     expect(message).toContain("📅 Duração: 30 dias");
-  });
-});
-
-describe("offerUpsellIfAny", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    vi.mocked(prisma.bot.findUniqueOrThrow).mockResolvedValue(botRow as never);
-    vi.mocked(prisma.lead.findFirst).mockResolvedValue(lead as never);
-  });
-
-  it("não manda nada se não houver Upsell cadastrado pro plano comprado", async () => {
-    vi.mocked(prisma.offer.findMany).mockResolvedValue([]);
-
-    await offerUpsellIfAny("bot1", lead.telegramId, "plan-1");
-
-    expect(sendMessage).not.toHaveBeenCalled();
-  });
-
-  it("manda a oferta com botões Sim/Não quando existe um Upsell ativo", async () => {
-    const offeredPlan = { id: "plan-2", name: "Combo VIP", priceCents: 2990 };
-    vi.mocked(prisma.offer.findMany).mockResolvedValue([
-      { id: "offer-1", message: null, offeredPlan },
-    ] as never);
-
-    await offerUpsellIfAny("bot1", lead.telegramId, "plan-1");
-
-    expect(sendMessage).toHaveBeenCalledTimes(1);
-    const [chatId, text, opts] = sendMessage.mock.calls[0];
-    expect(chatId).toBe(Number(lead.telegramId));
-    expect(text).toContain("Combo VIP");
-    expect(opts.reply_markup.inline_keyboard).toHaveLength(2);
-    expect(opts.reply_markup.inline_keyboard[0][0].callback_data).toBe("ofYes:offer-1");
-    expect(opts.reply_markup.inline_keyboard[1][0].callback_data).toBe("ofNo:offer-1");
   });
 });

@@ -124,7 +124,8 @@ model Lead {
   createdAt   DateTime @default(now())
   lastSeenAt  DateTime @default(now())
 
-  orders Order[]
+  orders                Order[]
+  scheduledUpsellSends  ScheduledUpsellSend[]
 
   @@unique([telegramId, botId])
 }
@@ -142,6 +143,7 @@ model Flow {
   welcomeConfig   WelcomeConfig?
   paymentMessages PaymentMessages?
   plans           Plan[]
+  upsellSequence  UpsellSequence?
 }
 
 /// "Bots Vinculados" de um Flow — quais bots executam este funil.
@@ -243,23 +245,29 @@ model Plan {
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
 
-  orderItems      OrderItem[]
-  triggerOffers   Offer[]         @relation("OfferTrigger")
-  offeredInOffers Offer[]         @relation("OfferOffered")
+  orderItems           OrderItem[]
+  triggerOffers        Offer[]               @relation("OfferTrigger")
+  offeredInOffers      Offer[]               @relation("OfferOffered")
+  upsellMessagePlans   UpsellMessagePlan[]
+  upsellMessageButtons UpsellMessageButton[]
 }
 
 enum OfferKind {
   ORDER_BUMP
+  /// Não usado mais pelo runtime (Upsell virou UpsellSequence/UpsellMessage,
+  /// mais rico) — mantido no enum só pra não quebrar registros antigos/
+  /// migração; a UI de Ofertas não cria mais `Offer` deste kind.
   UPSELL
+  /// Idem — Downsell será redefinido (gatilho: PIX gerado e não pago
+  /// depois de N minutos, não mais "Upsell recusado"). Ainda não
+  /// implementado.
   DOWNSELL
 }
 
-/// Regra "quando o cliente compra/recusa X, ofereça Y". O que é ofertado
-/// (`offeredPlan`) é sempre um Plan normal — reaproveita preço/duração/
-/// entrega já existentes. Order Bump dispara na tela de confirmação antes
-/// do PIX (soma ao mesmo pagamento); Upsell dispara depois da entrega
-/// (novo PIX à parte); Downsell dispara quando um Upsell é recusado
-/// (`parentOfferId` aponta pro Upsell recusado).
+/// Regra "quando o cliente compra X, ofereça Y" — hoje só usada pelo Order
+/// Bump (dispara na tela de confirmação antes do PIX, soma ao mesmo
+/// pagamento). `offeredPlan` é sempre um Plan normal — reaproveita preço/
+/// duração/entrega já existentes.
 model Offer {
   id            String    @id @default(cuid())
   triggerPlanId String
@@ -281,6 +289,91 @@ model Offer {
   active        Boolean   @default(true)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+}
+
+/// Configuração de Upsell de um Flow — sequência de mensagens enviadas
+/// automaticamente depois de QUALQUER compra feita nesse funil (não mais
+/// vinculado a um plano-gatilho específico).
+model UpsellSequence {
+  id     String  @id @default(cuid())
+  flowId String  @unique
+  flow   Flow    @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  active Boolean @default(true)
+
+  messages UpsellMessage[]
+}
+
+/// Uma mensagem da sequência de Upsell — texto, atraso (minutos após a
+/// compra) e planos/botões próprios. Pode ter 0+ Planos anexados (exibidos
+/// no painel separados por "assinatura"/"pacote" conforme
+/// `Plan.durationDays`, mas é só agrupamento visual) e 0+ botões livres
+/// (compram um dos planos anexados, ou abrem um link).
+model UpsellMessage {
+  id           String         @id @default(cuid())
+  sequenceId   String
+  sequence     UpsellSequence @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  order        Int            @default(0)
+  text         String?
+  /// Minutos após a compra pra enviar esta mensagem (0 = imediato).
+  delayMinutes Int            @default(0)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  plans          UpsellMessagePlan[]
+  buttons        UpsellMessageButton[]
+  scheduledSends ScheduledUpsellSend[]
+}
+
+/// Um Plan anexado a uma UpsellMessage — só pra ficar disponível pros
+/// botões do tipo BUY_PLAN escolherem (o texto/preço já vem do Plan).
+model UpsellMessagePlan {
+  id        String        @id @default(cuid())
+  messageId String
+  message   UpsellMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  planId    String
+  plan      Plan          @relation(fields: [planId], references: [id], onDelete: Cascade)
+  order     Int           @default(0)
+
+  @@unique([messageId, planId])
+}
+
+enum UpsellButtonType {
+  BUY_PLAN
+  OPEN_LINK
+}
+
+/// Botão livre de uma UpsellMessage — texto editável, e o que faz ao
+/// clicar: BUY_PLAN reaproveita o fluxo normal de compra de um dos Planos
+/// anexados (gera PIX, cai no mesmo callback `plan:<id>` de sempre — inclui
+/// Order Bump se o plano alvo tiver bumps configurados); OPEN_LINK é só um
+/// link externo.
+model UpsellMessageButton {
+  id           String           @id @default(cuid())
+  messageId    String
+  message      UpsellMessage    @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  order        Int              @default(0)
+  text         String
+  type         UpsellButtonType
+  targetPlanId String?
+  targetPlan   Plan?            @relation(fields: [targetPlanId], references: [id], onDelete: Cascade)
+  url          String?
+}
+
+/// Um envio agendado de UpsellMessage pra um Lead específico — uma linha
+/// criada por mensagem da sequência no momento da compra, processada pelo
+/// scheduler (src/bot/upsellScheduler.ts) quando `sendAt` chega.
+model ScheduledUpsellSend {
+  id        String        @id @default(cuid())
+  messageId String
+  message   UpsellMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  leadId    String
+  lead      Lead          @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  botId     String
+  sendAt    DateTime
+  sentAt    DateTime?
+  createdAt DateTime      @default(now())
+
+  @@index([sendAt])
 }
 
 enum PaymentButtonStyle {

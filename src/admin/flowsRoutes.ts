@@ -294,12 +294,12 @@ export function createFlowsRouter(): Router {
     res.redirect(`/admin/flows/${flowId}/payments`);
   });
 
-  // --- Ofertas (Order Bump / Upsell / Downsell) ---
+  // --- Order Bump ---
 
   async function loadOffers(flowId: string) {
     return prisma.offer.findMany({
-      where: { triggerPlan: { flowId } },
-      include: { triggerPlan: true, offeredPlan: true, parentOffer: { include: { offeredPlan: true } } },
+      where: { triggerPlan: { flowId }, kind: "ORDER_BUMP" },
+      include: { triggerPlan: true, offeredPlan: true },
       orderBy: { order: "asc" },
     });
   }
@@ -308,40 +308,29 @@ export function createFlowsRouter(): Router {
     const flow = await loadFlow(req.params.id);
     if (!flow) return res.status(404).send("Fluxo não encontrado.");
     const offers = await loadOffers(flow.id);
-    res.render("flows/offers", {
-      flow,
-      offers,
-      upsellOffers: offers.filter((o) => o.kind === "UPSELL"),
-      error: null,
-    });
+    res.render("flows/offers", { flow, offers, error: null });
   });
 
   router.post("/:id/offers", async (req, res) => {
     const flowId = req.params.id;
-    const kind = String(req.body.kind ?? "ORDER_BUMP");
     const triggerPlanId = String(req.body.triggerPlanId ?? "").trim();
     const offeredPlanId = String(req.body.offeredPlanId ?? "").trim();
-    const parentOfferId = String(req.body.parentOfferId ?? "").trim() || null;
     const message = String(req.body.message ?? "").trim() || null;
     const acceptLabel = String(req.body.acceptLabel ?? "").trim() || null;
     const declineLabel = String(req.body.declineLabel ?? "").trim() || null;
 
-    if (!triggerPlanId || !offeredPlanId || (kind === "DOWNSELL" && !parentOfferId)) {
+    if (!triggerPlanId || !offeredPlanId) {
       const flow = await loadFlow(flowId);
       const offers = flow ? await loadOffers(flow.id) : [];
       return res.status(400).render("flows/offers", {
         flow,
         offers,
-        upsellOffers: offers.filter((o) => o.kind === "UPSELL"),
-        error:
-          kind === "DOWNSELL"
-            ? "Plano-gatilho, plano ofertado e o Upsell recusado são obrigatórios pra um Downsell."
-            : "Plano-gatilho e plano ofertado são obrigatórios.",
+        error: "Plano-gatilho e plano oferecido são obrigatórios.",
       });
     }
 
     const last = await prisma.offer.findFirst({
-      where: { triggerPlan: { flowId } },
+      where: { triggerPlan: { flowId }, kind: "ORDER_BUMP" },
       orderBy: { order: "desc" },
       select: { order: true },
     });
@@ -350,8 +339,7 @@ export function createFlowsRouter(): Router {
       data: {
         triggerPlanId,
         offeredPlanId,
-        kind: kind as never,
-        parentOfferId: kind === "DOWNSELL" ? parentOfferId : null,
+        kind: "ORDER_BUMP",
         message,
         acceptLabel,
         declineLabel,
@@ -373,6 +361,130 @@ export function createFlowsRouter(): Router {
   router.post("/:id/offers/:offerId/delete", async (req, res) => {
     await prisma.offer.delete({ where: { id: req.params.offerId } });
     res.redirect(`/admin/flows/${req.params.id}/offers`);
+  });
+
+  // --- Upsell (sequência de mensagens após qualquer compra do funil) ---
+
+  async function loadUpsellSequence(flowId: string) {
+    const sequence = await prisma.upsellSequence.upsert({
+      where: { flowId },
+      update: {},
+      create: { flowId },
+      include: {
+        messages: {
+          orderBy: { order: "asc" },
+          include: {
+            plans: { orderBy: { order: "asc" }, include: { plan: true } },
+            buttons: { orderBy: { order: "asc" }, include: { targetPlan: true } },
+          },
+        },
+      },
+    });
+    return sequence;
+  }
+
+  router.get("/:id/upsell", async (req, res) => {
+    const flow = await loadFlow(req.params.id);
+    if (!flow) return res.status(404).send("Fluxo não encontrado.");
+    const sequence = await loadUpsellSequence(flow.id);
+    res.render("flows/upsell", { flow, sequence, error: null });
+  });
+
+  router.post("/:id/upsell", async (req, res) => {
+    const flowId = req.params.id;
+    const active = req.body.active === "on";
+    await prisma.upsellSequence.upsert({
+      where: { flowId },
+      update: { active },
+      create: { flowId, active },
+    });
+    res.redirect(`/admin/flows/${flowId}/upsell`);
+  });
+
+  router.post("/:id/upsell/messages", async (req, res) => {
+    const flowId = req.params.id;
+    const sequence = await prisma.upsellSequence.upsert({
+      where: { flowId },
+      update: {},
+      create: { flowId },
+    });
+    const last = await prisma.upsellMessage.findFirst({
+      where: { sequenceId: sequence.id },
+      orderBy: { order: "desc" },
+      select: { order: true },
+    });
+    await prisma.upsellMessage.create({
+      data: { sequenceId: sequence.id, order: nextOrder(last?.order) },
+    });
+    res.redirect(`/admin/flows/${flowId}/upsell`);
+  });
+
+  router.post("/:id/upsell/messages/:messageId", async (req, res) => {
+    const text = String(req.body.text ?? "").trim() || null;
+    const delayMinutes = Math.max(0, Number(req.body.delayMinutes ?? 0) || 0);
+    await prisma.upsellMessage.update({
+      where: { id: req.params.messageId },
+      data: { text, delayMinutes },
+    });
+    res.redirect(`/admin/flows/${req.params.id}/upsell`);
+  });
+
+  router.post("/:id/upsell/messages/:messageId/delete", async (req, res) => {
+    await prisma.upsellMessage.delete({ where: { id: req.params.messageId } });
+    res.redirect(`/admin/flows/${req.params.id}/upsell`);
+  });
+
+  router.post("/:id/upsell/messages/:messageId/plans", async (req, res) => {
+    const messageId = req.params.messageId;
+    const planId = String(req.body.planId ?? "").trim();
+    if (planId) {
+      const last = await prisma.upsellMessagePlan.findFirst({
+        where: { messageId },
+        orderBy: { order: "desc" },
+        select: { order: true },
+      });
+      await prisma.upsellMessagePlan
+        .create({ data: { messageId, planId, order: nextOrder(last?.order) } })
+        .catch(() => {}); // unique[messageId,planId] -- ignora se já estava anexado
+    }
+    res.redirect(`/admin/flows/${req.params.id}/upsell`);
+  });
+
+  router.post("/:id/upsell/messages/:messageId/plans/:linkId/delete", async (req, res) => {
+    await prisma.upsellMessagePlan.delete({ where: { id: req.params.linkId } });
+    res.redirect(`/admin/flows/${req.params.id}/upsell`);
+  });
+
+  router.post("/:id/upsell/messages/:messageId/buttons", async (req, res) => {
+    const messageId = req.params.messageId;
+    const text = String(req.body.text ?? "").trim();
+    const type = String(req.body.type ?? "BUY_PLAN");
+    const targetPlanId = String(req.body.targetPlanId ?? "").trim() || null;
+    const url = String(req.body.url ?? "").trim() || null;
+
+    if (text && ((type === "BUY_PLAN" && targetPlanId) || (type === "OPEN_LINK" && url))) {
+      const last = await prisma.upsellMessageButton.findFirst({
+        where: { messageId },
+        orderBy: { order: "desc" },
+        select: { order: true },
+      });
+      await prisma.upsellMessageButton.create({
+        data: {
+          messageId,
+          text,
+          type: type as never,
+          targetPlanId: type === "BUY_PLAN" ? targetPlanId : null,
+          url: type === "OPEN_LINK" ? url : null,
+          order: nextOrder(last?.order),
+        },
+      });
+    }
+    res.redirect(`/admin/flows/${req.params.id}/upsell`);
+  });
+
+  router.post("/:id/upsell/messages/:messageId/buttons/:buttonId/delete", async (req, res) => {
+    await prisma.upsellMessageButton.delete({ where: { id: req.params.buttonId } });
+    res.redirect(`/admin/flows/${req.params.id}/upsell`);
   });
 
   router.post("/:id/delete", async (req, res) => {

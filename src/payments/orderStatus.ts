@@ -1,6 +1,7 @@
 import type { OrderStatus, Prisma } from "@prisma/client";
 import { prisma } from "../db/client.js";
-import { deliverPlanToLead, notifyAdminOfSale, notifyLeadOfApproval, offerUpsellIfAny } from "../bot/delivery.js";
+import { deliverPlanToLead, notifyAdminOfSale, notifyLeadOfApproval } from "../bot/delivery.js";
+import { scheduleUpsellSequence } from "../bot/upsellScheduler.js";
 import type { NormalizedChargeStatus } from "./syncpay.js";
 
 export const ORDER_INCLUDE = {
@@ -54,6 +55,12 @@ export async function applyNormalizedStatus(
   });
 
   if (nextStatus === "PAID" && !wasAlreadyPaid) {
+    // Upsell é por Flow (dispara após QUALQUER compra do funil, não por
+    // plano específico) — agenda uma vez por Flow distinto entre os itens,
+    // não uma vez por item, senão base+bump do mesmo funil agendariam a
+    // mesma sequência duas vezes.
+    const scheduledFlowIds = new Set<string>();
+
     // Uma entrega/notificação por item — hoje todo Order tem exatamente 1
     // item (BASE), mas o shape já é o de vários itens (Order Bump, Fase 2
     // Milestone 4, cobra base + adicionais numa única cobrança).
@@ -99,10 +106,13 @@ export async function applyNormalizedStatus(
       } catch (err) {
         console.error("[order-status] falha ao notificar comprador da aprovação", err);
       }
-      try {
-        await offerUpsellIfAny(order.botId, order.lead.telegramId, plan.id);
-      } catch (err) {
-        console.error("[order-status] falha ao oferecer upsell", err);
+      if (!scheduledFlowIds.has(plan.flowId)) {
+        scheduledFlowIds.add(plan.flowId);
+        try {
+          await scheduleUpsellSequence(order.botId, order.leadId, plan.flowId);
+        } catch (err) {
+          console.error("[order-status] falha ao agendar sequência de upsell", err);
+        }
       }
     }
   }

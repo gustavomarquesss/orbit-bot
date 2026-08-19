@@ -1,27 +1,19 @@
 import { Markup, type Telegraf, type Context } from "telegraf";
 import type { InlineKeyboardButton } from "telegraf/types";
-import type { Lead, Offer, Plan, WelcomeConfig, WelcomeMedia, RedirectButton, Bot, OrderItemKind } from "@prisma/client";
+import type { Lead, Offer, Plan, WelcomeConfig, WelcomeMedia, RedirectButton, Bot } from "@prisma/client";
 import { prisma } from "../db/client.js";
 import { createOrderAndCharge, type OrderItemInput } from "../payments/orders.js";
 import { resolveOriginAndUpsertLead, touchLead } from "./deepLink.js";
 import { renderTemplate } from "./templating.js";
-import {
-  buildOfferKeyboard,
-  buildOfferText,
-  defaultAcceptLabel,
-  defaultDeclineLabel,
-  parseOfferAcceptId,
-  parseOfferDeclineId,
-} from "./offerMessage.js";
+import { buildOfferText, defaultAcceptLabel, defaultDeclineLabel } from "./offerMessage.js";
 
 type WelcomeWithRelations = WelcomeConfig & { media: WelcomeMedia[]; redirectButtons: RedirectButton[] };
 
 const CTA_CALLBACK = "cta";
-const PLAN_CALLBACK_PREFIX = "plan:";
+/** Também usado pelos botões BUY_PLAN do Upsell (src/bot/upsellScheduler.ts) — reaproveita este mesmo handler. */
+export const PLAN_CALLBACK_PREFIX = "plan:";
 export const BUMP_ACCEPT_PREFIX = "bmpA:";
 export const BUMP_DECLINE_PREFIX = "bmpD:";
-const OFFER_ACCEPT_PREFIX = "ofYes:";
-const OFFER_DECLINE_PREFIX = "ofNo:";
 
 async function getFlowForBot(botId: string) {
   const flowBot = await prisma.flowBot.findFirst({
@@ -334,55 +326,5 @@ export function registerFlowHandlers(bot: Telegraf, botId: string): void {
     if (!lead) return;
 
     await advanceOrderBumpFlow(ctx, botId, lead, parsed.planId, parsed.bitmask, parsed.index + 1);
-  });
-
-  bot.action(new RegExp(`^${OFFER_ACCEPT_PREFIX}.+`), async (ctx) => {
-    await ctx.answerCbQuery().catch(() => {});
-    const data = getCallbackData(ctx);
-    const offerId = data ? parseOfferAcceptId(data) : null;
-    if (!offerId) return;
-
-    const offer = await prisma.offer.findUnique({ where: { id: offerId } });
-    if (!offer || !offer.active) {
-      await ctx.reply("Essa oferta não está mais disponível.");
-      return;
-    }
-
-    const lead = await touchLead(ctx, botId);
-    if (!lead) return;
-
-    const kind: OrderItemKind = offer.kind === "DOWNSELL" ? "DOWNSELL" : "UPSELL";
-    await handleBuyItems(ctx, botId, lead, [{ planId: offer.offeredPlanId, kind }]);
-  });
-
-  bot.action(new RegExp(`^${OFFER_DECLINE_PREFIX}.+`), async (ctx) => {
-    await ctx.answerCbQuery().catch(() => {});
-    const data = getCallbackData(ctx);
-    const offerId = data ? parseOfferDeclineId(data) : null;
-    if (!offerId) return;
-
-    // Downsell encadeado só existe pra recusa de Upsell (não pra recusa de
-    // Downsell — evita corrente infinita de ofertas).
-    const offer = await prisma.offer.findUnique({ where: { id: offerId } });
-    if (offer?.kind === "UPSELL") {
-      const downsell = await prisma.offer.findFirst({
-        where: { kind: "DOWNSELL", parentOfferId: offer.id, active: true },
-        include: { offeredPlan: true },
-      });
-      if (downsell) {
-        const lead = await touchLead(ctx, botId);
-        if (lead) {
-          const botRow = await prisma.bot.findUniqueOrThrow({ where: { id: botId } });
-          const text = buildOfferText(downsell, downsell.offeredPlan, lead, botRow);
-          await ctx.reply(text, {
-            parse_mode: "HTML",
-            reply_markup: buildOfferKeyboard(downsell).reply_markup,
-          });
-        }
-        return;
-      }
-    }
-
-    await ctx.reply("Sem problemas!");
   });
 }

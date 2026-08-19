@@ -3,7 +3,6 @@ import { getTelegraf } from "./botManager.js";
 import { prisma } from "../db/client.js";
 import { formatBRL, formatConversionDuration } from "./format.js";
 import { renderTemplate } from "./templating.js";
-import { buildOfferKeyboard, buildOfferText } from "./offerMessage.js";
 import { config } from "../config.js";
 
 /**
@@ -152,41 +151,4 @@ export async function notifyLeadOfApproval(params: {
   });
 
   await telegraf.telegram.sendMessage(Number(leadTelegramId), text, { parse_mode: "HTML" });
-}
-
-/**
- * Chamado depois de uma entrega bem-sucedida (src/payments/orderStatus.ts,
- * um item por vez) — se houver Upsell(s) cadastrado(s) pro plano comprado,
- * manda a oferta como mensagem à parte. Fica aqui (não em flows.ts) porque
- * é um push fora de um `ctx` de bot.action — mesmo padrão de
- * `notifyLeadOfApproval`/`notifyAdminOfSale` acima, via `getTelegraf`.
- */
-export async function offerUpsellIfAny(
-  botId: string,
-  leadTelegramId: bigint,
-  purchasedPlanId: string
-): Promise<void> {
-  const offers = await prisma.offer.findMany({
-    where: { kind: "UPSELL", triggerPlanId: purchasedPlanId, active: true },
-    orderBy: { order: "asc" },
-    include: { offeredPlan: true },
-  });
-  if (offers.length === 0) return;
-
-  const telegraf = getTelegraf(botId);
-  if (!telegraf) return;
-
-  const [lead, botRow] = await Promise.all([
-    prisma.lead.findFirst({ where: { telegramId: leadTelegramId, botId } }),
-    prisma.bot.findUniqueOrThrow({ where: { id: botId } }),
-  ]);
-  if (!lead) return;
-
-  for (const offer of offers) {
-    const text = buildOfferText(offer, offer.offeredPlan, lead, botRow);
-    await telegraf.telegram.sendMessage(Number(leadTelegramId), text, {
-      parse_mode: "HTML",
-      reply_markup: buildOfferKeyboard(offer).reply_markup,
-    });
-  }
 }

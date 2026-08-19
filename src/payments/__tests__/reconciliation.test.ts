@@ -22,7 +22,10 @@ vi.mock("../../bot/delivery.js", () => ({
   deliverPlanToLead: vi.fn(),
   notifyAdminOfSale: vi.fn(),
   notifyLeadOfApproval: vi.fn(),
-  offerUpsellIfAny: vi.fn(),
+}));
+
+vi.mock("../../bot/upsellScheduler.js", () => ({
+  scheduleUpsellSequence: vi.fn(),
 }));
 
 import { prisma } from "../../db/client.js";
