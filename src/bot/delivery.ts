@@ -186,7 +186,7 @@ export async function offerUpsellIfAny(
     const text = buildOfferText(offer, offer.offeredPlan, lead, botRow);
     await telegraf.telegram.sendMessage(Number(leadTelegramId), text, {
       parse_mode: "HTML",
-      reply_markup: buildOfferKeyboard(offer.id).reply_markup,
+      reply_markup: buildOfferKeyboard(offer).reply_markup,
     });
   }
 }

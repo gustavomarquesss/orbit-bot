@@ -323,6 +323,8 @@ export function createFlowsRouter(): Router {
     const offeredPlanId = String(req.body.offeredPlanId ?? "").trim();
     const parentOfferId = String(req.body.parentOfferId ?? "").trim() || null;
     const message = String(req.body.message ?? "").trim() || null;
+    const acceptLabel = String(req.body.acceptLabel ?? "").trim() || null;
+    const declineLabel = String(req.body.declineLabel ?? "").trim() || null;
 
     if (!triggerPlanId || !offeredPlanId || (kind === "DOWNSELL" && !parentOfferId)) {
       const flow = await loadFlow(flowId);
@@ -351,6 +353,8 @@ export function createFlowsRouter(): Router {
         kind: kind as never,
         parentOfferId: kind === "DOWNSELL" ? parentOfferId : null,
         message,
+        acceptLabel,
+        declineLabel,
         order: nextOrder(last?.order),
       },
     });

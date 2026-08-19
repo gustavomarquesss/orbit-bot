@@ -273,6 +273,10 @@ model Offer {
   /// Texto do convite (HTML + variáveis, mesmo padrão de templating.ts).
   /// Vazio = usa um texto padrão genérico.
   message       String?
+  /// Texto dos botões de aceitar/recusar — vazio usa um padrão por `kind`
+  /// ("Sim, adicionar"/"Sim, quero" + "Não, obrigado").
+  acceptLabel   String?
+  declineLabel  String?
   order         Int       @default(0)
   active        Boolean   @default(true)
   createdAt     DateTime  @default(now())

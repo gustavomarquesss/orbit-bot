@@ -1,18 +1,25 @@
 import { Markup, type Telegraf, type Context } from "telegraf";
 import type { InlineKeyboardButton } from "telegraf/types";
-import type { Lead, Plan, WelcomeConfig, WelcomeMedia, RedirectButton, Bot, OrderItemKind } from "@prisma/client";
+import type { Lead, Offer, Plan, WelcomeConfig, WelcomeMedia, RedirectButton, Bot, OrderItemKind } from "@prisma/client";
 import { prisma } from "../db/client.js";
 import { createOrderAndCharge, type OrderItemInput } from "../payments/orders.js";
 import { resolveOriginAndUpsertLead, touchLead } from "./deepLink.js";
 import { renderTemplate } from "./templating.js";
-import { buildOfferKeyboard, buildOfferText, parseOfferAcceptId, parseOfferDeclineId } from "./offerMessage.js";
+import {
+  buildOfferKeyboard,
+  buildOfferText,
+  defaultAcceptLabel,
+  defaultDeclineLabel,
+  parseOfferAcceptId,
+  parseOfferDeclineId,
+} from "./offerMessage.js";
 
 type WelcomeWithRelations = WelcomeConfig & { media: WelcomeMedia[]; redirectButtons: RedirectButton[] };
 
 const CTA_CALLBACK = "cta";
 const PLAN_CALLBACK_PREFIX = "plan:";
-export const BUMP_TOGGLE_PREFIX = "bmp:";
-export const BUMP_CONFIRM_PREFIX = "bmpgo:";
+export const BUMP_ACCEPT_PREFIX = "bmpA:";
+export const BUMP_DECLINE_PREFIX = "bmpD:";
 const OFFER_ACCEPT_PREFIX = "ofYes:";
 const OFFER_DECLINE_PREFIX = "ofNo:";
 
@@ -179,28 +186,27 @@ async function handleBuyItems(ctx: Context, botId: string, lead: Lead, items: Or
   }
 }
 
-// --- Order Bump (tela de confirmação antes do PIX) ---
+// --- Order Bump (aceita/recusa um de cada vez, antes do PIX) ---
 //
-// callback_data do Telegram tem limite de 64 bytes, então em vez de
-// carregar a lista de bumps selecionados por id (cuid tem 25 chars — não
-// cabe mais de um), cada bump ganha um ÍNDICE posicional (0, 1, 2...) na
-// lista ordenada de Offers daquele plano-gatilho, e o estado "quais estão
-// marcados" vira um bitmask (int) embutido no próprio callback_data.
-// `bmp:<planId>:<bitmask>:<índice>` = alterna o bit `índice`;
-// `bmpgo:<planId>:<bitmask>` = confirma a compra com os bits marcados.
+// Cada bump é mostrado como oferta própria (mesmo texto+botões de
+// aceitar/recusar do Upsell/Downsell), um de cada vez — clicar em
+// qualquer um dos dois botões já avança pro próximo bump da fila, ou gera
+// o PIX se não houver mais nenhum. callback_data do Telegram tem limite de
+// 64 bytes, então em vez de carregar a lista de bumps já aceitos por id
+// (cuid tem 25 chars — não cabe mais de um), cada bump ganha um ÍNDICE
+// posicional (0, 1, 2...) na lista ordenada de Offers daquele
+// plano-gatilho, e "quais foram aceitos até agora" vira um bitmask (int)
+// embutido no próprio callback_data: `bmpA:<planId>:<bitmask>:<índice>` =
+// aceita o bump `índice` (liga o bit correspondente); `bmpD:...` = recusa
+// (bitmask não muda). Os dois avançam pro `índice + 1`.
 
-function buildOrderBumpKeyboard(planId: string, bumpPlans: Plan[], bitmask: number) {
-  const rows: InlineKeyboardButton[][] = bumpPlans.map((bump, i) => {
-    const checked = (bitmask & (1 << i)) !== 0;
-    const label = `${checked ? "☑" : "☐"} ${bump.name} — +${formatBRL(bump.priceCents)}`;
-    return [Markup.button.callback(label, `${BUMP_TOGGLE_PREFIX}${planId}:${bitmask}:${i}`)];
-  });
-  rows.push([Markup.button.callback("Confirmar compra", `${BUMP_CONFIRM_PREFIX}${planId}:${bitmask}`)]);
-  return Markup.inlineKeyboard(rows);
-}
-
-function buildOrderBumpText(plan: Plan): string {
-  return `Você escolheu: ${plan.name} — ${formatBRL(plan.priceCents)}\n\nQuer adicionar algo antes de pagar?`;
+function buildBumpStepKeyboard(offer: Offer, planId: string, bitmask: number, index: number) {
+  const acceptLabel = offer.acceptLabel || defaultAcceptLabel(offer.kind);
+  const declineLabel = offer.declineLabel || defaultDeclineLabel();
+  return Markup.inlineKeyboard([
+    [Markup.button.callback(acceptLabel, `${BUMP_ACCEPT_PREFIX}${planId}:${bitmask}:${index}`)],
+    [Markup.button.callback(declineLabel, `${BUMP_DECLINE_PREFIX}${planId}:${bitmask}:${index}`)],
+  ]);
 }
 
 function getCallbackData(ctx: Context): string | undefined {
@@ -211,16 +217,14 @@ function getCallbackData(ctx: Context): string | undefined {
 export interface BumpCallback {
   planId: string;
   bitmask: number;
-  index?: number;
+  index: number;
 }
 
 export function parseBumpCallback(data: string, prefix: string): BumpCallback | null {
   const [planId, bitmaskStr, indexStr] = data.slice(prefix.length).split(":");
   const bitmask = Number(bitmaskStr);
-  if (!planId || !Number.isFinite(bitmask)) return null;
-  if (indexStr === undefined) return { planId, bitmask };
   const index = Number(indexStr);
-  if (!Number.isFinite(index)) return null;
+  if (!planId || !Number.isFinite(bitmask) || !Number.isFinite(index)) return null;
   return { planId, bitmask, index };
 }
 
@@ -229,6 +233,39 @@ async function loadOrderBumpOffers(planId: string) {
     where: { kind: "ORDER_BUMP", triggerPlanId: planId, active: true },
     orderBy: { order: "asc" },
     include: { offeredPlan: true },
+  });
+}
+
+/**
+ * Mostra o próximo Order Bump da fila (posição `index`) pro plano-gatilho
+ * — ou, se não houver mais nenhum, gera a cobrança com o plano base + todos
+ * os bumps aceitos até agora (marcados no `bitmask`).
+ */
+async function advanceOrderBumpFlow(
+  ctx: Context,
+  botId: string,
+  lead: Lead,
+  planId: string,
+  bitmask: number,
+  index: number
+): Promise<void> {
+  const bumpOffers = await loadOrderBumpOffers(planId);
+
+  if (index >= bumpOffers.length) {
+    const items: OrderItemInput[] = [{ planId, kind: "BASE" }];
+    bumpOffers.forEach((offer, i) => {
+      if (bitmask & (1 << i)) items.push({ planId: offer.offeredPlanId, kind: "ORDER_BUMP" });
+    });
+    await handleBuyItems(ctx, botId, lead, items);
+    return;
+  }
+
+  const offer = bumpOffers[index];
+  const botRow = await prisma.bot.findUniqueOrThrow({ where: { id: botId } });
+  const text = buildOfferText(offer, offer.offeredPlan, lead, botRow);
+  await ctx.reply(text, {
+    parse_mode: "HTML",
+    reply_markup: buildBumpStepKeyboard(offer, planId, bitmask, index).reply_markup,
   });
 }
 
@@ -271,56 +308,32 @@ export function registerFlowHandlers(bot: Telegraf, botId: string): void {
     const lead = await touchLead(ctx, botId);
     if (!lead) return;
 
-    const bumpOffers = await loadOrderBumpOffers(planId);
-    if (bumpOffers.length === 0) {
-      await handleBuyItems(ctx, botId, lead, [{ planId, kind: "BASE" }]);
-      return;
-    }
-
-    const plan = await prisma.plan.findUnique({ where: { id: planId } });
-    if (!plan) return;
-
-    const bumpPlans = bumpOffers.map((o) => o.offeredPlan);
-    await ctx.reply(buildOrderBumpText(plan), {
-      reply_markup: buildOrderBumpKeyboard(planId, bumpPlans, 0).reply_markup,
-    });
+    await advanceOrderBumpFlow(ctx, botId, lead, planId, 0, 0);
   });
 
-  bot.action(new RegExp(`^${BUMP_TOGGLE_PREFIX}.+`), async (ctx) => {
+  bot.action(new RegExp(`^${BUMP_ACCEPT_PREFIX}.+`), async (ctx) => {
     await ctx.answerCbQuery().catch(() => {});
     const data = getCallbackData(ctx);
-    const parsed = data ? parseBumpCallback(data, BUMP_TOGGLE_PREFIX) : null;
-    if (!parsed || parsed.index === undefined) return;
-
-    const bumpOffers = await loadOrderBumpOffers(parsed.planId);
-    const bumpPlans = bumpOffers.map((o) => o.offeredPlan);
-    const newBitmask = parsed.bitmask ^ (1 << parsed.index);
-
-    try {
-      await ctx.editMessageReplyMarkup(buildOrderBumpKeyboard(parsed.planId, bumpPlans, newBitmask).reply_markup);
-    } catch (err) {
-      console.error("[flows] falha ao atualizar teclado de order bump", err);
-    }
-  });
-
-  bot.action(new RegExp(`^${BUMP_CONFIRM_PREFIX}.+`), async (ctx) => {
-    await ctx.answerCbQuery().catch(() => {});
-    const data = getCallbackData(ctx);
-    const parsed = data ? parseBumpCallback(data, BUMP_CONFIRM_PREFIX) : null;
+    const parsed = data ? parseBumpCallback(data, BUMP_ACCEPT_PREFIX) : null;
     if (!parsed) return;
 
     const lead = await touchLead(ctx, botId);
     if (!lead) return;
 
-    const bumpOffers = await loadOrderBumpOffers(parsed.planId);
-    const items: OrderItemInput[] = [{ planId: parsed.planId, kind: "BASE" }];
-    bumpOffers.forEach((offer, i) => {
-      if (parsed.bitmask & (1 << i)) {
-        items.push({ planId: offer.offeredPlanId, kind: "ORDER_BUMP" });
-      }
-    });
+    const newBitmask = parsed.bitmask | (1 << parsed.index);
+    await advanceOrderBumpFlow(ctx, botId, lead, parsed.planId, newBitmask, parsed.index + 1);
+  });
 
-    await handleBuyItems(ctx, botId, lead, items);
+  bot.action(new RegExp(`^${BUMP_DECLINE_PREFIX}.+`), async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+    const data = getCallbackData(ctx);
+    const parsed = data ? parseBumpCallback(data, BUMP_DECLINE_PREFIX) : null;
+    if (!parsed) return;
+
+    const lead = await touchLead(ctx, botId);
+    if (!lead) return;
+
+    await advanceOrderBumpFlow(ctx, botId, lead, parsed.planId, parsed.bitmask, parsed.index + 1);
   });
 
   bot.action(new RegExp(`^${OFFER_ACCEPT_PREFIX}.+`), async (ctx) => {
@@ -363,7 +376,7 @@ export function registerFlowHandlers(bot: Telegraf, botId: string): void {
           const text = buildOfferText(downsell, downsell.offeredPlan, lead, botRow);
           await ctx.reply(text, {
             parse_mode: "HTML",
-            reply_markup: buildOfferKeyboard(downsell.id).reply_markup,
+            reply_markup: buildOfferKeyboard(downsell).reply_markup,
           });
         }
         return;

@@ -16,10 +16,19 @@ import { renderTemplate } from "./templating.js";
 const OFFER_ACCEPT_PREFIX = "ofYes:";
 const OFFER_DECLINE_PREFIX = "ofNo:";
 
-export function buildOfferKeyboard(offerId: string) {
+/** "Sim, adicionar" pra Order Bump, "Sim, quero" pra Upsell/Downsell — só o default quando o admin não customiza. */
+export function defaultAcceptLabel(kind: Offer["kind"]): string {
+  return kind === "ORDER_BUMP" ? "Sim, adicionar" : "Sim, quero";
+}
+
+export function defaultDeclineLabel(): string {
+  return "Não, obrigado";
+}
+
+export function buildOfferKeyboard(offer: Pick<Offer, "id" | "kind" | "acceptLabel" | "declineLabel">) {
   return Markup.inlineKeyboard([
-    [Markup.button.callback("Sim, quero", `${OFFER_ACCEPT_PREFIX}${offerId}`)],
-    [Markup.button.callback("Não, obrigado", `${OFFER_DECLINE_PREFIX}${offerId}`)],
+    [Markup.button.callback(offer.acceptLabel || defaultAcceptLabel(offer.kind), `${OFFER_ACCEPT_PREFIX}${offer.id}`)],
+    [Markup.button.callback(offer.declineLabel || defaultDeclineLabel(), `${OFFER_DECLINE_PREFIX}${offer.id}`)],
   ]);
 }
 
