@@ -2,6 +2,7 @@ import type { Order, Plan, Lead } from "@prisma/client";
 import { getTelegraf } from "./botManager.js";
 import { prisma } from "../db/client.js";
 import { formatBRL } from "./format.js";
+import { renderTemplate } from "./templating.js";
 import { config } from "../config.js";
 
 /**
@@ -90,4 +91,34 @@ export async function notifyAdminOfSale(params: {
   }
 
   await telegraf.telegram.sendMessage(config.TELEGRAM_ADMIN_USER_ID, lines.join("\n"));
+}
+
+/**
+ * Envia a mensagem de "pagamento aprovado" pro comprador (PaymentMessages.
+ * pixApprovedMessage do funil), se configurada — senão não manda nada extra
+ * (a entrega em si, via `deliverPlanToLead`, já é a confirmação visível).
+ */
+export async function notifyLeadOfApproval(params: {
+  botId: string;
+  leadTelegramId: bigint;
+  lead: Lead;
+  plan: Plan;
+  order: Order;
+  pixApprovedMessage: string | null | undefined;
+}): Promise<void> {
+  const { botId, leadTelegramId, lead, plan, order, pixApprovedMessage } = params;
+  if (!pixApprovedMessage) return;
+
+  const telegraf = getTelegraf(botId);
+  if (!telegraf) {
+    throw new Error(`notifyLeadOfApproval: bot ${botId} não está registrado/ativo`);
+  }
+  const botRow = await prisma.bot.findUniqueOrThrow({ where: { id: botId } });
+  const text = renderTemplate(pixApprovedMessage, {
+    lead,
+    bot: botRow,
+    extra: { valor: formatBRL(order.amountCents), plano: plan.name },
+  });
+
+  await telegraf.telegram.sendMessage(Number(leadTelegramId), text, { parse_mode: "HTML" });
 }

@@ -1,0 +1,23 @@
+<%- include("../partials/header", { title: "Novo fluxo", active: "flows" }) %>
+
+<section>
+  <h2>Novo fluxo</h2>
+  <% if (error) { %><p style="color:var(--danger);"><%= error %></p><% } %>
+  <form method="POST" action="/admin/flows">
+    <label for="key">Chave (identificador único, ex: <code>boas-vindas</code>)</label>
+    <input type="text" id="key" name="key" required pattern="[a-z0-9\-]+" placeholder="boas-vindas" />
+
+    <label for="name">Nome (só pra você identificar no painel)</label>
+    <input type="text" id="name" name="name" required placeholder="Funil principal" />
+
+    <label for="description">Descrição (opcional)</label>
+    <textarea id="description" name="description"></textarea>
+
+    <div class="actions">
+      <button class="btn" type="submit">Criar fluxo</button>
+      <a class="btn secondary" href="/admin/flows">Cancelar</a>
+    </div>
+  </form>
+</section>
+
+<%- include("../partials/footer") %>

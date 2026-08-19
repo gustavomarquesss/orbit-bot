@@ -122,16 +122,32 @@ function buildPhotoInput(qrCodeUrl: string): string | { source: Buffer } {
 
 async function handleBuyPlan(ctx: Context, botId: string, lead: Lead, planId: string): Promise<void> {
   try {
-    const { pixCopyPaste, qrCodeUrl } = await createOrderAndCharge({
+    const { order, pixCopyPaste, qrCodeUrl } = await createOrderAndCharge({
       botId,
       leadId: lead.id,
       planId,
       originId: lead.originId,
     });
 
-    await ctx.reply(
-      `Pagamento gerado! Copie o código PIX abaixo e cole no app do seu banco:\n\n${pixCopyPaste}`
-    );
+    const plan = await prisma.plan.findUnique({
+      where: { id: planId },
+      include: { flow: { include: { paymentMessages: true } } },
+    });
+    const botRow = await prisma.bot.findUniqueOrThrow({ where: { id: botId } });
+    const template = plan?.flow.paymentMessages?.pixGeneratedMessage;
+    const introText = template
+      ? renderTemplate(template, {
+          lead,
+          bot: botRow,
+          extra: { valor: formatBRL(order.amountCents), plano: plan?.name ?? "" },
+        })
+      : "Pagamento gerado! Copie o código PIX abaixo e cole no app do seu banco:";
+
+    await ctx.reply(introText, { parse_mode: "HTML" });
+    // O código copia-e-cola sempre vai numa mensagem própria, sem depender
+    // do texto customizado mencionar {qr_code}/etc — se o admin esquecer de
+    // incluir alguma referência, o comprador ainda assim recebe o código.
+    await ctx.reply(pixCopyPaste);
 
     if (qrCodeUrl) {
       try {

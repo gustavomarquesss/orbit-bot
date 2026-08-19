@@ -1,0 +1,90 @@
+<% const isEdit = !!editingPlan; %>
+<%- include("../partials/header", { title: flow.name + " — Planos", active: "flows" }) %>
+<%- include("./partials/nav", { flow, section: "plans" }) %>
+
+<section>
+  <h2>Planos</h2>
+  <table>
+    <thead>
+      <tr><th>Nome</th><th>Preço</th><th>Duração</th><th>Entrega</th><th>Status</th><th></th></tr>
+    </thead>
+    <tbody>
+      <% flow.plans.forEach(function(p) { %>
+        <tr>
+          <td><%= p.name %></td>
+          <td><%= formatBRL(p.priceCents) %></td>
+          <td><%= p.durationDays ? p.durationDays + " dias" : "Pagamento único" %></td>
+          <td><%= p.deliveryType === "FILE" ? "Arquivo" : "Link" %></td>
+          <td><% if (p.active) { %><span class="badge entry">ativo</span><% } else { %><span class="badge inactive">inativo</span><% } %></td>
+          <td class="row-actions">
+            <a class="btn small secondary" href="/admin/flows/<%= flow.id %>/plans/<%= p.id %>/edit">Editar</a>
+            <form method="POST" action="/admin/flows/<%= flow.id %>/plans/<%= p.id %>/delete" class="inline-form" onsubmit="return confirm('Excluir este plano?');">
+              <button class="btn small danger" type="submit">Excluir</button>
+            </form>
+          </td>
+        </tr>
+      <% }); %>
+      <% if (flow.plans.length === 0) { %><tr><td colspan="6" class="empty">Nenhum plano cadastrado ainda.</td></tr><% } %>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2><%= isEdit ? "Editar plano" : "Novo plano" %></h2>
+  <% if (error) { %><p style="color:var(--danger);"><%= error %></p><% } %>
+  <form method="POST" action="<%= isEdit ? `/admin/flows/${flow.id}/plans/${editingPlan.id}` : `/admin/flows/${flow.id}/plans` %>">
+    <label for="name">Nome</label>
+    <input type="text" id="name" name="name" required value="<%= editingPlan ? editingPlan.name : "" %>" placeholder="Plano Mensal" />
+
+    <label for="price">Preço (R$)</label>
+    <input type="text" id="price" name="price" required inputmode="decimal" placeholder="29,90"
+      value="<%= editingPlan ? (editingPlan.priceCents / 100).toFixed(2).replace('.', ',') : "" %>" />
+
+    <label for="durationDays">Duração em dias (deixe vazio para pagamento único/vitalício)</label>
+    <input type="number" id="durationDays" name="durationDays" min="1" value="<%= editingPlan && editingPlan.durationDays ? editingPlan.durationDays : "" %>" placeholder="30" />
+
+    <label for="buttonColor">Cor do botão</label>
+    <select id="buttonColor" name="buttonColor">
+      <% ["PADRAO","AZUL","VERDE","VERMELHO"].forEach(function(c) { %>
+        <option value="<%= c %>" <%= editingPlan && editingPlan.buttonColor === c ? "selected" : "" %>><%= c %></option>
+      <% }); %>
+    </select>
+    <div class="hint">Só tem efeito visual em contas com Telegram Business Premium — limitação da própria Bot API, não do painel.</div>
+
+    <label for="deliveryType">Tipo de entrega</label>
+    <select id="deliveryType" name="deliveryType" onchange="document.getElementById('file-fields').style.display = this.value === 'FILE' ? 'block' : 'none'; document.getElementById('link-fields').style.display = this.value === 'LINK' ? 'block' : 'none';">
+      <option value="LINK" <%= !editingPlan || editingPlan.deliveryType === "LINK" ? "selected" : "" %>>Link externo</option>
+      <option value="FILE" <%= editingPlan && editingPlan.deliveryType === "FILE" ? "selected" : "" %>>Arquivo no canal-cofre</option>
+    </select>
+
+    <div id="file-fields" style="display: <%= editingPlan && editingPlan.deliveryType === 'FILE' ? 'block' : 'none' %>;">
+      <label for="fileTelegramId">Número da mensagem (message_id) no canal-cofre</label>
+      <input type="text" id="fileTelegramId" name="fileTelegramId" value="<%= editingPlan && editingPlan.fileTelegramId ? editingPlan.fileTelegramId : "" %>" placeholder="482" />
+    </div>
+    <div id="link-fields" style="display: <%= !editingPlan || editingPlan.deliveryType === 'LINK' ? 'block' : 'none' %>;">
+      <label for="externalLink">Link a enviar após o pagamento</label>
+      <input type="text" id="externalLink" name="externalLink" value="<%= editingPlan && editingPlan.externalLink ? editingPlan.externalLink : "" %>" placeholder="https://..." />
+    </div>
+
+    <label for="customDeliveryTarget">Canal/grupo de entrega específico deste plano (opcional)</label>
+    <input type="text" id="customDeliveryTarget" name="customDeliveryTarget" value="<%= editingPlan && editingPlan.customDeliveryTarget ? editingPlan.customDeliveryTarget : "" %>" placeholder="deixe vazio pra usar o padrão do funil" />
+
+    <div class="checkbox-row">
+      <input type="checkbox" id="protectContent" name="protectContent" <%= !editingPlan || editingPlan.protectContent ? "checked" : "" %> />
+      <label for="protectContent">Proteger conteúdo (impede reenvio/download)</label>
+    </div>
+    <div class="checkbox-row">
+      <input type="checkbox" id="active" name="active" <%= !editingPlan || editingPlan.active ? "checked" : "" %> />
+      <label for="active">Plano ativo</label>
+    </div>
+
+    <div class="actions">
+      <button class="btn" type="submit">Salvar</button>
+      <% if (isEdit) { %><a class="btn secondary" href="/admin/flows/<%= flow.id %>/plans">Cancelar</a><% } %>
+    </div>
+  </form>
+</section>
+
+  </div>
+</div>
+<%- include("../partials/footer") %>

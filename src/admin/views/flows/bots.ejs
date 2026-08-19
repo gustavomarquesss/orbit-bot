@@ -1,0 +1,31 @@
+<%- include("../partials/header", { title: flow.name + " — Bots", active: "flows" }) %>
+<%- include("./partials/nav", { flow, section: "bots" }) %>
+
+<section>
+  <h2>Bots vinculados</h2>
+  <p class="hint">Os bots marcados abaixo vão rodar este funil quando alguém mandar /start.</p>
+  <form method="POST" action="/admin/flows/<%= flow.id %>/bots">
+    <% allBots.forEach(function(b) { %>
+      <div class="checkbox-row">
+        <input type="checkbox" id="bot-<%= b.id %>" name="botIds" value="<%= b.id %>" <%= linkedIds.has(b.id) ? "checked" : "" %> />
+        <label for="bot-<%= b.id %>"><%= b.label %> <span class="hint">(@<%= b.telegramUsername || "?" %>)</span></label>
+      </div>
+    <% }); %>
+    <% if (allBots.length === 0) { %>
+      <p class="empty">Nenhum bot cadastrado ainda. <a href="/admin/bots/new" style="color:var(--accent);">Cadastre um primeiro</a>.</p>
+    <% } %>
+    <div class="actions">
+      <button class="btn" type="submit">Salvar vínculos</button>
+    </div>
+  </form>
+</section>
+
+<section>
+  <form method="POST" action="/admin/flows/<%= flow.id %>/delete" onsubmit="return confirm('Excluir este fluxo inteiro (boas-vindas, planos, pagamentos)?');">
+    <button class="btn danger" type="submit">Excluir fluxo</button>
+  </form>
+</section>
+
+  </div>
+</div>
+<%- include("../partials/footer") %>

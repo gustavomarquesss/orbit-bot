@@ -4,7 +4,7 @@ import type { OrderStatus, Prisma } from "@prisma/client";
 import { config } from "../config.js";
 import { prisma } from "../db/client.js";
 import { normalizeChargeStatus } from "./syncpay.js";
-import { deliverPlanToLead, notifyAdminOfSale } from "../bot/delivery.js";
+import { deliverPlanToLead, notifyAdminOfSale, notifyLeadOfApproval } from "../bot/delivery.js";
 
 const PROVIDER = "syncpay";
 
@@ -99,7 +99,10 @@ export async function handleSyncpayWebhook(req: Request, res: Response): Promise
 
     const order = await prisma.order.findUnique({
       where: { syncpayChargeId: externalId },
-      include: { lead: true, plan: { include: { flow: { include: { welcomeConfig: true } } } } },
+      include: {
+        lead: true,
+        plan: { include: { flow: { include: { welcomeConfig: true, paymentMessages: true } } } },
+      },
     });
 
     if (!order) {
@@ -164,6 +167,18 @@ export async function handleSyncpayWebhook(req: Request, res: Response): Promise
         });
       } catch (err) {
         console.error("[syncpay-webhook] falha ao notificar admin", err);
+      }
+      try {
+        await notifyLeadOfApproval({
+          botId: order.botId,
+          leadTelegramId: order.lead.telegramId,
+          lead: order.lead,
+          plan: order.plan,
+          order: updatedOrder,
+          pixApprovedMessage: order.plan.flow.paymentMessages?.pixApprovedMessage,
+        });
+      } catch (err) {
+        console.error("[syncpay-webhook] falha ao notificar comprador da aprovação", err);
       }
     }
 

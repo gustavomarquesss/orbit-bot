@@ -15,7 +15,13 @@ function saudacao(): string {
  */
 export function renderTemplate(
   text: string,
-  context: { lead: Lead; bot: Pick<Bot, "displayName" | "telegramUsername"> }
+  context: {
+    lead: Lead;
+    bot: Pick<Bot, "displayName" | "telegramUsername">;
+    /** Extras específicos de contexto (ex: {valor}/{plano} nas mensagens de
+     * pagamento) — sobrepõem os valores padrão se houver colisão de chave. */
+    extra?: Record<string, string>;
+  }
 ): string {
   const values: Record<string, string> = {
     nome: context.lead.firstName ?? "",
@@ -28,6 +34,8 @@ export function renderTemplate(
     saudacao: saudacao(),
     "bot.nome": context.bot.displayName ?? "",
     "bot.username": context.bot.telegramUsername ?? "",
+    qr_code: "[QR Code enviado como imagem separada]",
+    ...context.extra,
   };
 
   return text.replace(/\{([a-zA-Z0-9_.]+)\}/g, (match, key: string) =>

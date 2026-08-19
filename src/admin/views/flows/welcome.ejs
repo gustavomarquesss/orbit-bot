@@ -1,0 +1,106 @@
+<% const w = flow.welcomeConfig || {}; %>
+<%- include("../partials/header", { title: flow.name + " — Boas-vindas", active: "flows" }) %>
+<%- include("./partials/nav", { flow, section: "welcome" }) %>
+
+<section>
+  <h2>Mídias (até 3)</h2>
+  <% (w.media || []).forEach(function(m) { %>
+    <div class="media-row">
+      <span><%= m.mediaType %> — <code><%= m.fileId.slice(0, 24) %>…</code></span>
+      <form method="POST" action="/admin/flows/<%= flow.id %>/welcome/media/<%= m.id %>/delete" onsubmit="return confirm('Remover esta mídia?');">
+        <button class="btn small danger" type="submit">Remover</button>
+      </form>
+    </div>
+  <% }); %>
+  <% if ((w.media || []).length === 0) { %><p class="empty">Nenhuma mídia ainda.</p><% } %>
+
+  <% if ((w.media || []).length < 3) { %>
+    <form method="POST" action="/admin/flows/<%= flow.id %>/welcome/media" style="margin-top:12px;">
+      <label>Tipo</label>
+      <select name="mediaType">
+        <option value="PHOTO">Foto</option>
+        <option value="VIDEO">Vídeo</option>
+        <option value="AUDIO">Áudio</option>
+        <option value="DOCUMENT">Documento</option>
+      </select>
+      <label>file_id do Telegram</label>
+      <input type="text" name="fileId" required placeholder="AgACAgEAAx0..." />
+      <div class="hint">Ainda não dá pra fazer upload direto pela tela — envie a mídia pro bot uma vez e capture o file_id retornado pela API.</div>
+      <div class="actions"><button class="btn small" type="submit">Adicionar mídia</button></div>
+    </form>
+  <% } %>
+</section>
+
+<section>
+  <h2>Mensagem de boas-vindas</h2>
+  <form method="POST" action="/admin/flows/<%= flow.id %>/welcome">
+    <label for="text">Texto</label>
+    <div class="rte-toolbar">
+      <button type="button" title="Negrito" onclick="dgWrapSelection('text','&lt;b&gt;','&lt;/b&gt;')"><b>B</b></button>
+      <button type="button" title="Itálico" onclick="dgWrapSelection('text','&lt;i&gt;','&lt;/i&gt;')"><i>I</i></button>
+      <button type="button" title="Sublinhado" onclick="dgWrapSelection('text','&lt;u&gt;','&lt;/u&gt;')"><u>U</u></button>
+      <button type="button" title="Tachado" onclick="dgWrapSelection('text','&lt;s&gt;','&lt;/s&gt;')"><s>S</s></button>
+      <button type="button" title="Código" onclick="dgWrapSelection('text','&lt;code&gt;','&lt;/code&gt;')">&lt;/&gt;</button>
+      <button type="button" title="Citação" onclick="dgWrapSelection('text','&lt;blockquote&gt;','&lt;/blockquote&gt;')">&rdquo;</button>
+    </div>
+    <textarea id="text" name="text" rows="5"><%= w.text || "" %></textarea>
+    <div class="var-chips">
+      <% ["nome","email","telefone","estado","uf","cidade","localizacao","saudacao","bot.nome","bot.username"].forEach(function(v) { %>
+        <button type="button" onclick="dgInsertAtCursor('text', '{<%= v %>}')">{<%= v %>}</button>
+      <% }); %>
+    </div>
+    <div class="hint">Campos que o Telegram não fornece (email, telefone, cidade, estado, uf, localização) renderizam vazio.</div>
+
+    <div class="checkbox-row">
+      <input type="checkbox" id="secondaryMessageEnabled" name="secondaryMessageEnabled" <%= w.secondaryMessageEnabled ? "checked" : "" %> />
+      <label for="secondaryMessageEnabled">Enviar como mensagem separada da mídia (em vez de legenda)</label>
+    </div>
+
+    <div class="checkbox-row">
+      <input type="checkbox" id="ctaButtonEnabled" name="ctaButtonEnabled" <%= w.ctaButtonEnabled ? "checked" : "" %> />
+      <label for="ctaButtonEnabled">Mostrar botão de call-to-action (leva pra lista de planos)</label>
+    </div>
+    <label for="ctaLabel">Texto do botão CTA</label>
+    <input type="text" id="ctaLabel" name="ctaLabel" value="<%= w.ctaLabel || "" %>" placeholder="Ver planos" />
+
+    <div class="checkbox-row">
+      <input type="checkbox" id="miniAppEnabled" name="miniAppEnabled" <%= w.miniAppEnabled ? "checked" : "" %> />
+      <label for="miniAppEnabled">Botão de Mini App</label>
+    </div>
+    <label for="miniAppUrl">URL do Mini App</label>
+    <input type="text" id="miniAppUrl" name="miniAppUrl" value="<%= w.miniAppUrl || "" %>" placeholder="https://..." />
+
+    <label for="defaultDeliveryTarget">Canal/grupo-cofre padrão (entrega de conteúdo)</label>
+    <input type="text" id="defaultDeliveryTarget" name="defaultDeliveryTarget" value="<%= w.defaultDeliveryTarget || "" %>" placeholder="-1001234567890" />
+    <div class="hint">Id do canal privado onde os produtos ficam postados. Cada plano pode sobrescrever isso individualmente.</div>
+
+    <div class="actions"><button class="btn" type="submit">Salvar boas-vindas</button></div>
+  </form>
+</section>
+
+<section>
+  <h2>Botões de redirecionamento (até 3)</h2>
+  <% (w.redirectButtons || []).forEach(function(rb) { %>
+    <div class="media-row">
+      <span><%= rb.label %> → <%= rb.url %></span>
+      <form method="POST" action="/admin/flows/<%= flow.id %>/welcome/redirect-buttons/<%= rb.id %>/delete" onsubmit="return confirm('Remover este botão?');">
+        <button class="btn small danger" type="submit">Remover</button>
+      </form>
+    </div>
+  <% }); %>
+  <% if ((w.redirectButtons || []).length === 0) { %><p class="empty">Nenhum botão de redirecionamento ainda.</p><% } %>
+
+  <% if ((w.redirectButtons || []).length < 3) { %>
+    <form method="POST" action="/admin/flows/<%= flow.id %>/welcome/redirect-buttons" style="margin-top:12px;">
+      <label>Texto do botão</label>
+      <input type="text" name="label" required placeholder="Canal VIP" />
+      <label>URL</label>
+      <input type="text" name="url" required placeholder="https://t.me/seu_canal" />
+      <div class="actions"><button class="btn small" type="submit">Adicionar botão</button></div>
+    </form>
+  <% } %>
+</section>
+
+  </div>
+</div>
+<%- include("../partials/footer") %>

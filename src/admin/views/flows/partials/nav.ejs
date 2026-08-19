@@ -1,0 +1,58 @@
+<%
+/*
+ * Abre a estrutura de duas colunas (sidebar + conteúdo) e NÃO fecha as divs
+ * — cada página de seção (bots.ejs, welcome.ejs, plans.ejs, payments.ejs)
+ * escreve seu conteúdo logo em seguida e fecha </div></div> antes do
+ * partials/footer. Truque necessário porque EJS não tem layout/yield nativo.
+ */
+%>
+<style>
+  .flow-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; flex-wrap:wrap; gap:10px; }
+  .flow-header h1 { font-size:1.15rem; margin:0; color: var(--text-strong); }
+  .flow-layout { display:flex; gap:20px; align-items:flex-start; }
+  .flow-sidebar { width:190px; flex-shrink:0; background:var(--surface); border-radius:12px; padding:14px 10px; }
+  .flow-sidebar-group { font-size:0.7rem; letter-spacing:0.04em; text-transform:uppercase; color:var(--text-muted); padding:12px 10px 4px; }
+  .flow-sidebar a, .flow-sidebar span.disabled {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:7px 10px; border-radius:8px; font-size:0.88rem; text-decoration:none;
+    color:var(--text); margin-bottom:2px;
+  }
+  .flow-sidebar a:hover { background: var(--surface-2); }
+  .flow-sidebar a.active { background: var(--accent-soft); color: var(--accent); font-weight:600; }
+  .flow-sidebar span.disabled { color: var(--text-muted); }
+  .flow-sidebar .soon { font-size:0.65rem; background:var(--border); color:var(--text-muted); padding:1px 6px; border-radius:999px; }
+  .flow-main { flex: 1; min-width: 0; }
+  @media (max-width: 640px) {
+    .flow-layout { flex-direction: column; }
+    .flow-sidebar { width: 100%; display:flex; flex-wrap:wrap; gap:4px; }
+    .flow-sidebar-group { display:none; }
+    .flow-sidebar a, .flow-sidebar span.disabled { width:auto; }
+  }
+</style>
+
+<div class="flow-header">
+  <h1><%= flow.name %> <span class="hint">(<%= flow.key %>)</span></h1>
+  <a class="btn secondary small" href="/admin/flows">&larr; Todos os fluxos</a>
+</div>
+
+<div class="flow-layout">
+  <aside class="flow-sidebar">
+    <div class="flow-sidebar-group">Estrutura</div>
+    <a href="/admin/flows/<%= flow.id %>/bots" class="<%= section === 'bots' ? 'active' : '' %>">Bots</a>
+    <a href="/admin/flows/<%= flow.id %>/welcome" class="<%= section === 'welcome' ? 'active' : '' %>">Boas-vindas</a>
+    <a href="/admin/flows/<%= flow.id %>/plans" class="<%= section === 'plans' ? 'active' : '' %>">Planos</a>
+
+    <div class="flow-sidebar-group">Conversão</div>
+    <span class="disabled">Upsell <span class="soon">em breve</span></span>
+    <span class="disabled">Downsell <span class="soon">em breve</span></span>
+    <span class="disabled">Order Bump <span class="soon">em breve</span></span>
+    <span class="disabled">Packs <span class="soon">em breve</span></span>
+    <span class="disabled">Prévias <span class="soon">em breve</span></span>
+
+    <div class="flow-sidebar-group">Operação</div>
+    <a href="/admin/flows/<%= flow.id %>/payments" class="<%= section === 'payments' ? 'active' : '' %>">Pagamentos</a>
+    <span class="disabled">Assinatura <span class="soon">em breve</span></span>
+    <span class="disabled">Top Assinantes <span class="soon">em breve</span></span>
+  </aside>
+
+  <div class="flow-main">
