@@ -8,6 +8,46 @@
 
 Última atualização: 2026-08-19
 
+## Redesign pro modelo Shark Bot (2026-08-19)
+
+Usuário mostrou 13 telas reais do Shark Bot e confirmou que o painel
+genérico (Flow/FlowStep/Button/Product) entregue antes ficou muito aquém.
+Plano completo salvo em
+`C:\Users\gusta\.claude\plans\rippling-rolling-castle.md` — ler antes de
+continuar qualquer trabalho no painel/modelo de dados.
+
+**Confirmado com o usuário**: quer paridade real (assinatura E pagamento
+único, upsell/downsell/order bump/packs/prévias, múltiplos gateways com
+fallback) — mas concordou em fazer por fases. Fase 1 (essencial: bots,
+boas-vindas, planos, pagamentos) está em andamento.
+
+**Feito e testado com bot real** (usuário confirmou "testei, funcionou"):
+- Schema redesenhado: `Bot`/`BotCommand`/`FlowBot`/`WelcomeConfig`/
+  `WelcomeMedia`/`RedirectButton`/`PaymentMessages`/`Plan` (substitui
+  `Product`, funde pagamento único e assinatura via `durationDays` opcional).
+  `Lead`/`Order` agora têm `botId`.
+- Arquitetura multi-bot: `src/bot/botManager.ts` sobe/derruba instâncias
+  Telegraf em runtime, sem reiniciar o processo — bots são cadastrados pelo
+  painel (`/admin/bots/new`), token validado contra a API real (`getMe`)
+  antes de salvar, criptografado no banco (`src/lib/crypto.ts`, AES-256-GCM).
+- Tema dark/light com accent vermelho no painel (pedido explícito).
+- Boas-vindas com variáveis (`{nome}`, `{saudacao}`, `{bot.username}`, etc —
+  `src/bot/templating.ts`) renderizando de verdade no bot real.
+
+**Pendente da Fase 1** (ver plano completo pro detalhe):
+- UI pra vincular Flow↔Bot pelo painel (hoje só existe via script manual —
+  usado uma vez pra testar, não faz parte do produto).
+- Editor completo de Boas-vindas no painel (upload de mídia — só aceita
+  colar `file_id` hoje —, toolbar de texto rico, chips de variável, botões
+  de redirect, mini app).
+- Planos: CRUD completo no painel (nome, preço, duração, entrega).
+- Pagamentos: mensagens de PIX gerado/aprovado com preview ao vivo estilo
+  Telegram.
+- Documentar como "próxima fase" (fora do escopo agora): Upsell, Downsell,
+  Order Bump, Packs, Prévias autodestrutivas, Assinatura/renovação, Top
+  Assinantes, cor de botão via Business API, abstração de múltiplos
+  gateways com fallback.
+
 ## Protocolo de trabalho (feedback explícito do usuário, 2026-08-19)
 
 **Commitar incrementalmente, a cada etapa concluída — não só no fechamento
