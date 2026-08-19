@@ -1,4 +1,4 @@
-import type { Order } from "@prisma/client";
+import type { Order, OrderItemKind } from "@prisma/client";
 import { prisma } from "../db/client.js";
 import { createCharge } from "./syncpay.js";
 
@@ -8,30 +8,52 @@ export interface CreatedCharge {
   qrCodeUrl: string;
 }
 
+export interface OrderItemInput {
+  planId: string;
+  /** Default "BASE" — Order Bump/Upsell/Downsell (Fase 2) usam os outros kinds. */
+  kind?: OrderItemKind;
+}
+
 /**
  * Contrato consumido pelo módulo do bot (src/bot/*) quando um Plano é
- * clicado. Cria a cobrança na SyncPay e o Order (status PENDING) correspondente.
+ * clicado. Cria a cobrança na SyncPay e o Order (status PENDING) com um
+ * OrderItem por item — hoje sempre 1 (o plano escolhido), mas o shape já
+ * suporta N itens numa única cobrança (Order Bump, Fase 2 Milestone 4).
  */
 export async function createOrderAndCharge(params: {
   botId: string;
   leadId: string;
-  planId: string;
+  items: OrderItemInput[];
   originId?: string | null;
 }): Promise<CreatedCharge> {
-  const [lead, plan] = await Promise.all([
-    prisma.lead.findUnique({ where: { id: params.leadId } }),
-    prisma.plan.findUnique({ where: { id: params.planId } }),
-  ]);
+  if (params.items.length === 0) {
+    throw new Error("createOrderAndCharge: precisa de pelo menos 1 item.");
+  }
 
+  const lead = await prisma.lead.findUnique({ where: { id: params.leadId } });
   if (!lead) {
     throw new Error(`createOrderAndCharge: lead ${params.leadId} não encontrado.`);
   }
-  if (!plan) {
-    throw new Error(`createOrderAndCharge: plano ${params.planId} não encontrado.`);
+
+  const plans = await prisma.plan.findMany({
+    where: { id: { in: params.items.map((item) => item.planId) } },
+  });
+  const planById = new Map(plans.map((plan) => [plan.id, plan]));
+  for (const item of params.items) {
+    const plan = planById.get(item.planId);
+    if (!plan) {
+      throw new Error(`createOrderAndCharge: plano ${item.planId} não encontrado.`);
+    }
+    if (!plan.active) {
+      throw new Error(`createOrderAndCharge: plano ${plan.id} (${plan.name}) está inativo.`);
+    }
   }
-  if (!plan.active) {
-    throw new Error(`createOrderAndCharge: plano ${plan.id} (${plan.name}) está inativo.`);
-  }
+
+  const totalCents = params.items.reduce(
+    (sum, item) => sum + planById.get(item.planId)!.priceCents,
+    0
+  );
+  const description = params.items.map((item) => planById.get(item.planId)!.name).join(" + ");
 
   // Chama a SyncPay ANTES de criar o Order. O schema exige `syncpayChargeId`
   // não-nulo e único no Order, então não dá pra criar o registro sem o id
@@ -47,22 +69,28 @@ export async function createOrderAndCharge(params: {
   // Confirmado com chamada real à SyncPay (ver PROJECT_STATE.md): a cobrança
   // não pede nenhum dado do comprador (nome/email/CPF) — só valor e descrição.
   const charge = await createCharge({
-    amountCents: plan.priceCents,
-    description: plan.name,
+    amountCents: totalCents,
+    description,
   });
 
   const order = await prisma.order.create({
     data: {
       leadId: lead.id,
-      planId: plan.id,
       botId: params.botId,
       originId: params.originId ?? null,
       syncpayChargeId: charge.externalId,
-      amountCents: plan.priceCents,
+      amountCents: totalCents,
       status: "PENDING",
       pixCopyPaste: charge.pixCopyPaste,
       qrCodeUrl: charge.qrCodeUrl,
       expiresAt: charge.expiresAt,
+      items: {
+        create: params.items.map((item) => ({
+          planId: item.planId,
+          kind: item.kind ?? "BASE",
+          unitPriceCents: planById.get(item.planId)!.priceCents,
+        })),
+      },
     },
   });
 

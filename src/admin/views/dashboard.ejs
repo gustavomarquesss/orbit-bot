@@ -67,7 +67,7 @@
       <% recentOrders.forEach(function(o) { %>
         <tr>
           <td><%= new Date(o.createdAt).toLocaleString("pt-BR") %></td>
-          <td><%= o.plan.name %></td>
+          <td><%= o.items.map(function(i) { return i.plan.name; }).join(" + ") %></td>
           <td><%= o.lead.username ? "@" + o.lead.username : o.lead.firstName || o.leadId %></td>
           <td><%= o.origin ? o.origin.label : "—" %></td>
           <td><%= formatBRL(o.amountCents) %></td>

@@ -125,7 +125,7 @@ async function handleBuyPlan(ctx: Context, botId: string, lead: Lead, planId: st
     const { order, pixCopyPaste, qrCodeUrl } = await createOrderAndCharge({
       botId,
       leadId: lead.id,
-      planId,
+      items: [{ planId, kind: "BASE" }],
       originId: lead.originId,
     });
 

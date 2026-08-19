@@ -100,7 +100,7 @@ export function createAdminRouter(): Router {
         prisma.order.findMany({
           take: 20,
           orderBy: { createdAt: "desc" },
-          include: { lead: true, plan: true, origin: true },
+          include: { lead: true, items: { include: { plan: true } }, origin: true },
         }),
         prisma.$queryRaw<Array<{ day: Date; count: bigint }>>`
           SELECT date_trunc('day', "createdAt") AS day, COUNT(*) AS count

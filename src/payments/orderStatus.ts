@@ -5,7 +5,9 @@ import type { NormalizedChargeStatus } from "./syncpay.js";
 
 export const ORDER_INCLUDE = {
   lead: true,
-  plan: { include: { flow: { include: { welcomeConfig: true, paymentMessages: true } } } },
+  items: {
+    include: { plan: { include: { flow: { include: { welcomeConfig: true, paymentMessages: true } } } } },
+  },
 } satisfies Prisma.OrderInclude;
 
 export type OrderWithRelations = Prisma.OrderGetPayload<{ include: typeof ORDER_INCLUDE }>;
@@ -52,44 +54,50 @@ export async function applyNormalizedStatus(
   });
 
   if (nextStatus === "PAID" && !wasAlreadyPaid) {
-    const deliveryTarget = order.plan.customDeliveryTarget ?? order.plan.flow.welcomeConfig?.defaultDeliveryTarget;
-    if (!deliveryTarget && order.plan.deliveryType === "FILE") {
-      console.error(
-        `[order-status] plano ${order.plan.id} é do tipo FILE mas não tem canal de entrega configurado (nem custom nem padrão do funil)`
-      );
-    } else {
+    // Uma entrega/notificação por item — hoje todo Order tem exatamente 1
+    // item (BASE), mas o shape já é o de vários itens (Order Bump, Fase 2
+    // Milestone 4, cobra base + adicionais numa única cobrança).
+    for (const item of order.items) {
+      const plan = item.plan;
+      const deliveryTarget = plan.customDeliveryTarget ?? plan.flow.welcomeConfig?.defaultDeliveryTarget;
+      if (!deliveryTarget && plan.deliveryType === "FILE") {
+        console.error(
+          `[order-status] plano ${plan.id} é do tipo FILE mas não tem canal de entrega configurado (nem custom nem padrão do funil)`
+        );
+      } else {
+        try {
+          await deliverPlanToLead({
+            botId: order.botId,
+            leadTelegramId: order.lead.telegramId,
+            plan,
+            deliveryTarget: deliveryTarget ?? "",
+          });
+        } catch (err) {
+          console.error("[order-status] falha ao entregar plano", err);
+        }
+      }
       try {
-        await deliverPlanToLead({
+        await notifyAdminOfSale({
           botId: order.botId,
-          leadTelegramId: order.lead.telegramId,
-          plan: order.plan,
-          deliveryTarget: deliveryTarget ?? "",
+          order: updatedOrder,
+          plan,
+          lead: order.lead,
         });
       } catch (err) {
-        console.error("[order-status] falha ao entregar plano", err);
+        console.error("[order-status] falha ao notificar admin", err);
       }
-    }
-    try {
-      await notifyAdminOfSale({
-        botId: order.botId,
-        order: updatedOrder,
-        plan: order.plan,
-        lead: order.lead,
-      });
-    } catch (err) {
-      console.error("[order-status] falha ao notificar admin", err);
-    }
-    try {
-      await notifyLeadOfApproval({
-        botId: order.botId,
-        leadTelegramId: order.lead.telegramId,
-        lead: order.lead,
-        plan: order.plan,
-        order: updatedOrder,
-        pixApprovedMessage: order.plan.flow.paymentMessages?.pixApprovedMessage,
-      });
-    } catch (err) {
-      console.error("[order-status] falha ao notificar comprador da aprovação", err);
+      try {
+        await notifyLeadOfApproval({
+          botId: order.botId,
+          leadTelegramId: order.lead.telegramId,
+          lead: order.lead,
+          plan,
+          order: updatedOrder,
+          pixApprovedMessage: plan.flow.paymentMessages?.pixApprovedMessage,
+        });
+      } catch (err) {
+        console.error("[order-status] falha ao notificar comprador da aprovação", err);
+      }
     }
   }
 

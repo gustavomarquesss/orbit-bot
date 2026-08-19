@@ -46,7 +46,7 @@ function orderFixture(overrides: Partial<Record<string, unknown>> = {}) {
     paidAt: null,
     syncpayChargeId: "tx-1",
     lead,
-    plan,
+    items: [{ plan }],
     ...overrides,
   };
 }

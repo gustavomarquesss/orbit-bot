@@ -13,6 +13,19 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/// Tabela do connect-pg-simple (session store do express-session, ver
+/// src/admin/routes.ts) — a lib gerencia essa tabela em runtime, não o
+/// Prisma Client. Declarada aqui só pra Prisma Migrate saber que ela existe
+/// de propósito e não tentar dropar como "tabela não referenciada".
+model Session {
+  sid    String   @id @db.VarChar
+  sess   Json     @db.Json
+  expire DateTime @db.Timestamp(6)
+
+  @@index([expire], map: "IDX_session_expire")
+  @@map("session")
+}
+
 /// Fonte de tráfego rastreável: outro bot, canal, campanha etc.
 /// `param` é o valor usado no deep link t.me/seu_bot?start=param
 model Origin {
@@ -192,7 +205,8 @@ enum DeliveryType {
 }
 
 /// O que é vendido. `durationDays` nulo = pagamento único/vitalício;
-/// preenchido = assinatura recorrente (renovação é fase futura).
+/// preenchido = assinatura com expiração (renovação manual — ver
+/// OrderItem.accessExpiresAt e src/payments/subscriptionScheduler.ts).
 model Plan {
   id             String          @id @default(cuid())
   flowId         String
@@ -213,7 +227,7 @@ model Plan {
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
 
-  orders Order[]
+  orderItems OrderItem[]
 }
 
 enum PaymentButtonStyle {
@@ -233,13 +247,13 @@ model PaymentMessages {
   showConfirmationStep Boolean @default(false)
 }
 
-/// Uma cobrança PIX gerada. Registro próprio para auditoria cruzada com a gateway.
+/// Uma cobrança PIX gerada. Cabeçalho — o que foi vendido de fato vive em
+/// OrderItem (um Order pode ter mais de um item: plano base + order bumps
+/// pagos na mesma cobrança — ver Fase 2, Milestone 1/4 do plano).
 model Order {
   id          String @id @default(cuid())
   leadId      String
   lead        Lead   @relation(fields: [leadId], references: [id])
-  planId      String
-  plan        Plan   @relation(fields: [planId], references: [id])
   botId       String
   bot         Bot    @relation(fields: [botId], references: [id])
   originId    String?
@@ -255,6 +269,7 @@ model Order {
   paidAt      DateTime?
   expiresAt   DateTime?
 
+  items         OrderItem[]
   webhookEvents WebhookEvent[]
 
   @@index([status])
@@ -265,6 +280,33 @@ enum OrderStatus {
   PAID
   REFUSED
   EXPIRED
+}
+
+enum OrderItemKind {
+  BASE
+  ORDER_BUMP
+  UPSELL
+  DOWNSELL
+}
+
+/// Uma linha de um Order — o Plan efetivamente vendido, seu preço no
+/// momento da venda (pode divergir do Plan.priceCents atual se o preço
+/// mudar depois) e, pra planos com duração (assinatura), o controle de
+/// expiração/renovação/revogação de acesso (Fase 2, Milestone 5).
+model OrderItem {
+  id      String @id @default(cuid())
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  planId  String
+  plan    Plan   @relation(fields: [planId], references: [id])
+  kind    OrderItemKind @default(BASE)
+  unitPriceCents Int
+
+  accessExpiresAt       DateTime?
+  renewalReminderSentAt DateTime?
+  revokedAt             DateTime?
+
+  @@index([orderId])
 }
 
 /// Log bruto de todo webhook recebido da SyncPay — garante idempotência
