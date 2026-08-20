@@ -1,0 +1,57 @@
+<!--
+  Widget de upload direto (arrasta-e-solta ou clique) — sem passo manual de
+  tipo/file_id. Envia multipart pra `uploadUrl`, que sobe o arquivo pro
+  Telegram no servidor (src/bot/mediaUpload.ts) e volta pra mesma tela.
+
+  Params esperados: id (sufixo único de DOM — mais de um widget pode
+  existir na mesma página, ex: uma sequência de Downsell por card),
+  uploadUrl.
+-->
+<form method="POST" action="<%= uploadUrl %>" enctype="multipart/form-data" id="mediaUploadForm-<%= id %>">
+  <label
+    for="mediaUploadInput-<%= id %>"
+    id="mediaDropZone-<%= id %>"
+    class="card bg-base-200 border-2 border-dashed border-base-300 shadow-sm cursor-pointer hover:border-primary/60 transition-colors block"
+  >
+    <div class="card-body flex-row items-center gap-3 p-3">
+      <div class="rounded-lg bg-base-300/60 p-2.5 pointer-events-none">
+        <%- icon("arrow-up-tray", "w-4 h-4") %>
+      </div>
+      <div class="pointer-events-none">
+        <div class="font-semibold text-sm">Adicionar arquivo</div>
+        <div class="text-xs text-base-content/60">Clique ou arraste — foto, vídeo ou áudio (PNG, JPG, MP4, OGG)</div>
+      </div>
+    </div>
+  </label>
+  <input
+    id="mediaUploadInput-<%= id %>"
+    type="file"
+    name="file"
+    accept="image/*,video/*,audio/*"
+    class="hidden"
+    onchange="document.getElementById('mediaUploadForm-<%= id %>').submit()"
+  />
+</form>
+<script>
+  (function () {
+    var zone = document.getElementById("mediaDropZone-<%= id %>");
+    var input = document.getElementById("mediaUploadInput-<%= id %>");
+    var form = document.getElementById("mediaUploadForm-<%= id %>");
+    zone.addEventListener("dragover", function (e) {
+      e.preventDefault();
+      zone.classList.add("border-primary");
+    });
+    ["dragleave", "drop"].forEach(function (evt) {
+      zone.addEventListener(evt, function (e) {
+        e.preventDefault();
+        zone.classList.remove("border-primary");
+      });
+    });
+    zone.addEventListener("drop", function (e) {
+      if (e.dataTransfer.files.length > 0) {
+        input.files = e.dataTransfer.files;
+        form.submit();
+      }
+    });
+  })();
+</script>

@@ -1,6 +1,10 @@
 import { Router } from "express";
+import multer from "multer";
 import { prisma } from "../db/client.js";
 import { nextOrder } from "../bot/util.js";
+import { uploadMediaToLibrary } from "../bot/mediaUpload.js";
+
+const mediaUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
 export function createFlowsRouter(): Router {
   const router = Router();
@@ -101,7 +105,8 @@ export function createFlowsRouter(): Router {
     const flow = await loadFlow(req.params.id);
     if (!flow) return res.status(404).send("Fluxo não encontrado.");
     const mediaAssets = await loadMediaAssetsForFlow(flow);
-    res.render("flows/welcome", { flow, mediaAssets });
+    const mediaError = typeof req.query.mediaError === "string" ? req.query.mediaError : null;
+    res.render("flows/welcome", { flow, mediaAssets, mediaError });
   });
 
   router.post("/:id/welcome", async (req, res) => {
@@ -141,6 +146,45 @@ export function createFlowsRouter(): Router {
     await prisma.welcomeMedia.create({
       data: { welcomeConfigId: welcome.id, order: nextOrder(last === -1 ? null : last), mediaType: mediaType as never, fileId },
     });
+    res.redirect(`/admin/flows/${flowId}/welcome`);
+  });
+
+  router.post("/:id/welcome/media/upload", (req, res, next) => {
+    mediaUpload.single("file")(req, res, (err) => {
+      if (!err) return next();
+      console.error(`[flows] falha no upload de mídia de boas-vindas (flow ${req.params.id})`, err);
+      res.redirect(`/admin/flows/${req.params.id}/welcome`);
+    });
+  }, async (req, res) => {
+    const flowId = req.params.id;
+    const flow = await loadFlow(flowId);
+    if (!flow) return res.status(404).send("Fluxo não encontrado.");
+    const botId = flow.bots[0]?.botId;
+    if (!req.file) return res.redirect(`/admin/flows/${flowId}/welcome`);
+    if (!botId) {
+      return res.redirect(`/admin/flows/${flowId}/welcome?mediaError=${encodeURIComponent("Vincule um bot a este fluxo (aba Bots) antes de enviar mídia.")}`);
+    }
+
+    const welcome = await prisma.welcomeConfig.upsert({ where: { flowId }, update: {}, create: { flowId } });
+    const existing = await prisma.welcomeMedia.findMany({ where: { welcomeConfigId: welcome.id } });
+    if (existing.length >= 3) return res.redirect(`/admin/flows/${flowId}/welcome`);
+
+    try {
+      const asset = await uploadMediaToLibrary({
+        botId,
+        buffer: req.file.buffer,
+        mimeType: req.file.mimetype,
+        filename: req.file.originalname,
+      });
+      const last = existing.reduce((max, m) => Math.max(max, m.order), -1);
+      await prisma.welcomeMedia.create({
+        data: { welcomeConfigId: welcome.id, order: nextOrder(last === -1 ? null : last), mediaType: asset.mediaType, fileId: asset.fileId },
+      });
+    } catch (err) {
+      console.error(`[flows] falha ao subir mídia de boas-vindas (flow ${flowId})`, err);
+      const message = err instanceof Error ? err.message : "Falha ao enviar o arquivo.";
+      return res.redirect(`/admin/flows/${flowId}/welcome?mediaError=${encodeURIComponent(message)}`);
+    }
     res.redirect(`/admin/flows/${flowId}/welcome`);
   });
 
@@ -529,7 +573,8 @@ export function createFlowsRouter(): Router {
     const config = await loadDownsellConfig(flow.id);
     const mediaAssets = await loadMediaAssetsForFlow(flow);
     const activeTab = req.query.tab === "pix" ? "pix" : "geral";
-    res.render("flows/downsell", { flow, config, mediaAssets, activeTab, error: null });
+    const error = typeof req.query.mediaError === "string" ? req.query.mediaError : null;
+    res.render("flows/downsell", { flow, config, mediaAssets, activeTab, error });
   });
 
   router.post("/:id/downsell", async (req, res) => {
@@ -636,6 +681,49 @@ export function createFlowsRouter(): Router {
       }
     }
     res.redirect(`/admin/flows/${req.params.id}/downsell?tab=${sequence?.trigger === "PIX_GENERATED" ? "pix" : "geral"}`);
+  });
+
+  router.post("/:id/downsell/sequences/:seqId/media/upload", (req, res, next) => {
+    mediaUpload.single("file")(req, res, (err) => {
+      if (!err) return next();
+      console.error(`[flows] falha no upload de mídia de downsell (seq ${req.params.seqId})`, err);
+      res.redirect(`/admin/flows/${req.params.id}/downsell`);
+    });
+  }, async (req, res) => {
+    const seqId = req.params.seqId;
+    const sequence = await prisma.downsellSequence.findUnique({
+      where: { id: seqId },
+      include: { config: { include: { flow: { include: { bots: true } } } } },
+    });
+    const tab = sequence?.trigger === "PIX_GENERATED" ? "pix" : "geral";
+    const redirectUrl = `/admin/flows/${req.params.id}/downsell?tab=${tab}`;
+    const botId = sequence?.config.flow.bots[0]?.botId;
+    if (!sequence || !req.file) return res.redirect(redirectUrl);
+    if (!botId) {
+      const message = encodeURIComponent("Vincule um bot a este fluxo (aba Bots) antes de enviar mídia.");
+      return res.redirect(`${redirectUrl}&mediaError=${message}`);
+    }
+
+    const existing = await prisma.downsellSequenceMedia.findMany({ where: { sequenceId: seqId } });
+    if (existing.length >= 3) return res.redirect(redirectUrl);
+
+    try {
+      const asset = await uploadMediaToLibrary({
+        botId,
+        buffer: req.file.buffer,
+        mimeType: req.file.mimetype,
+        filename: req.file.originalname,
+      });
+      const last = existing.reduce((max, m) => Math.max(max, m.order), -1);
+      await prisma.downsellSequenceMedia.create({
+        data: { sequenceId: seqId, order: nextOrder(last === -1 ? null : last), mediaType: asset.mediaType, fileId: asset.fileId },
+      });
+    } catch (err) {
+      console.error(`[flows] falha ao subir mídia de downsell (seq ${seqId})`, err);
+      const message = err instanceof Error ? err.message : "Falha ao enviar o arquivo.";
+      return res.redirect(`${redirectUrl}&mediaError=${encodeURIComponent(message)}`);
+    }
+    res.redirect(redirectUrl);
   });
 
   router.post("/:id/downsell/sequences/:seqId/media/:mediaId/delete", async (req, res) => {

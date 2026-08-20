@@ -4,11 +4,13 @@
   (src/bot/mediaCapture.ts), poupando colar file_id à mão. Não substitui o
   form/rota existente, só preenche os campos antes do submit.
 
-  Params esperados: mediaAssets, mediaTypeTargetId, fileIdTargetId.
+  Params esperados: mediaAssets, mediaTypeTargetId, fileIdTargetId,
+  autoSubmitFormId (opcional — se passado, submete o form sozinho depois de
+  preencher, pra usar dentro de um form escondido sem botão visível).
 -->
 <% if (typeof mediaAssets !== "undefined" && mediaAssets.length > 0) { %>
   <label class="form-control mb-1">
-    <div class="label"><span class="label-text text-xs">Escolher da biblioteca (opcional)</span></div>
+    <div class="label"><span class="label-text text-xs">Ou reutilizar um arquivo já enviado</span></div>
     <select
       class="select select-bordered select-sm w-full"
       onchange="
@@ -16,6 +18,7 @@
         var d = JSON.parse(this.value);
         document.getElementById('<%= mediaTypeTargetId %>').value = d.mediaType;
         document.getElementById('<%= fileIdTargetId %>').value = d.fileId;
+        <% if (typeof autoSubmitFormId !== "undefined") { %>document.getElementById('<%= autoSubmitFormId %>').submit();<% } %>
       "
     >
       <option value="">— selecione —</option>
