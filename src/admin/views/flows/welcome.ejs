@@ -70,13 +70,10 @@
         <input type="text" name="miniAppUrl" value="<%= w.miniAppUrl || "" %>" placeholder="https://..." class="input input-bordered w-full" />
       </label>
 
-      <label class="form-control">
-        <div class="label"><span class="label-text">Canal/grupo-cofre padrão (entrega de conteúdo)</span></div>
-        <input type="text" name="defaultDeliveryTarget" value="<%= w.defaultDeliveryTarget || "" %>" placeholder="-1001234567890" class="input input-bordered w-full" />
-        <div class="label"><span class="label-text-alt text-base-content/60">Id do canal privado onde os produtos ficam postados. Cada plano pode sobrescrever isso individualmente.</span></div>
-      </label>
-
       <div><button class="btn btn-primary" type="submit">Salvar boas-vindas</button></div>
+      <p class="text-sm text-base-content/50 -mt-2">
+        O canal/grupo onde o conteúdo é entregue agora fica em <a class="link" href="/admin/flows/<%= flow.id %>/delivery">Entrega Padrão</a>.
+      </p>
     </form>
   </div>
 </div>

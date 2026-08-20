@@ -85,19 +85,12 @@
         Este plano vai usar a <a class="link" href="/admin/flows/<%= flow.id %>/delivery">Entrega Padrão do fluxo</a>.
       </p>
 
-      <div id="file-fields" style="display: <%= editingPlan && editingPlan.deliveryType === 'FILE' ? 'block' : 'none' %>;">
-        <div class="label px-0"><span class="label-text">Arquivo entregue</span></div>
-        <% if (editingPlan && editingPlan.fileTelegramId) { %>
-          <p class="text-sm text-success mb-2">✓ Arquivo enviado (mensagem <%= editingPlan.fileTelegramId %>).</p>
-        <% } else { %>
-          <p class="text-sm text-base-content/50 mb-2">Nenhum arquivo próprio enviado ainda.</p>
-        <% } %>
-        <% if (isEdit) { %>
-          <%- include("../partials/mediaUploadWidget", { id: "planFile", uploadUrl: `/admin/flows/${flow.id}/plans/${editingPlan.id}/file/upload` }) %>
-        <% } else { %>
-          <p class="text-sm text-base-content/50">Salve o plano primeiro (com "Arquivo" selecionado) — depois edite pra enviar o arquivo.</p>
-        <% } %>
-      </div>
+      <% /* O upload de arquivo (mediaUploadWidget) tem <form> próprio — não
+         pode ficar dentro deste <form> (HTML não permite form aninhado; o
+         navegador fecharia este form cedo demais e o botão Salvar pararia
+         de funcionar). Por isso o bloco de arquivo fica FORA, logo depois
+         do </form> principal, mesmo mostrando/escondendo com o mesmo id
+         "file-fields" via JS. */ %>
       <div id="link-fields" style="display: <%= editingPlan && editingPlan.deliveryType === 'LINK' ? 'block' : 'none' %>;">
         <label class="form-control">
           <div class="label"><span class="label-text">Link a enviar após o pagamento</span></div>
@@ -133,6 +126,20 @@
         <% if (isEdit) { %><a class="btn btn-ghost" href="/admin/flows/<%= flow.id %>/plans">Cancelar</a><% } %>
       </div>
     </form>
+
+    <div id="file-fields" class="mt-4 pt-4 border-t border-base-300" style="display: <%= editingPlan && editingPlan.deliveryType === 'FILE' ? 'block' : 'none' %>;">
+      <div class="label px-0"><span class="label-text">Arquivo entregue</span></div>
+      <% if (editingPlan && editingPlan.fileTelegramId) { %>
+        <p class="text-sm text-success mb-2">✓ Arquivo enviado (mensagem <%= editingPlan.fileTelegramId %>).</p>
+      <% } else { %>
+        <p class="text-sm text-base-content/50 mb-2">Nenhum arquivo próprio enviado ainda.</p>
+      <% } %>
+      <% if (isEdit) { %>
+        <%- include("../partials/mediaUploadWidget", { id: "planFile", uploadUrl: `/admin/flows/${flow.id}/plans/${editingPlan.id}/file/upload` }) %>
+      <% } else { %>
+        <p class="text-sm text-base-content/50">Salve o plano primeiro (com "Arquivo" selecionado) — depois edite pra enviar o arquivo.</p>
+      <% } %>
+    </div>
   </div>
 </div>
 
