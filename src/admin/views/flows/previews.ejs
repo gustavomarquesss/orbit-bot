@@ -1,0 +1,133 @@
+<%- include("../partials/header", { title: flow.name + " — Prévias", active: "flows" }) %>
+<%- include("./partials/nav", { flow, section: "previews" }) %>
+
+<% if (error) { %><div class="alert alert-error text-sm mb-4"><%= error %></div><% } %>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+  <div class="lg:col-span-2 flex flex-col gap-6">
+    <div class="card bg-base-200 border border-base-300 shadow-sm">
+      <div class="card-body">
+        <form method="POST" action="/admin/flows/<%= flow.id %>/previews" class="flex flex-col gap-4">
+          <label class="label cursor-pointer justify-start gap-3 px-0">
+            <input type="checkbox" name="active" <%= config.active ? "checked" : "" %> class="checkbox checkbox-primary checkbox-sm" />
+            <div>
+              <span class="label-text font-semibold">Prévias que somem</span>
+              <p class="text-xs text-base-content/50 mt-0.5">Lead clica, recebe as mídias protegidas e elas se apagam sozinhas após o tempo escolhido.</p>
+            </div>
+          </label>
+
+          <label class="form-control max-w-md">
+            <div class="label"><span class="label-text">Texto do botão</span></div>
+            <input type="text" name="buttonLabel" value="<%= config.buttonLabel || "" %>" placeholder="🔥 Prévias Grátis" class="input input-bordered w-full" />
+            <div class="label"><span class="label-text-alt text-base-content/60">O botão aparece junto com os planos na mensagem inicial (CTA desativado).</span></div>
+          </label>
+
+          <div class="flex gap-4 flex-wrap">
+            <label class="form-control w-48">
+              <div class="label"><span class="label-text">Apagar após</span></div>
+              <select name="deleteAfterSeconds" class="select select-bordered w-full">
+                <% delayPresets.forEach(function(s) { %>
+                  <option value="<%= s %>" <%= config.deleteAfterSeconds === s ? "selected" : "" %>><%= s %> segundos</option>
+                <% }); %>
+              </select>
+            </label>
+
+            <label class="form-control w-64">
+              <div class="label"><span class="label-text">Lead pode ver de novo?</span></div>
+              <select class="select select-bordered w-full" disabled>
+                <option selected>Nunca — 1 visualização por lead</option>
+              </select>
+            </label>
+          </div>
+
+          <label class="label cursor-pointer justify-start gap-3 px-0">
+            <input type="checkbox" name="protectContent" <%= config.protectContent ? "checked" : "" %> class="checkbox checkbox-primary checkbox-sm" />
+            <div>
+              <span class="label-text">Proteger conteúdo</span>
+              <p class="text-xs text-base-content/50 mt-0.5">Bloqueia encaminhar e salvar as mídias.</p>
+            </div>
+          </label>
+
+          <label class="form-control">
+            <div class="label"><span class="label-text">Mensagem junto das prévias (opcional)</span></div>
+            <textarea name="caption" rows="2" placeholder="⏳ Corre! Essas prévias somem em segundos..." class="textarea textarea-bordered w-full"><%= config.caption || "" %></textarea>
+          </label>
+
+          <div class="divider my-0"></div>
+
+          <div>
+            <div class="font-semibold text-sm">Depois que as prévias somem</div>
+            <p class="text-xs text-base-content/50 mt-0.5 mb-2">Mensagem enviada no lugar das mídias apagadas — o momento da conversão.</p>
+            <textarea name="expiredMessage" rows="2" placeholder="😈 As prévias expiraram... o conteúdo completo te espera no VIP!" class="textarea textarea-bordered w-full"><%= config.expiredMessage || "" %></textarea>
+          </div>
+
+          <label class="label cursor-pointer justify-start gap-3 px-0">
+            <input type="checkbox" name="expiredShowPlansButton" <%= config.expiredShowPlansButton ? "checked" : "" %> class="checkbox checkbox-primary checkbox-sm" />
+            <div>
+              <span class="label-text">Botão "💎 Ver Planos"</span>
+              <p class="text-xs text-base-content/50 mt-0.5">Incluir botão de planos na mensagem final.</p>
+            </div>
+          </label>
+
+          <div><button class="btn btn-primary" type="submit">Salvar</button></div>
+        </form>
+      </div>
+    </div>
+
+    <div class="card bg-base-200 border border-base-300 shadow-sm">
+      <div class="card-body">
+        <div class="flex items-center justify-between mb-1">
+          <h3 class="font-semibold">Mídias da prévia</h3>
+          <span class="text-sm text-base-content/50"><%= config.media.length %>/<%= 8 %></span>
+        </div>
+        <p class="text-xs text-base-content/50 mb-3">Fotos, vídeos ou áudios — enviados na ordem.</p>
+
+        <div class="flex flex-col divide-y divide-base-300 mb-2">
+          <% config.media.forEach(function(m) { %>
+            <div class="flex items-center justify-between py-2 text-sm">
+              <span><%= m.mediaType %> — <code class="text-xs bg-base-300/60 px-1.5 py-0.5 rounded"><%= m.fileId.slice(0, 24) %>…</code></span>
+              <form method="POST" action="/admin/flows/<%= flow.id %>/previews/media/<%= m.id %>/delete" onsubmit="return confirm('Remover esta mídia?');">
+                <button class="btn btn-xs btn-error btn-outline" type="submit">Remover</button>
+              </form>
+            </div>
+          <% }); %>
+          <% if (config.media.length === 0) { %><p class="text-base-content/50 py-2 text-sm">Nenhuma mídia ainda — adicione a primeira prévia.</p><% } %>
+        </div>
+
+        <% if (config.media.length < 8) { %>
+          <div class="flex flex-col gap-2 mt-2 pt-3 border-t border-base-300">
+            <%- include("../partials/mediaUploadWidget", { id: "preview", uploadUrl: "/admin/flows/" + flow.id + "/previews/media/upload" }) %>
+            <%- include("../partials/mediaPicker", { mediaAssets, mediaTypeTargetId: "previewMediaType", fileIdTargetId: "previewFileId", autoSubmitFormId: "previewMediaPickerForm" }) %>
+            <form id="previewMediaPickerForm" method="POST" action="/admin/flows/<%= flow.id %>/previews/media" class="hidden">
+              <select id="previewMediaType" name="mediaType"><option value="PHOTO">PHOTO</option><option value="VIDEO">VIDEO</option><option value="AUDIO">AUDIO</option><option value="DOCUMENT">DOCUMENT</option></select>
+              <input id="previewFileId" type="text" name="fileId" />
+            </form>
+          </div>
+        <% } %>
+      </div>
+    </div>
+  </div>
+
+  <div class="flex flex-col gap-6">
+    <div class="alert bg-primary/10 border border-primary/30 text-base-content text-sm py-3">
+      <div>
+        <div class="font-semibold mb-2">Como funciona</div>
+        <ol class="list-decimal list-inside flex flex-col gap-1.5">
+          <li>Lead clica no botão de prévias — o botão some do teclado (1 uso por lead)</li>
+          <li>As mídias chegam protegidas (sem encaminhar/salvar)</li>
+          <li>Após o tempo escolhido, tudo é apagado automaticamente</li>
+          <li>No lugar, entra sua mensagem de conversão com o botão de planos</li>
+        </ol>
+      </div>
+    </div>
+    <div class="alert bg-warning/10 border border-warning/30 text-base-content text-sm py-3">
+      <div>
+        <span class="font-semibold">💡 Dica:</span> use 2-4 mídias e um timer curto (10-15s). As mídias chegam em sequência, e a sensação de perda na hora que o conteúdo some é o que faz o lead correr pro plano.
+      </div>
+    </div>
+  </div>
+</div>
+
+  </div>
+</div>
+<%- include("../partials/footer", { active: "flows" }) %>

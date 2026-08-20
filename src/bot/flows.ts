@@ -1,6 +1,6 @@
 import { Markup, type Telegraf, type Context } from "telegraf";
 import type { InlineKeyboardButton } from "telegraf/types";
-import type { Lead, Offer, Plan, WelcomeConfig, WelcomeMedia, RedirectButton, Bot, PackConfig } from "@prisma/client";
+import type { Lead, Offer, Plan, WelcomeConfig, WelcomeMedia, RedirectButton, Bot, PackConfig, PreviewConfig, PreviewMedia } from "@prisma/client";
 import { prisma } from "../db/client.js";
 import { createOrderAndCharge, type OrderItemInput } from "../payments/orders.js";
 import { resolveOriginAndUpsertLead, touchLead } from "./deepLink.js";
@@ -19,6 +19,8 @@ export const BUMP_DECLINE_PREFIX = "bmpD:";
 /** Fase 2, Milestone 8 — Packs. */
 const PACKS_CALLBACK = "packs";
 const PACK_DETAIL_PREFIX = "packDetail:";
+/** Fase 2, Milestone 9 — Prévias que somem. */
+const PREVIEW_CALLBACK = "preview";
 
 async function getFlowForBot(botId: string) {
   const flowBot = await prisma.flowBot.findFirst({
@@ -33,6 +35,7 @@ async function getFlowForBot(botId: string) {
           // (Fase 2, Milestone 8).
           plans: { where: { active: true }, orderBy: { order: "asc" }, include: { previewMedia: { orderBy: { order: "asc" } } } },
           packConfig: true,
+          previewConfig: { include: { media: { orderBy: { order: "asc" } } } },
         },
       },
     },
@@ -46,11 +49,15 @@ async function getFlowForBot(botId: string) {
   };
 }
 
+type PreviewConfigWithMedia = PreviewConfig & { media: PreviewMedia[] };
+
 function buildWelcomeKeyboard(
   welcome: WelcomeWithRelations,
   plans: Plan[],
   packConfig: PackConfig | null,
-  packs: Plan[]
+  packs: Plan[],
+  previewConfig: PreviewConfigWithMedia | null,
+  previewAlreadyUsed: boolean
 ) {
   const rows: InlineKeyboardButton[][] = [];
   const hasPlans = plans.length > 0;
@@ -63,6 +70,14 @@ function buildWelcomeKeyboard(
     // "Escolha um plano:" pra repetir os mesmos botões (pedido do usuário,
     // 2026-08-20).
     rows.push(...buildPlansKeyboard(plans).reply_markup.inline_keyboard);
+  }
+  // Botão de Prévias (Fase 2, Milestone 9) — só quando o CTA está desligado
+  // (mesma condição que embute os planos direto acima), e só se o lead
+  // ainda não usou (1 visualização por lead, v1) — "o botão some do
+  // teclado" do print de referência é implementado assim: nunca aparece de
+  // novo pra quem já viu, em vez de reaparecer e falhar ao clicar.
+  if (!welcome.ctaButtonEnabled && previewConfig?.active && previewConfig.media.length > 0 && !previewAlreadyUsed) {
+    rows.push([Markup.button.callback(previewConfig.buttonLabel || "🔥 Prévias Grátis", PREVIEW_CALLBACK)]);
   }
   // Botão de Packs (Fase 2, Milestone 8) — sempre visível quando ativo e
   // com pack cadastrado, independente do CTA estar ligado ou desligado
@@ -88,10 +103,12 @@ async function renderWelcome(
   welcome: WelcomeWithRelations,
   plans: Plan[],
   packConfig: PackConfig | null,
-  packs: Plan[]
+  packs: Plan[],
+  previewConfig: PreviewConfigWithMedia | null,
+  previewAlreadyUsed: boolean
 ): Promise<void> {
   const prepared = prepareRichText(welcome.text, { lead, bot: botRow });
-  const keyboard = buildWelcomeKeyboard(welcome, plans, packConfig, packs);
+  const keyboard = buildWelcomeKeyboard(welcome, plans, packConfig, packs, previewConfig, previewAlreadyUsed);
   const replyMarkup = keyboard?.reply_markup;
   const media = welcome.media.slice(0, 3);
   // Legenda na própria mídia só quando faz sentido (1 mídia só, sem pedir
@@ -373,10 +390,23 @@ export function registerFlowHandlers(bot: Telegraf, botId: string): void {
     }
 
     const botRow = await prisma.bot.findUniqueOrThrow({ where: { id: botId } });
+    const previewAlreadyUsed = flow.previewConfig
+      ? (await prisma.previewView.findUnique({ where: { flowId_leadId: { flowId: flow.id, leadId: result.lead.id } } })) != null
+      : false;
     // Sem CTA, os botões de plano já saem direto na própria mensagem de
     // boas-vindas (ver buildWelcomeKeyboard) — não precisa de um passo à
     // parte pro lead ver os planos.
-    await renderWelcome(ctx, botRow, result.lead, flow.welcomeConfig, flow.plans, flow.packConfig, flow.packs);
+    await renderWelcome(
+      ctx,
+      botRow,
+      result.lead,
+      flow.welcomeConfig,
+      flow.plans,
+      flow.packConfig,
+      flow.packs,
+      flow.previewConfig,
+      previewAlreadyUsed
+    );
   });
 
   bot.action(CTA_CALLBACK, async (ctx) => {
@@ -456,6 +486,92 @@ export function registerFlowHandlers(bot: Telegraf, botId: string): void {
     }
 
     await ctx.reply(pack.description || pack.name, { reply_markup: buyKeyboard.reply_markup });
+  });
+
+  // --- Prévias que somem (Fase 2, Milestone 9) ---
+
+  bot.action(PREVIEW_CALLBACK, async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+    const lead = await touchLead(ctx, botId);
+    if (!lead) return;
+
+    const flow = await getFlowForBot(botId);
+    const previewConfig = flow?.previewConfig;
+    if (!flow || !previewConfig?.active || previewConfig.media.length === 0) return;
+
+    // "1 visualização por lead" (única política implementada na v1) — cria
+    // a marca ANTES de mandar, pra dois cliques quase simultâneos não
+    // conseguirem passar os dois pela checagem (race condition benigna:
+    // pior caso é um clique extra levar um "já usou", nunca dois envios).
+    try {
+      await prisma.previewView.create({ data: { flowId: flow.id, leadId: lead.id } });
+    } catch (err) {
+      // Unique[flowId,leadId] já existe — o lead já usou (ou clicou 2x
+      // rápido); não reenviar.
+      await ctx.answerCbQuery("Você já usou essa prévia.", { show_alert: true }).catch(() => {});
+      return;
+    }
+
+    const chatId = ctx.chat?.id;
+    if (!chatId) return;
+
+    const sentMessageIds: number[] = [];
+    for (const m of previewConfig.media) {
+      try {
+        const opts = { protect_content: previewConfig.protectContent } as never;
+        let sent;
+        switch (m.mediaType) {
+          case "PHOTO":
+            sent = await ctx.replyWithPhoto(m.fileId, opts);
+            break;
+          case "VIDEO":
+            sent = await ctx.replyWithVideo(m.fileId, opts);
+            break;
+          case "AUDIO":
+            sent = await ctx.replyWithAudio(m.fileId, opts);
+            break;
+          case "DOCUMENT":
+            sent = await ctx.replyWithDocument(m.fileId, opts);
+            break;
+        }
+        if (sent) sentMessageIds.push(sent.message_id);
+      } catch (err) {
+        console.error(`[flows] falha ao enviar mídia de prévia (flow ${flow.id})`, err);
+      }
+    }
+    if (previewConfig.caption) {
+      try {
+        const sent = await ctx.reply(previewConfig.caption);
+        sentMessageIds.push(sent.message_id);
+      } catch (err) {
+        console.error(`[flows] falha ao enviar legenda da prévia (flow ${flow.id})`, err);
+      }
+    }
+
+    if (sentMessageIds.length > 0) {
+      await prisma.scheduledPreviewCleanup.create({
+        data: {
+          botId,
+          chatId: BigInt(chatId),
+          messageIds: sentMessageIds,
+          expiredMessage: previewConfig.expiredMessage,
+          expiredShowPlansButton: previewConfig.expiredShowPlansButton,
+          deleteAt: new Date(Date.now() + previewConfig.deleteAfterSeconds * 1000),
+        },
+      });
+    }
+
+    // "O botão some do teclado" — reconstrói o teclado da própria mensagem
+    // de boas-vindas sem a linha de Prévias (previewAlreadyUsed=true agora
+    // que o PreviewView foi criado acima).
+    if (flow.welcomeConfig) {
+      try {
+        const rebuilt = buildWelcomeKeyboard(flow.welcomeConfig, flow.plans, flow.packConfig, flow.packs, previewConfig, true);
+        await ctx.editMessageReplyMarkup(rebuilt?.reply_markup);
+      } catch (err) {
+        console.error(`[flows] falha ao remover o botão de prévias do teclado original (flow ${flow.id})`, err);
+      }
+    }
   });
 
   bot.action(new RegExp(`^${PLAN_CALLBACK_PREFIX}.+`), async (ctx) => {

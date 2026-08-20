@@ -73,6 +73,7 @@ export function createFlowsRouter(): Router {
           plans: { where: { productType: "PLAN" }, orderBy: { order: "asc" } },
           delivery: true,
           packConfig: true,
+          previewConfig: { include: { media: { orderBy: { order: "asc" } } } },
         },
       }),
       prisma.plan.findMany({
@@ -664,6 +665,105 @@ export function createFlowsRouter(): Router {
   router.post("/:id/packs/:packId/media/:mediaId/delete", async (req, res) => {
     await prisma.packPreviewMedia.delete({ where: { id: req.params.mediaId } });
     res.redirect(withSuccess(`/admin/flows/${req.params.id}/packs/${req.params.packId}/edit`, "Mídia removida com sucesso!"));
+  });
+
+  // --- Prévias que somem (Fase 2, Milestone 9) ---
+
+  const PREVIEW_MEDIA_LIMIT = 8;
+  const PREVIEW_DELAY_PRESETS = [5, 10, 15, 20, 30, 60];
+
+  async function loadPreviewConfig(flowId: string) {
+    return prisma.previewConfig.upsert({
+      where: { flowId },
+      update: {},
+      create: { flowId },
+      include: { media: { orderBy: { order: "asc" } } },
+    });
+  }
+
+  router.get("/:id/previews", async (req, res) => {
+    const flow = await loadFlow(req.params.id);
+    if (!flow) return res.status(404).send("Fluxo não encontrado.");
+    const config = await loadPreviewConfig(flow.id);
+    const mediaAssets = await loadMediaAssetsForFlow(flow);
+    const error = typeof req.query.mediaError === "string" ? req.query.mediaError : null;
+    res.render("flows/previews", { flow, config, mediaAssets, error, delayPresets: PREVIEW_DELAY_PRESETS });
+  });
+
+  router.post("/:id/previews", async (req, res) => {
+    const flowId = req.params.id;
+    const active = req.body.active === "on";
+    const buttonLabel = String(req.body.buttonLabel ?? "").trim() || null;
+    const deleteAfterSeconds = Math.max(1, Number(req.body.deleteAfterSeconds ?? 15) || 15);
+    const protectContent = req.body.protectContent === "on";
+    const caption = String(req.body.caption ?? "").trim() || null;
+    const expiredMessage = String(req.body.expiredMessage ?? "").trim() || null;
+    const expiredShowPlansButton = req.body.expiredShowPlansButton === "on";
+
+    await prisma.previewConfig.upsert({
+      where: { flowId },
+      update: { active, buttonLabel, deleteAfterSeconds, protectContent, caption, expiredMessage, expiredShowPlansButton },
+      create: { flowId, active, buttonLabel, deleteAfterSeconds, protectContent, caption, expiredMessage, expiredShowPlansButton },
+    });
+
+    res.redirect(withSuccess(`/admin/flows/${flowId}/previews`, "Prévias salvas com sucesso!"));
+  });
+
+  router.post("/:id/previews/media", async (req, res) => {
+    const flowId = req.params.id;
+    const mediaType = String(req.body.mediaType ?? "");
+    const fileId = String(req.body.fileId ?? "").trim();
+    const config = await loadPreviewConfig(flowId);
+    if (mediaType && fileId && config.media.length < PREVIEW_MEDIA_LIMIT) {
+      const last = config.media.reduce((max, m) => Math.max(max, m.order), -1);
+      await prisma.previewMedia.create({
+        data: { previewConfigId: config.id, order: nextOrder(last === -1 ? null : last), mediaType: mediaType as never, fileId },
+      });
+    }
+    res.redirect(`/admin/flows/${flowId}/previews`);
+  });
+
+  router.post("/:id/previews/media/upload", (req, res, next) => {
+    mediaUpload.single("file")(req, res, (err) => {
+      if (!err) return next();
+      console.error(`[flows] falha no upload de mídia de prévia (flow ${req.params.id})`, err);
+      res.redirect(`/admin/flows/${req.params.id}/previews?mediaError=${encodeURIComponent(multerErrorMessage(err))}`);
+    });
+  }, async (req, res) => {
+    const flowId = req.params.id;
+    const flow = await loadFlow(flowId);
+    if (!flow) return res.status(404).send("Fluxo não encontrado.");
+    const botId = flow.bots[0]?.botId;
+    if (!req.file) return res.redirect(`/admin/flows/${flowId}/previews`);
+    if (!botId) {
+      return res.redirect(`/admin/flows/${flowId}/previews?mediaError=${encodeURIComponent("Vincule um bot a este fluxo (aba Bots) antes de enviar mídia.")}`);
+    }
+
+    const config = await loadPreviewConfig(flowId);
+    if (config.media.length >= PREVIEW_MEDIA_LIMIT) return res.redirect(`/admin/flows/${flowId}/previews`);
+
+    try {
+      const asset = await uploadMediaToLibrary({
+        botId,
+        buffer: req.file.buffer,
+        mimeType: req.file.mimetype,
+        filename: req.file.originalname,
+      });
+      const last = config.media.reduce((max, m) => Math.max(max, m.order), -1);
+      await prisma.previewMedia.create({
+        data: { previewConfigId: config.id, order: nextOrder(last === -1 ? null : last), mediaType: asset.mediaType, fileId: asset.fileId },
+      });
+    } catch (err) {
+      console.error(`[flows] falha ao subir mídia de prévia (flow ${flowId})`, err);
+      const message = err instanceof Error ? err.message : "Falha ao enviar o arquivo.";
+      return res.redirect(`/admin/flows/${flowId}/previews?mediaError=${encodeURIComponent(message)}`);
+    }
+    res.redirect(withSuccess(`/admin/flows/${flowId}/previews`, "Mídia enviada com sucesso!"));
+  });
+
+  router.post("/:id/previews/media/:mediaId/delete", async (req, res) => {
+    await prisma.previewMedia.delete({ where: { id: req.params.mediaId } });
+    res.redirect(withSuccess(`/admin/flows/${req.params.id}/previews`, "Mídia removida com sucesso!"));
   });
 
   // --- Entrega Padrão (Fallback) ---

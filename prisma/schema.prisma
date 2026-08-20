@@ -177,6 +177,8 @@ model Flow {
   downsellConfig  DownsellConfig?
   delivery        FlowDelivery?
   packConfig      PackConfig?
+  previewConfig   PreviewConfig?
+  previewViews    PreviewView[]
 }
 
 /// "Bots Vinculados" de um Flow — quais bots executam este funil.
@@ -377,6 +379,72 @@ model PackConfig {
   /// Mostrada acima da lista de packs quando o botão é clicado — vazio usa
   /// um texto padrão genérico.
   headerMessage String?
+}
+
+/// Config da "Prévias que somem" de um Flow (Fase 2, Milestone 9) — mídia
+/// protegida enviada de graça, que se apaga sozinha depois de
+/// `deleteAfterSeconds`, seguida de uma mensagem de conversão.
+model PreviewConfig {
+  id                     String   @id @default(cuid())
+  flowId                 String   @unique
+  flow                   Flow     @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  active                 Boolean  @default(false)
+  buttonLabel            String?
+  deleteAfterSeconds     Int      @default(15)
+  protectContent         Boolean  @default(true)
+  /// Mensagem opcional mandada junto (depois) do lote de mídia.
+  caption                String?
+  /// Mandada no lugar das mídias assim que elas somem — o momento da
+  /// conversão. Vazio usa um texto padrão genérico.
+  expiredMessage         String?
+  expiredShowPlansButton Boolean  @default(true)
+
+  media PreviewMedia[]
+}
+
+/// Até 8 mídias da prévia, em ordem (mesmo padrão de WelcomeMedia, limite
+/// maior porque aqui é conteúdo de amostra, não só boas-vindas).
+model PreviewMedia {
+  id              String        @id @default(cuid())
+  previewConfigId String
+  previewConfig   PreviewConfig @relation(fields: [previewConfigId], references: [id], onDelete: Cascade)
+  order           Int
+  mediaType       MediaType
+  fileId          String
+
+  @@unique([previewConfigId, order])
+}
+
+/// Marca que um Lead já usou a prévia deste Flow — únca política de "lead
+/// pode ver de novo?" implementada na v1 é "nunca, 1 visualização" (ver
+/// PROJECT_STATE.md/plano). Impede reenvio e sinaliza o botão pra sumir do
+/// teclado original (ctx.editMessageReplyMarkup em src/bot/flows.ts).
+model PreviewView {
+  id        String   @id @default(cuid())
+  flowId    String
+  flow      Flow     @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  leadId    String
+  viewedAt  DateTime @default(now())
+
+  @@unique([flowId, leadId])
+}
+
+/// Um lote de mensagens de prévia agendado pra apagar — `messageIds` guarda
+/// o `message_id` de cada mídia enviada (Postgres `Int[]` nativo, sem
+/// tabela filha) pra apagar uma por uma quando `deleteAt` vencer (ver
+/// src/bot/previewScheduler.ts, mesmo padrão de poller de
+/// ScheduledCountdownEdit).
+model ScheduledPreviewCleanup {
+  id                     String    @id @default(cuid())
+  botId                  String
+  chatId                 BigInt
+  messageIds             Int[]
+  expiredMessage         String?
+  expiredShowPlansButton Boolean   @default(true)
+  deleteAt               DateTime
+  finishedAt             DateTime?
+
+  @@index([deleteAt])
 }
 
 enum OfferKind {
