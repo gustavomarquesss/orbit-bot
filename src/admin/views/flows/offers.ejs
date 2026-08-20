@@ -65,27 +65,17 @@
 
       <div>
         <div class="label"><span class="label-text">Texto do convite (opcional — vazio usa um texto padrão)</span></div>
-        <div class="flex gap-1 mb-2">
-          <button type="button" class="btn btn-xs btn-square btn-ghost" onclick="dgWrapSelection('message','&lt;b&gt;','&lt;/b&gt;')"><b>B</b></button>
-          <button type="button" class="btn btn-xs btn-square btn-ghost" onclick="dgWrapSelection('message','&lt;i&gt;','&lt;/i&gt;')"><i>I</i></button>
-          <button type="button" class="btn btn-xs btn-square btn-ghost" onclick="dgWrapSelection('message','&lt;u&gt;','&lt;/u&gt;')"><u>U</u></button>
-        </div>
-        <textarea id="message" name="message" rows="4" placeholder="Que tal levar também {plano} por {valor}?" class="textarea textarea-bordered w-full"></textarea>
-        <div class="flex gap-1.5 flex-wrap mt-2">
-          <% ["nome","valor","plano","saudacao","bot.username"].forEach(function(v) { %>
-            <button type="button" class="badge badge-outline hover:badge-primary cursor-pointer" onclick="dgInsertAtCursor('message', '{<%= v %>}')">{<%= v %>}</button>
-          <% }); %>
-        </div>
+        <%- include("../partials/richEditor", { id: "message", name: "message", rows: 4, placeholder: "Que tal levar também {plano} por {valor}?" }) %>
       </div>
 
       <label class="form-control">
         <div class="label"><span class="label-text">Texto do botão de aceitar</span></div>
-        <input type="text" name="acceptLabel" placeholder="Sim, adicionar" class="input input-bordered w-full" />
+        <%- include("../partials/buttonColorInput", { id: "acceptLabel", name: "acceptLabel", placeholder: "Sim, adicionar" }) %>
       </label>
 
       <label class="form-control">
         <div class="label"><span class="label-text">Texto do botão de recusar</span></div>
-        <input type="text" name="declineLabel" placeholder="Não, obrigado" class="input input-bordered w-full" />
+        <%- include("../partials/buttonColorInput", { id: "declineLabel", name: "declineLabel", placeholder: "Não, obrigado" }) %>
       </label>
 
       <div><button class="btn btn-primary" type="submit">Criar bump</button></div>

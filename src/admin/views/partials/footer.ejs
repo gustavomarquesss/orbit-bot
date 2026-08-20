@@ -43,6 +43,8 @@
     </div>
   </div><!-- /drawer -->
 
+  <%- include("./richEditorModals") %>
+
   <script>
     // Helpers reaproveitados pelos editores de texto rico (boas-vindas,
     // pagamentos, ofertas): envolve a seleção do textarea com tags HTML, ou
@@ -55,6 +57,7 @@
       ta.focus();
       ta.selectionStart = start + open.length;
       ta.selectionEnd = start + open.length + sel.length;
+      dgUpdateCharCount(id);
     }
     function dgInsertAtCursor(id, text) {
       var ta = document.getElementById(id);
@@ -62,6 +65,12 @@
       ta.value = ta.value.slice(0, start) + text + ta.value.slice(end);
       ta.focus();
       ta.selectionStart = ta.selectionEnd = start + text.length;
+      dgUpdateCharCount(id);
+    }
+    function dgUpdateCharCount(id) {
+      var el = document.getElementById(id);
+      var counter = document.getElementById(id + "-count");
+      if (el && counter) counter.textContent = el.value.length + " caracteres";
     }
     document.getElementById("theme-toggle").addEventListener("click", function () {
       var root = document.documentElement;

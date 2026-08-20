@@ -1,0 +1,47 @@
+<!--
+  Editor de texto rico compartilhado — toolbar de formatação HTML + modal de
+  variáveis (perfil/saudação/data-hora/aritmética/countdown/efeitos/
+  pagamento/bot) + pré-visualização estilo Telegram + contador de
+  caracteres. Usa os helpers globais de partials/footer.ejs (dgWrapSelection,
+  dgOpenVarModal, dgOpenPreview, dgUpdateCharCount).
+
+  Params esperados: id, name, value, rows (opcional, default 5),
+  placeholder (opcional), hint (opcional, texto de ajuda abaixo do campo).
+-->
+<% const _rows = typeof rows !== "undefined" ? rows : 5; %>
+<% const _placeholder = typeof placeholder !== "undefined" ? placeholder : ""; %>
+<% const _hint = typeof hint !== "undefined" ? hint : null; %>
+<% const _maxlength = typeof maxlength !== "undefined" ? maxlength : null; %>
+<% const _required = typeof required !== "undefined" && required; %>
+<% const _value = typeof value !== "undefined" && value ? value : ""; %>
+<div class="flex gap-1 mb-2 flex-wrap items-center">
+  <button type="button" class="btn btn-xs btn-square btn-ghost" title="Negrito" onclick="dgWrapSelection('<%= id %>','&lt;b&gt;','&lt;/b&gt;')"><b>B</b></button>
+  <button type="button" class="btn btn-xs btn-square btn-ghost" title="Itálico" onclick="dgWrapSelection('<%= id %>','&lt;i&gt;','&lt;/i&gt;')"><i>I</i></button>
+  <button type="button" class="btn btn-xs btn-square btn-ghost" title="Sublinhado" onclick="dgWrapSelection('<%= id %>','&lt;u&gt;','&lt;/u&gt;')"><u>U</u></button>
+  <button type="button" class="btn btn-xs btn-square btn-ghost" title="Tachado" onclick="dgWrapSelection('<%= id %>','&lt;s&gt;','&lt;/s&gt;')"><s>S</s></button>
+  <button type="button" class="btn btn-xs btn-square btn-ghost" title="Código" onclick="dgWrapSelection('<%= id %>','&lt;code&gt;','&lt;/code&gt;')">&lt;/&gt;</button>
+  <button type="button" class="btn btn-xs btn-square btn-ghost" title="Citação" onclick="dgWrapSelection('<%= id %>','&lt;blockquote&gt;','&lt;/blockquote&gt;')">&rdquo;</button>
+  <span class="w-px h-4 bg-base-300 mx-0.5"></span>
+  <button type="button" class="btn btn-xs btn-outline" onclick="dgOpenVarModal('<%= id %>')">🧩 Variáveis</button>
+  <button type="button" class="btn btn-xs btn-outline" onclick="dgOpenPreview('<%= id %>')">👁 Pré-visualizar</button>
+</div>
+<textarea
+  id="<%= id %>"
+  name="<%= name %>"
+  rows="<%= _rows %>"
+  <% if (_placeholder) { %>placeholder="<%= _placeholder %>"<% } %>
+  <% if (_maxlength) { %>maxlength="<%= _maxlength %>"<% } %>
+  <% if (_required) { %>required<% } %>
+  oninput="dgUpdateCharCount('<%= id %>')"
+  class="textarea textarea-bordered w-full"
+><%= _value %></textarea>
+<div class="flex justify-end mt-1">
+  <span class="text-xs text-base-content/40" id="<%= id %>-count">0 caracteres</span>
+</div>
+<% if (_hint) { %><p class="text-xs text-base-content/50 mt-1"><%= _hint %></p><% } %>
+<script>
+  // dgUpdateCharCount só existe depois que partials/footer.ejs carrega (fim
+  // do body) — adia a contagem inicial pro DOMContentLoaded em vez de
+  // chamar direto aqui (senão quebraria em campos já preenchidos).
+  document.addEventListener("DOMContentLoaded", function () { dgUpdateCharCount("<%= id %>"); });
+</script>

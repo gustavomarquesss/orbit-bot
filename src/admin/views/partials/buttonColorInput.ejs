@@ -1,0 +1,23 @@
+<!--
+  Campo de texto de botão editável (CTA, redirect, aceitar/recusar bump,
+  botão de upsell) com atalho pra cor real da Bot API 9.4 — abre
+  dg-color-modal (partials/richEditorModals.ejs) que anexa/remove o sufixo
+  {#HEX} reconhecido por src/bot/templating.ts (parseButtonLabel).
+
+  Params esperados: id, name, value (opcional), placeholder (opcional).
+-->
+<% const _placeholder = typeof placeholder !== "undefined" ? placeholder : ""; %>
+<% const _required = typeof required !== "undefined" && required; %>
+<% const _value = typeof value !== "undefined" && value ? value : ""; %>
+<div class="flex gap-2">
+  <input
+    type="text"
+    id="<%= id %>"
+    name="<%= name %>"
+    value="<%= _value %>"
+    <% if (_placeholder) { %>placeholder="<%= _placeholder %>"<% } %>
+    <% if (_required) { %>required<% } %>
+    class="input input-bordered w-full"
+  />
+  <button type="button" class="btn btn-outline btn-square shrink-0" title="Cor do botão" onclick="dgOpenColorModal('<%= id %>')">🎨</button>
+</div>

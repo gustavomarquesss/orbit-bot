@@ -101,17 +101,7 @@
         </div>
 
         <div class="label"><span class="label-text">Mensagem *</span></div>
-        <div class="flex gap-1 mb-2">
-          <button type="button" class="btn btn-xs btn-square btn-ghost" onclick="dgWrapSelection('message-<%= seq.id %>','&lt;b&gt;','&lt;/b&gt;')"><b>B</b></button>
-          <button type="button" class="btn btn-xs btn-square btn-ghost" onclick="dgWrapSelection('message-<%= seq.id %>','&lt;i&gt;','&lt;/i&gt;')"><i>I</i></button>
-          <button type="button" class="btn btn-xs btn-square btn-ghost" onclick="dgWrapSelection('message-<%= seq.id %>','&lt;u&gt;','&lt;/u&gt;')"><u>U</u></button>
-        </div>
-        <textarea id="message-<%= seq.id %>" name="message" rows="4" maxlength="4000" placeholder="Não conseguiu pagar? Temos uma oferta especial..." class="textarea textarea-bordered w-full"><%= seq.message %></textarea>
-        <div class="flex gap-1.5 flex-wrap mt-2 mb-2">
-          <% ["nome","saudacao","bot.username"].forEach(function(v) { %>
-            <button type="button" class="badge badge-outline hover:badge-primary cursor-pointer" onclick="dgInsertAtCursor('message-<%= seq.id %>', '{<%= v %>}')">{<%= v %>}</button>
-          <% }); %>
-        </div>
+        <%- include("../partials/richEditor", { id: "message-" + seq.id, name: "message", value: seq.message, rows: 4, maxlength: 4000, placeholder: "Não conseguiu pagar? Temos uma oferta especial..." }) %>
 
         <div><button class="btn btn-sm btn-primary" type="submit">Salvar sequência</button></div>
       </form>

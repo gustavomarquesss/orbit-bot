@@ -17,17 +17,7 @@
 
       <form method="POST" action="/admin/flows/<%= flow.id %>/upsell/messages/<%= m.id %>" class="flex flex-col gap-1">
         <div class="label"><span class="label-text">Texto</span></div>
-        <div class="flex gap-1 mb-2">
-          <button type="button" class="btn btn-xs btn-square btn-ghost" onclick="dgWrapSelection('text-<%= m.id %>','&lt;b&gt;','&lt;/b&gt;')"><b>B</b></button>
-          <button type="button" class="btn btn-xs btn-square btn-ghost" onclick="dgWrapSelection('text-<%= m.id %>','&lt;i&gt;','&lt;/i&gt;')"><i>I</i></button>
-          <button type="button" class="btn btn-xs btn-square btn-ghost" onclick="dgWrapSelection('text-<%= m.id %>','&lt;u&gt;','&lt;/u&gt;')"><u>U</u></button>
-        </div>
-        <textarea id="text-<%= m.id %>" name="text" rows="4" placeholder="Exemplo de mensagem de upsell..." class="textarea textarea-bordered w-full"><%= m.text || "" %></textarea>
-        <div class="flex gap-1.5 flex-wrap mt-2 mb-2">
-          <% ["nome","saudacao","bot.username"].forEach(function(v) { %>
-            <button type="button" class="badge badge-outline hover:badge-primary cursor-pointer" onclick="dgInsertAtCursor('text-<%= m.id %>', '{<%= v %>}')">{<%= v %>}</button>
-          <% }); %>
-        </div>
+        <%- include("../partials/richEditor", { id: "text-" + m.id, name: "text", value: m.text, rows: 4, placeholder: "Exemplo de mensagem de upsell..." }) %>
 
         <label class="form-control max-w-xs">
           <div class="label"><span class="label-text">Tempo (minutos após a compra — 0 = imediato)</span></div>
@@ -92,7 +82,8 @@
         </table>
       </div>
       <form method="POST" action="/admin/flows/<%= flow.id %>/upsell/messages/<%= m.id %>/buttons" class="flex gap-2 items-center flex-wrap mt-2">
-        <input type="text" name="text" placeholder="Texto do botão" required class="input input-bordered input-sm flex-1 min-w-[140px]" />
+        <input type="text" id="btnText-<%= m.id %>" name="text" placeholder="Texto do botão" required class="input input-bordered input-sm flex-1 min-w-[140px]" />
+        <button type="button" class="btn btn-outline btn-sm" title="Cor do botão" onclick="dgOpenColorModal('btnText-<%= m.id %>')">🎨</button>
         <select name="type" class="select select-bordered select-sm" onchange="
           this.closest('form').querySelector('.btn-target-plan').style.display = this.value === 'BUY_PLAN' ? '' : 'none';
           this.closest('form').querySelector('.btn-target-url').style.display = this.value === 'OPEN_LINK' ? '' : 'none';

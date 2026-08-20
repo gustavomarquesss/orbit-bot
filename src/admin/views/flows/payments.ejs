@@ -8,37 +8,31 @@
       <h3 class="font-semibold mb-2">Pagamento gerado</h3>
       <form method="POST" action="/admin/flows/<%= flow.id %>/payments" id="payments-form" class="flex flex-col gap-1">
         <div class="label"><span class="label-text">Mensagem enviada junto com o código PIX</span></div>
-        <div class="flex gap-1 mb-2">
-          <button type="button" class="btn btn-xs btn-square btn-ghost" onclick="dgWrapSelection('pixGeneratedMessage','&lt;b&gt;','&lt;/b&gt;')"><b>B</b></button>
-          <button type="button" class="btn btn-xs btn-square btn-ghost" onclick="dgWrapSelection('pixGeneratedMessage','&lt;i&gt;','&lt;/i&gt;')"><i>I</i></button>
-          <button type="button" class="btn btn-xs btn-square btn-ghost" onclick="dgWrapSelection('pixGeneratedMessage','&lt;u&gt;','&lt;/u&gt;')"><u>U</u></button>
-          <button type="button" class="btn btn-xs btn-square btn-ghost" onclick="dgWrapSelection('pixGeneratedMessage','&lt;code&gt;','&lt;/code&gt;')">&lt;/&gt;</button>
-        </div>
-        <textarea id="pixGeneratedMessage" name="pixGeneratedMessage" rows="5" oninput="dgUpdatePreview()" class="textarea textarea-bordered w-full"><%= pm.pixGeneratedMessage || "" %></textarea>
-        <div class="flex gap-1.5 flex-wrap mt-2 mb-1">
-          <% ["nome","valor","plano","saudacao","bot.username"].forEach(function(v) { %>
-            <button type="button" class="badge badge-outline hover:badge-primary cursor-pointer" onclick="dgInsertAtCursor('pixGeneratedMessage', '{<%= v %>}'); dgUpdatePreview();">{<%= v %>}</button>
-          <% }); %>
-        </div>
-        <p class="text-xs text-base-content/50">O código PIX copia-e-cola sempre vai numa mensagem própria logo depois desta, garantido — mesmo que você não referencie {valor}/etc aqui.</p>
+        <%- include("../partials/richEditor", {
+          id: "pixGeneratedMessage",
+          name: "pixGeneratedMessage",
+          value: pm.pixGeneratedMessage,
+          rows: 5,
+          hint: "O código PIX copia-e-cola sempre vai numa mensagem própria logo depois desta, garantido — mesmo que você não referencie {valor}/etc aqui."
+        }) %>
 
         <div class="label mt-4"><span class="label-text">Mensagem quando o pagamento é aprovado</span></div>
-        <textarea id="pixApprovedMessage" name="pixApprovedMessage" rows="4" class="textarea textarea-bordered w-full"><%= pm.pixApprovedMessage || "" %></textarea>
-        <div class="flex gap-1.5 flex-wrap mt-2 mb-1">
-          <% ["nome","valor","plano","saudacao","bot.username"].forEach(function(v) { %>
-            <button type="button" class="badge badge-outline hover:badge-primary cursor-pointer" onclick="dgInsertAtCursor('pixApprovedMessage', '{<%= v %>}')">{<%= v %>}</button>
-          <% }); %>
-        </div>
-        <p class="text-xs text-base-content/50">Se deixar vazio, nenhuma mensagem extra é enviada — só a entrega do conteúdo já confirma o pagamento.</p>
+        <%- include("../partials/richEditor", {
+          id: "pixApprovedMessage",
+          name: "pixApprovedMessage",
+          value: pm.pixApprovedMessage,
+          rows: 4,
+          hint: "Se deixar vazio, nenhuma mensagem extra é enviada — só a entrega do conteúdo já confirma o pagamento."
+        }) %>
 
         <div class="label mt-4"><span class="label-text">Lembrete de renovação (planos de assinatura, 2 dias antes de vencer)</span></div>
-        <textarea id="renewalMessage" name="renewalMessage" rows="4" class="textarea textarea-bordered w-full"><%= pm.renewalMessage || "" %></textarea>
-        <div class="flex gap-1.5 flex-wrap mt-2 mb-1">
-          <% ["nome","valor","plano","saudacao","bot.username"].forEach(function(v) { %>
-            <button type="button" class="badge badge-outline hover:badge-primary cursor-pointer" onclick="dgInsertAtCursor('renewalMessage', '{<%= v %>}')">{<%= v %>}</button>
-          <% }); %>
-        </div>
-        <p class="text-xs text-base-content/50">Mandado automaticamente com um botão "Renovar agora" que gera um PIX novo pro mesmo plano. Vazio usa um texto padrão.</p>
+        <%- include("../partials/richEditor", {
+          id: "renewalMessage",
+          name: "renewalMessage",
+          value: pm.renewalMessage,
+          rows: 4,
+          hint: "Mandado automaticamente com um botão \"Renovar agora\" que gera um PIX novo pro mesmo plano. Vazio usa um texto padrão."
+        }) %>
 
         <label class="form-control mt-4 max-w-xs">
           <div class="label"><span class="label-text">Estilo dos botões</span></div>
@@ -68,21 +62,18 @@
 </div>
 
 <script>
-  // Substitui as variáveis por dados de exemplo; o resultado ainda contém as
-  // tags HTML restritas do Telegram (<b>/<i>/etc), que o innerHTML abaixo
-  // renderiza de propósito — é assim que ficaria de verdade no chat.
-  function dgFakeRender(tpl) {
-    const vars = { nome: "Fulano", valor: "R$ 29,90", plano: "Plano Mensal", saudacao: "Boa tarde", "bot.username": "<%= flow.bots[0] ? flow.bots[0].bot.telegramUsername : "seu_bot" %>" };
-    return tpl.replace(/\{([a-zA-Z0-9_.]+)\}/g, function (m, key) { return key in vars ? vars[key] : m; });
-  }
+  // Painel de prévia ao vivo (as duas bolhas) reaproveita dgFakeRenderGlobal
+  // de partials/richEditorModals.ejs — mesma aproximação usada no botão
+  // "Pré-visualizar" de cada campo, só que atualizado a cada tecla aqui.
   function dgUpdatePreview() {
     const gen = document.getElementById("pixGeneratedMessage").value || "Pagamento gerado! Copie o código PIX abaixo e cole no app do seu banco:";
     const appr = document.getElementById("pixApprovedMessage").value;
-    document.getElementById("preview-generated").innerHTML = dgFakeRender(gen);
-    document.getElementById("preview-approved").innerHTML = appr ? dgFakeRender(appr) : "(nenhuma mensagem extra configurada)";
+    document.getElementById("preview-generated").innerHTML = dgFakeRenderGlobal(gen);
+    document.getElementById("preview-approved").innerHTML = appr ? dgFakeRenderGlobal(appr) : "(nenhuma mensagem extra configurada)";
   }
+  document.getElementById("pixGeneratedMessage").addEventListener("input", dgUpdatePreview);
   document.getElementById("pixApprovedMessage").addEventListener("input", dgUpdatePreview);
-  dgUpdatePreview();
+  document.addEventListener("DOMContentLoaded", dgUpdatePreview);
 </script>
 
   </div>

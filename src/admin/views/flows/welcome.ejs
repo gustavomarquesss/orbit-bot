@@ -45,21 +45,13 @@
     <form method="POST" action="/admin/flows/<%= flow.id %>/welcome" class="flex flex-col gap-4">
       <div>
         <div class="label"><span class="label-text">Texto</span></div>
-        <div class="flex gap-1 mb-2">
-          <button type="button" class="btn btn-xs btn-square btn-ghost" title="Negrito" onclick="dgWrapSelection('text','&lt;b&gt;','&lt;/b&gt;')"><b>B</b></button>
-          <button type="button" class="btn btn-xs btn-square btn-ghost" title="Itálico" onclick="dgWrapSelection('text','&lt;i&gt;','&lt;/i&gt;')"><i>I</i></button>
-          <button type="button" class="btn btn-xs btn-square btn-ghost" title="Sublinhado" onclick="dgWrapSelection('text','&lt;u&gt;','&lt;/u&gt;')"><u>U</u></button>
-          <button type="button" class="btn btn-xs btn-square btn-ghost" title="Tachado" onclick="dgWrapSelection('text','&lt;s&gt;','&lt;/s&gt;')"><s>S</s></button>
-          <button type="button" class="btn btn-xs btn-square btn-ghost" title="Código" onclick="dgWrapSelection('text','&lt;code&gt;','&lt;/code&gt;')">&lt;/&gt;</button>
-          <button type="button" class="btn btn-xs btn-square btn-ghost" title="Citação" onclick="dgWrapSelection('text','&lt;blockquote&gt;','&lt;/blockquote&gt;')">&rdquo;</button>
-        </div>
-        <textarea id="text" name="text" rows="5" class="textarea textarea-bordered w-full"><%= w.text || "" %></textarea>
-        <div class="flex gap-1.5 flex-wrap mt-2">
-          <% ["nome","email","telefone","estado","uf","cidade","localizacao","saudacao","bot.nome","bot.username"].forEach(function(v) { %>
-            <button type="button" class="badge badge-outline hover:badge-primary cursor-pointer" onclick="dgInsertAtCursor('text', '{<%= v %>}')">{<%= v %>}</button>
-          <% }); %>
-        </div>
-        <p class="text-xs text-base-content/50 mt-2">Campos que o Telegram não fornece (email, telefone, cidade, estado, uf, localização) renderizam vazio.</p>
+        <%- include("../partials/richEditor", {
+          id: "text",
+          name: "text",
+          value: w.text,
+          rows: 5,
+          hint: "Campos que o Telegram não fornece (país, estado, cidade) renderizam vazio."
+        }) %>
       </div>
 
       <label class="label cursor-pointer justify-start gap-3 px-0">
@@ -73,7 +65,7 @@
       </label>
       <label class="form-control">
         <div class="label"><span class="label-text">Texto do botão CTA</span></div>
-        <input type="text" name="ctaLabel" value="<%= w.ctaLabel || "" %>" placeholder="Ver planos" class="input input-bordered w-full" />
+        <%- include("../partials/buttonColorInput", { id: "ctaLabel", name: "ctaLabel", value: w.ctaLabel, placeholder: "Ver planos" }) %>
       </label>
 
       <label class="label cursor-pointer justify-start gap-3 px-0">
@@ -115,7 +107,7 @@
       <form method="POST" action="/admin/flows/<%= flow.id %>/welcome/redirect-buttons" class="flex flex-col gap-3 mt-2 pt-3 border-t border-base-300">
         <label class="form-control">
           <div class="label"><span class="label-text">Texto do botão</span></div>
-          <input type="text" name="label" required placeholder="Canal VIP" class="input input-bordered input-sm w-full" />
+          <%- include("../partials/buttonColorInput", { id: "redirectButtonLabel", name: "label", placeholder: "Canal VIP", required: true }) %>
         </label>
         <label class="form-control">
           <div class="label"><span class="label-text">URL</span></div>

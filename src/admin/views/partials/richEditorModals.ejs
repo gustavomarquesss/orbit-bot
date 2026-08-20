@@ -1,0 +1,231 @@
+<!--
+  Modais compartilhados pelo editor de texto rico (src/admin/views/partials/
+  richEditor.ejs e buttonColorInput.ejs) — um único conjunto de <dialog> pra
+  página inteira, reaproveitado por N campos via dgOpenVarModal(targetId)/
+  dgOpenColorModal(targetId), que guardam qual textarea/input é o alvo antes
+  de abrir. Cobre a lista exaustiva de variáveis pedida (perfil, saudação,
+  localização, data/hora, aritmética, contador regressivo, efeitos animados,
+  pagamento) e as 3 cores reais de botão da Bot API 9.4.
+-->
+<dialog id="dg-var-modal" class="modal">
+  <div class="modal-box max-w-2xl">
+    <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+    <h3 class="font-bold text-lg mb-3">Inserir variável</h3>
+
+    <div class="flex flex-col gap-4 max-h-[60vh] overflow-y-auto pr-1">
+      <div>
+        <div class="text-xs uppercase tracking-wider text-base-content/40 mb-1.5">Perfil</div>
+        <div class="flex gap-1.5 flex-wrap">
+          <% ["profile_name","telegram_user_id","random_id"].forEach(function(v) { %>
+            <button type="button" class="badge badge-outline hover:badge-primary cursor-pointer" onclick="dgInsertVar('<%= v %>')">{<%= v %>}</button>
+          <% }); %>
+        </div>
+      </div>
+
+      <div>
+        <div class="text-xs uppercase tracking-wider text-base-content/40 mb-1.5">Saudação</div>
+        <div class="flex gap-1.5 flex-wrap">
+          <button type="button" class="badge badge-outline hover:badge-primary cursor-pointer" onclick="dgInsertVar('greeting')">{greeting}</button>
+        </div>
+        <p class="text-xs text-base-content/50 mt-1">Bom dia (5h–11h) / Boa tarde (12h–17h) / Boa noite (18h–23h) / Boa madrugada (0h–4h).</p>
+      </div>
+
+      <div>
+        <div class="text-xs uppercase tracking-wider text-base-content/40 mb-1.5">Data e hora</div>
+        <div class="flex gap-1.5 flex-wrap">
+          <% ["time","time_sec","date","date_ext","day","month","month_ext","year","weekday"].forEach(function(v) { %>
+            <button type="button" class="badge badge-outline hover:badge-primary cursor-pointer" onclick="dgInsertVar('<%= v %>')">{<%= v %>}</button>
+          <% }); %>
+        </div>
+      </div>
+
+      <div>
+        <div class="text-xs uppercase tracking-wider text-base-content/40 mb-1.5">Localização</div>
+        <div class="flex gap-1.5 flex-wrap">
+          <% ["country","state","uf","city"].forEach(function(v) { %>
+            <button type="button" class="badge badge-outline hover:badge-primary cursor-pointer" onclick="dgInsertVar('<%= v %>')">{<%= v %>}</button>
+          <% }); %>
+        </div>
+        <p class="text-xs text-base-content/50 mt-1">O Telegram não fornece esses dados — renderizam vazio até o bot ter uma forma própria de capturar.</p>
+      </div>
+
+      <div>
+        <div class="text-xs uppercase tracking-wider text-base-content/40 mb-1.5">Aritmética de data</div>
+        <div class="flex gap-2 items-end flex-wrap">
+          <label class="form-control">
+            <div class="label py-0.5"><span class="label-text text-xs">Unidade</span></div>
+            <select id="dg-arith-unit" class="select select-bordered select-sm" onchange="document.getElementById('dg-arith-minutes-wrap').style.display = this.value === 'time' ? '' : 'none';">
+              <option value="time">Horário</option>
+              <option value="date">Data</option>
+              <option value="month">Mês</option>
+              <option value="year">Ano</option>
+            </select>
+          </label>
+          <label class="form-control">
+            <div class="label py-0.5"><span class="label-text text-xs">Deslocamento (+/-)</span></div>
+            <input id="dg-arith-amount" type="number" value="1" class="input input-bordered input-sm w-24" />
+          </label>
+          <label class="form-control" id="dg-arith-minutes-wrap">
+            <div class="label py-0.5"><span class="label-text text-xs">Minutos</span></div>
+            <input id="dg-arith-minutes" type="number" min="0" max="59" value="0" class="input input-bordered input-sm w-20" />
+          </label>
+          <button type="button" class="btn btn-sm btn-outline" onclick="dgInsertArithmetic()">Inserir</button>
+        </div>
+        <p class="text-xs text-base-content/50 mt-1">Ex: horário +1 = {time+1} (uma hora à frente). Data -1 = {date-1} (ontem).</p>
+      </div>
+
+      <div>
+        <div class="text-xs uppercase tracking-wider text-base-content/40 mb-1.5">Contador regressivo ao vivo</div>
+        <div class="flex gap-2 items-end flex-wrap">
+          <label class="form-control">
+            <div class="label py-0.5"><span class="label-text text-xs">Duração (30–300s)</span></div>
+            <input id="dg-cd-duration" type="number" min="30" max="300" value="60" class="input input-bordered input-sm w-24" />
+          </label>
+          <label class="form-control">
+            <div class="label py-0.5"><span class="label-text text-xs">Atualiza a cada (min. 5s)</span></div>
+            <input id="dg-cd-interval" type="number" min="5" value="5" class="input input-bordered input-sm w-24" />
+          </label>
+          <label class="label cursor-pointer gap-2 px-0">
+            <input id="dg-cd-delete" type="checkbox" class="checkbox checkbox-primary checkbox-sm" />
+            <span class="label-text text-xs">Apagar mensagem ao zerar</span>
+          </label>
+          <button type="button" class="btn btn-sm btn-outline" onclick="dgInsertCountdown()">Inserir</button>
+        </div>
+        <p class="text-xs text-base-content/50 mt-1">O bot edita esta mensagem sozinho, ao vivo, até o tempo acabar.</p>
+      </div>
+
+      <div>
+        <div class="text-xs uppercase tracking-wider text-base-content/40 mb-1.5">Efeitos animados (só chat privado, só no envio)</div>
+        <div class="flex gap-1.5 flex-wrap">
+          <% [["fire","🔥 Fogo"],["confetti","🎉 Confete"],["heart","❤️ Coração"],["thumbsup","👍 Joinha"],["thumbsdown","👎 Joinha pra baixo"],["poop","💩 Cocô"]].forEach(function(e) { %>
+            <button type="button" class="badge badge-outline hover:badge-primary cursor-pointer" onclick="dgInsertVar('effect:<%= e[0] %>')"><%= e[1] %></button>
+          <% }); %>
+        </div>
+        <p class="text-xs text-base-content/50 mt-1">Só tem efeito em mensagens novas no chat privado com o lead — não funciona em edição nem em grupos/canais.</p>
+      </div>
+
+      <div>
+        <div class="text-xs uppercase tracking-wider text-base-content/40 mb-1.5">Pagamento</div>
+        <div class="flex gap-1.5 flex-wrap">
+          <% ["valor","plano"].forEach(function(v) { %>
+            <button type="button" class="badge badge-outline hover:badge-primary cursor-pointer" onclick="dgInsertVar('<%= v %>')">{<%= v %>}</button>
+          <% }); %>
+        </div>
+        <p class="text-xs text-base-content/50 mt-1">Só resolvem em mensagens de pagamento/renovação — em outros campos ficam vazias.</p>
+      </div>
+
+      <div>
+        <div class="text-xs uppercase tracking-wider text-base-content/40 mb-1.5">Bot</div>
+        <div class="flex gap-1.5 flex-wrap">
+          <button type="button" class="badge badge-outline hover:badge-primary cursor-pointer" onclick="dgInsertVar('bot.nome')">{bot.nome}</button>
+          <button type="button" class="badge badge-outline hover:badge-primary cursor-pointer" onclick="dgInsertVar('bot.username')">{bot.username}</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>fechar</button></form>
+</dialog>
+
+<dialog id="dg-color-modal" class="modal">
+  <div class="modal-box max-w-sm">
+    <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+    <h3 class="font-bold text-lg mb-3">Cor do botão</h3>
+    <p class="text-xs text-base-content/50 mb-3">A Bot API do Telegram (9.4) só suporta estas 3 cores reais — qualquer outra opção não teria efeito visual de verdade.</p>
+    <div class="flex gap-2 flex-wrap">
+      <button type="button" class="btn btn-sm text-white" style="background:#FF0000;border-color:#FF0000;" onclick="dgSetButtonColor('#FF0000')">Vermelho</button>
+      <button type="button" class="btn btn-sm text-white" style="background:#0000FF;border-color:#0000FF;" onclick="dgSetButtonColor('#0000FF')">Azul</button>
+      <button type="button" class="btn btn-sm text-white" style="background:#00FF00;border-color:#00FF00;color:#0a2e0a;" onclick="dgSetButtonColor('#00FF00')">Verde</button>
+      <button type="button" class="btn btn-sm btn-outline" onclick="dgSetButtonColor(null)">Remover cor</button>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>fechar</button></form>
+</dialog>
+
+<dialog id="dg-preview-modal" class="modal">
+  <div class="modal-box max-w-sm">
+    <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+    <h3 class="font-bold text-lg mb-3">Pré-visualização</h3>
+    <p class="text-xs text-base-content/50 mb-2">Com dados de exemplo — os valores reais variam por lead/pagamento.</p>
+    <div class="rounded-2xl p-4" style="background:#0e1621;">
+      <div class="rounded-xl rounded-bl-sm px-3 py-2 text-sm leading-snug whitespace-pre-wrap" style="background:#182533;color:#e9edf1;" id="dg-preview-bubble"></div>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button>fechar</button></form>
+</dialog>
+
+<script>
+  var dgVarModalTarget = null;
+  var dgColorModalTarget = null;
+
+  function dgOpenVarModal(targetId) {
+    dgVarModalTarget = targetId;
+    document.getElementById("dg-var-modal").showModal();
+  }
+  function dgInsertVar(name) {
+    if (dgVarModalTarget) {
+      dgInsertAtCursor(dgVarModalTarget, "{" + name + "}");
+    }
+    document.getElementById("dg-var-modal").close();
+  }
+  function dgInsertArithmetic() {
+    var unit = document.getElementById("dg-arith-unit").value;
+    var amount = parseInt(document.getElementById("dg-arith-amount").value, 10) || 0;
+    var sign = amount < 0 ? "" : "+";
+    var token = unit + sign + amount;
+    if (unit === "time") {
+      var minutes = parseInt(document.getElementById("dg-arith-minutes").value, 10) || 0;
+      if (minutes > 0) token += ":" + minutes;
+    }
+    dgInsertVar(token);
+  }
+  function dgInsertCountdown() {
+    var duration = Math.min(300, Math.max(30, parseInt(document.getElementById("dg-cd-duration").value, 10) || 60));
+    var interval = Math.max(5, parseInt(document.getElementById("dg-cd-interval").value, 10) || 5);
+    var del = document.getElementById("dg-cd-delete").checked;
+    dgInsertVar("countdown:" + duration + ":" + interval + (del ? ":delete" : ""));
+  }
+
+  function dgOpenColorModal(targetId) {
+    dgColorModalTarget = targetId;
+    document.getElementById("dg-color-modal").showModal();
+  }
+  function dgSetButtonColor(hex) {
+    if (!dgColorModalTarget) return;
+    var el = document.getElementById(dgColorModalTarget);
+    var stripped = el.value.replace(/\s*\{#[0-9A-Fa-f]{6}\}\s*$/, "");
+    el.value = hex ? (stripped + " {" + hex + "}") : stripped;
+    el.focus();
+    document.getElementById("dg-color-modal").close();
+  }
+
+  // Aproximação client-side de src/bot/templating.ts — só pra prévia visual,
+  // não chama o servidor. Valores fixos de exemplo, sem pretensão de bater
+  // 100% com o render real (não sabe o fuso do servidor nem o lead de fato).
+  function dgFakeRenderGlobal(tpl) {
+    var vars = {
+      profile_name: "João", nome: "João", telegram_user_id: "123456789", random_id: "A1B2C3",
+      greeting: "Boa tarde", saudacao: "Boa tarde",
+      country: "", state: "", estado: "", uf: "", city: "", cidade: "", localizacao: "",
+      time: "14:35", time_sec: "14:35:42", date: "04/03/2026",
+      date_ext: "Quarta-feira, 04 de Março de 2026",
+      day: "04", month: "03", month_ext: "Março", year: "2026", weekday: "Quarta-feira",
+      "bot.nome": "Meu Bot", "bot.username": "meu_bot",
+      valor: "R$ 29,90", plano: "Plano Mensal", qr_code: "[QR Code enviado como imagem separada]"
+    };
+    var out = tpl.replace(/\{(time|date|month|year)([+-]\d+)(?::(\d+))?\}/g, function () { return "00:00"; });
+    out = out.replace(/\{countdown:(\d+)(?::(\d+))?(:delete)?\}/g, function (m, s) {
+      var total = Math.min(300, Math.max(30, parseInt(s, 10)));
+      var mm = String(Math.floor(total / 60)).padStart(2, "0"), ss = String(total % 60).padStart(2, "0");
+      return mm + ":" + ss;
+    });
+    out = out.replace(/\{effect:[a-z]+\}/g, "");
+    out = out.replace(/\{([a-zA-Z0-9_.]+)\}/g, function (m, key) { return key in vars ? vars[key] : m; });
+    return out;
+  }
+  function dgOpenPreview(targetId) {
+    var el = document.getElementById(targetId);
+    var text = el ? el.value : "";
+    document.getElementById("dg-preview-bubble").innerHTML = text ? dgFakeRenderGlobal(text) : "(vazio)";
+    document.getElementById("dg-preview-modal").showModal();
+  }
+</script>
