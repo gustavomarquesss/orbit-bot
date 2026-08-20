@@ -1,0 +1,46 @@
+<%- include("../partials/header", { title: bot.label + " — Mídia", active: "bots" }) %>
+
+<div class="flex items-center justify-between flex-wrap gap-3 mb-2">
+  <h2 class="text-xl font-bold">Biblioteca de mídia — <%= bot.label %></h2>
+  <a class="btn btn-outline btn-sm" href="/admin/bots/<%= bot.id %>/edit">&larr; Voltar pro bot</a>
+</div>
+<p class="text-sm text-base-content/60 mb-6">
+  <% if (bot.mediaChannelId) { %>
+    Capturando automaticamente do canal <code class="text-xs bg-base-300/60 px-1.5 py-0.5 rounded"><%= bot.mediaChannelId %></code>.
+    Poste uma foto/vídeo/áudio/documento lá (com o bot como admin) que ela aparece aqui.
+  <% } else { %>
+    Nenhum canal de mídias configurado ainda — <a class="link" href="/admin/bots/<%= bot.id %>/edit">configure um</a> pra começar a capturar automaticamente.
+  <% } %>
+</p>
+
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+  <% assets.forEach(function(a) { %>
+    <div class="card bg-base-200 border border-base-300 shadow-sm">
+      <div class="card-body p-4">
+        <% if (a.mediaType === "PHOTO") { %>
+          <img src="/admin/bots/<%= bot.id %>/media/<%= a.id %>/file" class="rounded-lg w-full h-40 object-cover mb-2" loading="lazy" />
+        <% } else if (a.mediaType === "VIDEO") { %>
+          <video src="/admin/bots/<%= bot.id %>/media/<%= a.id %>/file" controls class="rounded-lg w-full h-40 object-cover mb-2"></video>
+        <% } else if (a.mediaType === "AUDIO") { %>
+          <audio src="/admin/bots/<%= bot.id %>/media/<%= a.id %>/file" controls class="w-full mb-2"></audio>
+        <% } else { %>
+          <a href="/admin/bots/<%= bot.id %>/media/<%= a.id %>/file" target="_blank" class="btn btn-outline btn-sm w-full mb-2">📄 Baixar documento</a>
+        <% } %>
+        <div class="badge badge-ghost badge-sm mb-1"><%= a.mediaType %></div>
+        <p class="text-sm truncate" title="<%= a.label || "" %>"><%= a.label || "(sem legenda)" %></p>
+        <p class="text-xs text-base-content/40 mb-2"><%= a.createdAt.toLocaleString("pt-BR") %></p>
+        <div class="flex gap-1.5">
+          <button type="button" class="btn btn-xs btn-outline flex-1" onclick="navigator.clipboard.writeText('<%= a.fileId %>'); this.textContent='Copiado!'; setTimeout(() => this.textContent='Copiar file_id', 1500);">Copiar file_id</button>
+          <form method="POST" action="/admin/bots/<%= bot.id %>/media/<%= a.id %>/delete" onsubmit="return confirm('Remover esta mídia da biblioteca?');">
+            <button class="btn btn-xs btn-error btn-outline" type="submit">Remover</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  <% }); %>
+  <% if (assets.length === 0) { %>
+    <p class="text-base-content/50 col-span-full py-6 text-center">Nenhuma mídia capturada ainda.</p>
+  <% } %>
+</div>
+
+<%- include("../partials/footer", { active: "bots" }) %>

@@ -5,6 +5,7 @@ import { config } from "../config.js";
 import { decryptSecret } from "../lib/crypto.js";
 import { registerAdminCommands } from "./adminCommands.js";
 import { registerFlowHandlers } from "./flows.js";
+import { registerMediaCaptureHandler } from "./mediaCapture.js";
 
 interface BotRow {
   id: string;
@@ -39,6 +40,7 @@ async function startInstance(botRow: BotRow): Promise<void> {
 
   registerAdminCommands(telegraf, botRow.id);
   registerFlowHandlers(telegraf, botRow.id);
+  registerMediaCaptureHandler(telegraf, botRow.id);
 
   const path = webhookPath(botRow.id, botRow.webhookSecret);
   webhookRouter.use(telegraf.webhookCallback(path, { secretToken: botRow.webhookSecret }));

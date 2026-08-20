@@ -36,6 +36,28 @@
 
   <div class="card bg-base-200 border border-base-300 shadow-sm">
     <div class="card-body">
+      <div class="flex items-center justify-between flex-wrap gap-2 mb-1">
+        <h3 class="font-semibold">Mídia</h3>
+        <a class="btn btn-outline btn-sm" href="/admin/bots/<%= bot.id %>/media">📂 Biblioteca de mídia</a>
+      </div>
+      <p class="text-sm text-base-content/60 mb-3">
+        Configure um canal do Telegram (com este bot como admin) pra postar
+        foto/vídeo/áudio/documento lá — o bot captura o file_id sozinho e
+        deixa disponível na biblioteca, sem precisar colar manualmente.
+      </p>
+      <form method="POST" action="/admin/bots/<%= bot.id %>/media-channel" class="flex flex-col gap-3">
+        <label class="form-control max-w-sm">
+          <div class="label"><span class="label-text">Canal de mídias (id numérico)</span></div>
+          <input type="text" name="mediaChannelId" value="<%= bot.mediaChannelId || "" %>" placeholder="-1001234567890" class="input input-bordered w-full" />
+          <div class="label"><span class="label-text-alt text-base-content/60">Um file_id só funciona no bot que o recebeu — por isso o canal é configurado por bot, não por fluxo.</span></div>
+        </label>
+        <div><button class="btn btn-sm btn-primary" type="submit">Salvar canal</button></div>
+      </form>
+    </div>
+  </div>
+
+  <div class="card bg-base-200 border border-base-300 shadow-sm">
+    <div class="card-body">
       <h3 class="font-semibold mb-1">Comandos do bot</h3>
       <p class="text-sm text-base-content/60 mb-3">Os comandos em si (/start, /suporte, /status) não mudam — só o emoji e o texto.</p>
       <form method="POST" action="/admin/bots/<%= bot.id %>/commands" class="flex flex-col gap-3">

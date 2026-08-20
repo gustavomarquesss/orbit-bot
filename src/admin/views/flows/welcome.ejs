@@ -19,9 +19,10 @@
 
     <% if ((w.media || []).length < 3) { %>
       <form method="POST" action="/admin/flows/<%= flow.id %>/welcome/media" class="flex flex-col gap-3 mt-2 pt-3 border-t border-base-300">
+        <%- include("../partials/mediaPicker", { mediaAssets, mediaTypeTargetId: "welcomeMediaType", fileIdTargetId: "welcomeFileId" }) %>
         <label class="form-control">
           <div class="label"><span class="label-text">Tipo</span></div>
-          <select name="mediaType" class="select select-bordered select-sm w-full max-w-xs">
+          <select id="welcomeMediaType" name="mediaType" class="select select-bordered select-sm w-full max-w-xs">
             <option value="PHOTO">Foto</option>
             <option value="VIDEO">Vídeo</option>
             <option value="AUDIO">Áudio</option>
@@ -30,8 +31,8 @@
         </label>
         <label class="form-control">
           <div class="label"><span class="label-text">file_id do Telegram</span></div>
-          <input type="text" name="fileId" required placeholder="AgACAgEAAx0..." class="input input-bordered input-sm w-full" />
-          <div class="label"><span class="label-text-alt text-base-content/60">Ainda não dá pra fazer upload direto pela tela — envie a mídia pro bot uma vez e capture o file_id retornado pela API.</span></div>
+          <input id="welcomeFileId" type="text" name="fileId" required placeholder="AgACAgEAAx0..." class="input input-bordered input-sm w-full" />
+          <div class="label"><span class="label-text-alt text-base-content/60">Escolha da biblioteca acima, ou capture manualmente: envie a mídia pro bot e cole o file_id retornado pela API.</span></div>
         </label>
         <div><button class="btn btn-sm btn-primary" type="submit">Adicionar mídia</button></div>
       </form>

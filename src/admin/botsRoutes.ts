@@ -1,8 +1,9 @@
 import { randomBytes } from "node:crypto";
+import { Readable } from "node:stream";
 import { Router } from "express";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../db/client.js";
-import { encryptSecret } from "../lib/crypto.js";
+import { encryptSecret, decryptSecret } from "../lib/crypto.js";
 import { validateBotToken, registerBot, unregisterBot, getTelegraf } from "../bot/botManager.js";
 
 const COMMAND_DEFAULTS: Record<"START" | "SUPORTE" | "STATUS", { emoji: string; label: string; order: number }> = {
@@ -146,6 +147,58 @@ export function createBotsRouter(): Router {
     }
 
     res.redirect(`/admin/bots/${bot.id}/edit`);
+  });
+
+  // --- Biblioteca de mídia (captura automática via canal, ver src/bot/mediaCapture.ts) ---
+
+  router.get("/:id/media", async (req, res) => {
+    const bot = await prisma.bot.findUnique({ where: { id: req.params.id } });
+    if (!bot) return res.status(404).send("Bot não encontrado.");
+    const assets = await prisma.mediaAsset.findMany({ where: { botId: bot.id }, orderBy: { createdAt: "desc" } });
+    res.render("bots/media", { bot, assets, error: null });
+  });
+
+  router.post("/:id/media-channel", async (req, res) => {
+    const bot = await prisma.bot.findUnique({ where: { id: req.params.id } });
+    if (!bot) return res.status(404).send("Bot não encontrado.");
+    const mediaChannelId = String(req.body.mediaChannelId ?? "").trim() || null;
+    await prisma.bot.update({ where: { id: bot.id }, data: { mediaChannelId } });
+    res.redirect(`/admin/bots/${bot.id}/media`);
+  });
+
+  router.post("/:id/media/:mediaId/delete", async (req, res) => {
+    await prisma.mediaAsset.delete({ where: { id: req.params.mediaId } });
+    res.redirect(`/admin/bots/${req.params.id}/media`);
+  });
+
+  // Proxy autenticado (sessão admin, mesmo middleware do resto de /admin) —
+  // busca o arquivo real no Telegram no servidor e repassa os bytes, pra
+  // nunca expor o token do bot no HTML/rede do navegador do admin (a URL
+  // direta https://api.telegram.org/file/bot<token>/... carrega o token).
+  router.get("/:id/media/:mediaId/file", async (req, res) => {
+    const asset = await prisma.mediaAsset.findUnique({
+      where: { id: req.params.mediaId },
+      include: { bot: true },
+    });
+    if (!asset || asset.botId !== req.params.id) return res.status(404).send("Mídia não encontrada.");
+
+    const telegraf = getTelegraf(asset.botId);
+    if (!telegraf) return res.status(503).send("Bot offline — não é possível buscar a mídia agora.");
+
+    try {
+      const file = await telegraf.telegram.getFile(asset.fileId);
+      const token = decryptSecret(asset.bot.telegramBotTokenEncrypted);
+      const upstream = await fetch(`https://api.telegram.org/file/bot${token}/${file.file_path}`);
+      if (!upstream.ok || !upstream.body) {
+        return res.status(502).send("Falha ao buscar o arquivo no Telegram.");
+      }
+      res.setHeader("Content-Type", upstream.headers.get("content-type") ?? "application/octet-stream");
+      res.setHeader("Cache-Control", "private, max-age=3600");
+      Readable.fromWeb(upstream.body as never).pipe(res);
+    } catch (err) {
+      console.error(`[bots] falha ao servir mídia ${asset.id}`, err);
+      res.status(502).send("Falha ao buscar a mídia.");
+    }
   });
 
   router.post("/:id/delete", async (req, res) => {

@@ -1,0 +1,29 @@
+<!--
+  Seletor "Escolher da biblioteca" — preenche os campos mediaType/fileId já
+  existentes no form (via id) com uma MediaAsset capturada automaticamente
+  (src/bot/mediaCapture.ts), poupando colar file_id à mão. Não substitui o
+  form/rota existente, só preenche os campos antes do submit.
+
+  Params esperados: mediaAssets, mediaTypeTargetId, fileIdTargetId.
+-->
+<% if (typeof mediaAssets !== "undefined" && mediaAssets.length > 0) { %>
+  <label class="form-control mb-1">
+    <div class="label"><span class="label-text text-xs">Escolher da biblioteca (opcional)</span></div>
+    <select
+      class="select select-bordered select-sm w-full"
+      onchange="
+        if (!this.value) return;
+        var d = JSON.parse(this.value);
+        document.getElementById('<%= mediaTypeTargetId %>').value = d.mediaType;
+        document.getElementById('<%= fileIdTargetId %>').value = d.fileId;
+      "
+    >
+      <option value="">— selecione —</option>
+      <% mediaAssets.forEach(function(a) { %>
+        <option value='<%- JSON.stringify({ mediaType: a.mediaType, fileId: a.fileId }) %>'>
+          <%= a.mediaType %> — <%= a.label || (a.fileId.slice(0, 16) + "…") %>
+        </option>
+      <% }); %>
+    </select>
+  </label>
+<% } %>

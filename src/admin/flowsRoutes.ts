@@ -52,6 +52,15 @@ export function createFlowsRouter(): Router {
     });
   }
 
+  /** Mídia já capturada (ver src/bot/mediaCapture.ts) pelos bots vinculados
+   * a este Flow — alimenta o seletor "Escolher da biblioteca" nos forms de
+   * mídia de Boas-vindas/Downsell, poupando colar file_id à mão. */
+  async function loadMediaAssetsForFlow(flow: { bots: { botId: string }[] }) {
+    const botIds = flow.bots.map((fb) => fb.botId);
+    if (botIds.length === 0) return [];
+    return prisma.mediaAsset.findMany({ where: { botId: { in: botIds } }, orderBy: { createdAt: "desc" } });
+  }
+
   // --- Bots vinculados ---
 
   router.get("/:id/bots", async (req, res) => {
@@ -91,7 +100,8 @@ export function createFlowsRouter(): Router {
   router.get("/:id/welcome", async (req, res) => {
     const flow = await loadFlow(req.params.id);
     if (!flow) return res.status(404).send("Fluxo não encontrado.");
-    res.render("flows/welcome", { flow });
+    const mediaAssets = await loadMediaAssetsForFlow(flow);
+    res.render("flows/welcome", { flow, mediaAssets });
   });
 
   router.post("/:id/welcome", async (req, res) => {
@@ -517,8 +527,9 @@ export function createFlowsRouter(): Router {
     const flow = await loadFlow(req.params.id);
     if (!flow) return res.status(404).send("Fluxo não encontrado.");
     const config = await loadDownsellConfig(flow.id);
+    const mediaAssets = await loadMediaAssetsForFlow(flow);
     const activeTab = req.query.tab === "pix" ? "pix" : "geral";
-    res.render("flows/downsell", { flow, config, activeTab, error: null });
+    res.render("flows/downsell", { flow, config, mediaAssets, activeTab, error: null });
   });
 
   router.post("/:id/downsell", async (req, res) => {

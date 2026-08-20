@@ -73,15 +73,40 @@ model Bot {
   shortDescription          String?
   /// Usado no path do webhook (/telegram/webhook/:botId/:webhookSecret).
   webhookSecret             String
+  /// Canal do Telegram (id numérico) onde o admin posta mídia pra ser
+  /// capturada automaticamente — o bot precisa ser admin desse canal.
+  /// Nulo = captura automática desligada pra este bot (ver src/bot/
+  /// mediaCapture.ts). Um file_id só é válido pro bot que o recebeu, por
+  /// isso a mídia capturada fica vinculada a este Bot específico — assume
+  /// 1 bot por Flow (confirmado com o usuário em 2026-08-20).
+  mediaChannelId            String?
   active                    Boolean  @default(true)
   createdAt                 DateTime @default(now())
   updatedAt                 DateTime @updatedAt
 
-  commands   BotCommand[]
-  flows      FlowBot[]
-  leads      Lead[]
-  orders     Order[]
-  broadcasts Broadcast[]
+  commands    BotCommand[]
+  flows       FlowBot[]
+  leads       Lead[]
+  orders      Order[]
+  broadcasts  Broadcast[]
+  mediaAssets MediaAsset[]
+}
+
+/// Mídia capturada automaticamente do canal configurado em
+/// `Bot.mediaChannelId` — poupa o admin de mandar a mídia manualmente pro
+/// bot e copiar o file_id retornado pra colar no painel.
+model MediaAsset {
+  id        String    @id @default(cuid())
+  botId     String
+  bot       Bot       @relation(fields: [botId], references: [id], onDelete: Cascade)
+  mediaType MediaType
+  fileId    String
+  /// Legenda do post no canal de mídias, se houver — usado só como rótulo
+  /// de exibição na biblioteca, não afeta o envio.
+  label     String?
+  createdAt DateTime  @default(now())
+
+  @@index([botId])
 }
 
 enum BotCommandKind {

@@ -67,14 +67,15 @@
         </table>
       </div>
       <% if (seq.media.length < 3) { %>
+        <%- include("../partials/mediaPicker", { mediaAssets, mediaTypeTargetId: "dsMediaType-" + seq.id, fileIdTargetId: "dsFileId-" + seq.id }) %>
         <form method="POST" action="/admin/flows/<%= flow.id %>/downsell/sequences/<%= seq.id %>/media" class="flex gap-2 items-center flex-wrap mt-2">
-          <select name="mediaType" class="select select-bordered select-sm">
+          <select id="dsMediaType-<%= seq.id %>" name="mediaType" class="select select-bordered select-sm">
             <option value="PHOTO">Foto</option>
             <option value="VIDEO">Vídeo</option>
             <option value="AUDIO">Áudio</option>
             <option value="DOCUMENT">Documento</option>
           </select>
-          <input type="text" name="fileId" placeholder="file_id do Telegram" class="input input-bordered input-sm flex-1 min-w-[160px]" />
+          <input id="dsFileId-<%= seq.id %>" type="text" name="fileId" placeholder="file_id do Telegram" class="input input-bordered input-sm flex-1 min-w-[160px]" />
           <button class="btn btn-sm btn-outline" type="submit">+ Adicionar mídia</button>
         </form>
       <% } %>
