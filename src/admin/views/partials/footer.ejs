@@ -1,3 +1,74 @@
-  </div>
+        </div>
+      </main>
+    </div><!-- /drawer-content -->
+
+    <div class="drawer-side z-20">
+      <label for="app-drawer" aria-label="Fechar menu" class="drawer-overlay"></label>
+      <aside class="w-64 min-h-full bg-base-200 border-r border-base-300 flex flex-col">
+        <div class="px-5 py-6">
+          <h1 class="text-lg font-extrabold text-base-content">DG Bot <span class="text-primary">Admin</span></h1>
+        </div>
+        <nav class="flex-1 px-3 flex flex-col gap-1">
+          <%
+            var navItems = [
+              { href: "/admin", key: "dashboard", label: "Dashboard" },
+              { href: "/admin/bots", key: "bots", label: "Bots" },
+              { href: "/admin/flows", key: "flows", label: "Fluxos" },
+              { href: "/admin/mailing", key: "mailing", label: "Mailing" },
+              { href: "/admin/settings", key: "settings", label: "Configurações" },
+            ];
+          %>
+          <% navItems.forEach(function (item) { %>
+            <a
+              href="<%= item.href %>"
+              class="rounded-lg px-3 py-2 text-sm no-underline transition-colors <%= typeof active !== "undefined" && active === item.key
+                ? "bg-primary/15 text-primary font-semibold"
+                : "text-base-content/60 hover:bg-base-300/60 hover:text-base-content" %>"
+            ><%= item.label %></a>
+          <% }); %>
+        </nav>
+        <div class="p-3 border-t border-base-300 flex items-center justify-between">
+          <button
+            type="button"
+            class="btn btn-square btn-ghost btn-sm text-base"
+            id="theme-toggle"
+            title="Alternar tema"
+            aria-label="Alternar tema"
+          >🌓</button>
+          <form method="POST" action="/admin/logout">
+            <button type="submit" class="btn btn-outline btn-sm">Sair</button>
+          </form>
+        </div>
+      </aside>
+    </div>
+  </div><!-- /drawer -->
+
+  <script>
+    // Helpers reaproveitados pelos editores de texto rico (boas-vindas,
+    // pagamentos, ofertas): envolve a seleção do textarea com tags HTML, ou
+    // insere uma variável {chip} na posição do cursor.
+    function dgWrapSelection(id, open, close) {
+      var ta = document.getElementById(id);
+      var start = ta.selectionStart, end = ta.selectionEnd;
+      var before = ta.value.slice(0, start), sel = ta.value.slice(start, end), after = ta.value.slice(end);
+      ta.value = before + open + sel + close + after;
+      ta.focus();
+      ta.selectionStart = start + open.length;
+      ta.selectionEnd = start + open.length + sel.length;
+    }
+    function dgInsertAtCursor(id, text) {
+      var ta = document.getElementById(id);
+      var start = ta.selectionStart, end = ta.selectionEnd;
+      ta.value = ta.value.slice(0, start) + text + ta.value.slice(end);
+      ta.focus();
+      ta.selectionStart = ta.selectionEnd = start + text.length;
+    }
+    document.getElementById("theme-toggle").addEventListener("click", function () {
+      var root = document.documentElement;
+      var next = root.getAttribute("data-theme") === "light" ? "dark" : "light";
+      root.setAttribute("data-theme", next);
+      localStorage.setItem("dgbot-theme", next);
+    });
+  </script>
 </body>
 </html>

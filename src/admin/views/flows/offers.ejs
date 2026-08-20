@@ -1,82 +1,98 @@
 <%- include("../partials/header", { title: flow.name + " — Order Bump", active: "flows" }) %>
 <%- include("./partials/nav", { flow, section: "offers" }) %>
 
-<section>
-  <h2>Order Bumps cadastrados</h2>
-  <p class="hint">
-    Mostrado antes do PIX, na tela de confirmação do plano-gatilho — aceitar
-    soma o valor ao mesmo pagamento. Se houver mais de um bump pro mesmo
-    plano, são mostrados um de cada vez, na ordem cadastrada.
-  </p>
-  <table>
-    <thead>
-      <tr><th>Gatilho</th><th>Oferece</th><th>Status</th><th></th></tr>
-    </thead>
-    <tbody>
-      <% offers.forEach(function(o) { %>
-        <tr>
-          <td><%= o.triggerPlan.name %></td>
-          <td><%= o.offeredPlan.name %> — <%= formatBRL(o.offeredPlan.priceCents) %></td>
-          <td>
-            <form method="POST" action="/admin/flows/<%= flow.id %>/offers/<%= o.id %>/toggle" class="inline-form">
-              <button class="btn small secondary" type="submit">
-                <% if (o.active) { %><span class="badge entry">ativa</span><% } else { %><span class="badge inactive">pausada</span><% } %>
-              </button>
-            </form>
-          </td>
-          <td class="row-actions">
-            <form method="POST" action="/admin/flows/<%= flow.id %>/offers/<%= o.id %>/delete" class="inline-form" onsubmit="return confirm('Excluir este bump?');">
-              <button class="btn small danger" type="submit">Excluir</button>
-            </form>
-          </td>
-        </tr>
-      <% }); %>
-      <% if (offers.length === 0) { %><tr><td colspan="4" class="empty">Nenhum Order Bump cadastrado ainda.</td></tr><% } %>
-    </tbody>
-  </table>
-</section>
-
-<section>
-  <h2>Novo Order Bump</h2>
-  <% if (error) { %><p style="color:var(--danger);"><%= error %></p><% } %>
-  <form method="POST" action="/admin/flows/<%= flow.id %>/offers" id="offer-form">
-    <label for="triggerPlanId">Plano-gatilho (ao escolher este plano, o bump é oferecido)</label>
-    <select id="triggerPlanId" name="triggerPlanId" required>
-      <% flow.plans.forEach(function(p) { %>
-        <option value="<%= p.id %>"><%= p.name %></option>
-      <% }); %>
-    </select>
-
-    <label for="offeredPlanId">Plano oferecido como bump</label>
-    <select id="offeredPlanId" name="offeredPlanId" required>
-      <% flow.plans.forEach(function(p) { %>
-        <option value="<%= p.id %>"><%= p.name %> — <%= formatBRL(p.priceCents) %></option>
-      <% }); %>
-    </select>
-
-    <label for="message">Texto do convite (opcional — vazio usa um texto padrão)</label>
-    <div class="rte-toolbar">
-      <button type="button" onclick="dgWrapSelection('message','&lt;b&gt;','&lt;/b&gt;')"><b>B</b></button>
-      <button type="button" onclick="dgWrapSelection('message','&lt;i&gt;','&lt;/i&gt;')"><i>I</i></button>
-      <button type="button" onclick="dgWrapSelection('message','&lt;u&gt;','&lt;/u&gt;')"><u>U</u></button>
+<div class="card bg-base-200 border border-base-300 shadow-sm mb-6">
+  <div class="card-body">
+    <h3 class="font-semibold mb-1">Order Bumps cadastrados</h3>
+    <p class="text-sm text-base-content/60 mb-3">
+      Mostrado antes do PIX, na tela de confirmação do plano-gatilho — aceitar
+      soma o valor ao mesmo pagamento. Se houver mais de um bump pro mesmo
+      plano, são mostrados um de cada vez, na ordem cadastrada.
+    </p>
+    <div class="overflow-x-auto">
+      <table class="table">
+        <thead>
+          <tr><th>Gatilho</th><th>Oferece</th><th>Status</th><th></th></tr>
+        </thead>
+        <tbody>
+          <% offers.forEach(function(o) { %>
+            <tr>
+              <td><%= o.triggerPlan.name %></td>
+              <td><%= o.offeredPlan.name %> — <%= formatBRL(o.offeredPlan.priceCents) %></td>
+              <td>
+                <form method="POST" action="/admin/flows/<%= flow.id %>/offers/<%= o.id %>/toggle" class="inline">
+                  <button class="btn btn-ghost btn-xs p-0" type="submit">
+                    <% if (o.active) { %><span class="badge badge-success badge-sm">ativa</span><% } else { %><span class="badge badge-ghost badge-sm">pausada</span><% } %>
+                  </button>
+                </form>
+              </td>
+              <td>
+                <form method="POST" action="/admin/flows/<%= flow.id %>/offers/<%= o.id %>/delete" class="inline" onsubmit="return confirm('Excluir este bump?');">
+                  <button class="btn btn-xs btn-error btn-outline" type="submit">Excluir</button>
+                </form>
+              </td>
+            </tr>
+          <% }); %>
+          <% if (offers.length === 0) { %><tr><td colspan="4" class="text-base-content/50 py-4">Nenhum Order Bump cadastrado ainda.</td></tr><% } %>
+        </tbody>
+      </table>
     </div>
-    <textarea id="message" name="message" rows="4" placeholder="Que tal levar também {plano} por {valor}?"></textarea>
-    <div class="var-chips">
-      <% ["nome","valor","plano","saudacao","bot.username"].forEach(function(v) { %>
-        <button type="button" onclick="dgInsertAtCursor('message', '{<%= v %>}')">{<%= v %>}</button>
-      <% }); %>
-    </div>
+  </div>
+</div>
 
-    <label for="acceptLabel">Texto do botão de aceitar</label>
-    <input type="text" id="acceptLabel" name="acceptLabel" placeholder="Sim, adicionar" />
+<div class="card bg-base-200 border border-base-300 shadow-sm">
+  <div class="card-body">
+    <h3 class="font-semibold mb-2">Novo Order Bump</h3>
+    <% if (error) { %><div class="alert alert-error text-sm mb-3"><%= error %></div><% } %>
+    <form method="POST" action="/admin/flows/<%= flow.id %>/offers" id="offer-form" class="flex flex-col gap-4">
+      <label class="form-control">
+        <div class="label"><span class="label-text">Plano-gatilho (ao escolher este plano, o bump é oferecido)</span></div>
+        <select name="triggerPlanId" required class="select select-bordered w-full">
+          <% flow.plans.forEach(function(p) { %>
+            <option value="<%= p.id %>"><%= p.name %></option>
+          <% }); %>
+        </select>
+      </label>
 
-    <label for="declineLabel">Texto do botão de recusar</label>
-    <input type="text" id="declineLabel" name="declineLabel" placeholder="Não, obrigado" />
+      <label class="form-control">
+        <div class="label"><span class="label-text">Plano oferecido como bump</span></div>
+        <select name="offeredPlanId" required class="select select-bordered w-full">
+          <% flow.plans.forEach(function(p) { %>
+            <option value="<%= p.id %>"><%= p.name %> — <%= formatBRL(p.priceCents) %></option>
+          <% }); %>
+        </select>
+      </label>
 
-    <div class="actions"><button class="btn" type="submit">Criar bump</button></div>
-  </form>
-</section>
+      <div>
+        <div class="label"><span class="label-text">Texto do convite (opcional — vazio usa um texto padrão)</span></div>
+        <div class="flex gap-1 mb-2">
+          <button type="button" class="btn btn-xs btn-square btn-ghost" onclick="dgWrapSelection('message','&lt;b&gt;','&lt;/b&gt;')"><b>B</b></button>
+          <button type="button" class="btn btn-xs btn-square btn-ghost" onclick="dgWrapSelection('message','&lt;i&gt;','&lt;/i&gt;')"><i>I</i></button>
+          <button type="button" class="btn btn-xs btn-square btn-ghost" onclick="dgWrapSelection('message','&lt;u&gt;','&lt;/u&gt;')"><u>U</u></button>
+        </div>
+        <textarea id="message" name="message" rows="4" placeholder="Que tal levar também {plano} por {valor}?" class="textarea textarea-bordered w-full"></textarea>
+        <div class="flex gap-1.5 flex-wrap mt-2">
+          <% ["nome","valor","plano","saudacao","bot.username"].forEach(function(v) { %>
+            <button type="button" class="badge badge-outline hover:badge-primary cursor-pointer" onclick="dgInsertAtCursor('message', '{<%= v %>}')">{<%= v %>}</button>
+          <% }); %>
+        </div>
+      </div>
+
+      <label class="form-control">
+        <div class="label"><span class="label-text">Texto do botão de aceitar</span></div>
+        <input type="text" name="acceptLabel" placeholder="Sim, adicionar" class="input input-bordered w-full" />
+      </label>
+
+      <label class="form-control">
+        <div class="label"><span class="label-text">Texto do botão de recusar</span></div>
+        <input type="text" name="declineLabel" placeholder="Não, obrigado" class="input input-bordered w-full" />
+      </label>
+
+      <div><button class="btn btn-primary" type="submit">Criar bump</button></div>
+    </form>
+  </div>
+</div>
 
   </div>
 </div>
-<%- include("../partials/footer") %>
+<%- include("../partials/footer", { active: "flows" }) %>

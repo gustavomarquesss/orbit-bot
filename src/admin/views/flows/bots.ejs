@@ -1,31 +1,33 @@
 <%- include("../partials/header", { title: flow.name + " — Bots", active: "flows" }) %>
 <%- include("./partials/nav", { flow, section: "bots" }) %>
 
-<section>
-  <h2>Bots vinculados</h2>
-  <p class="hint">Os bots marcados abaixo vão rodar este funil quando alguém mandar /start.</p>
-  <form method="POST" action="/admin/flows/<%= flow.id %>/bots">
-    <% allBots.forEach(function(b) { %>
-      <div class="checkbox-row">
-        <input type="checkbox" id="bot-<%= b.id %>" name="botIds" value="<%= b.id %>" <%= linkedIds.has(b.id) ? "checked" : "" %> />
-        <label for="bot-<%= b.id %>"><%= b.label %> <span class="hint">(@<%= b.telegramUsername || "?" %>)</span></label>
-      </div>
-    <% }); %>
-    <% if (allBots.length === 0) { %>
-      <p class="empty">Nenhum bot cadastrado ainda. <a href="/admin/bots/new" style="color:var(--accent);">Cadastre um primeiro</a>.</p>
-    <% } %>
-    <div class="actions">
-      <button class="btn" type="submit">Salvar vínculos</button>
-    </div>
-  </form>
-</section>
+<div class="card bg-base-200 border border-base-300 shadow-sm mb-6">
+  <div class="card-body">
+    <h3 class="font-semibold mb-1">Bots vinculados</h3>
+    <p class="text-sm text-base-content/60 mb-3">Os bots marcados abaixo vão rodar este funil quando alguém mandar /start.</p>
+    <form method="POST" action="/admin/flows/<%= flow.id %>/bots" class="flex flex-col gap-3">
+      <% allBots.forEach(function(b) { %>
+        <label class="label cursor-pointer justify-start gap-3 px-0">
+          <input type="checkbox" name="botIds" value="<%= b.id %>" <%= linkedIds.has(b.id) ? "checked" : "" %> class="checkbox checkbox-primary checkbox-sm" />
+          <span class="label-text"><%= b.label %> <span class="text-base-content/50">(@<%= b.telegramUsername || "?" %>)</span></span>
+        </label>
+      <% }); %>
+      <% if (allBots.length === 0) { %>
+        <p class="text-base-content/50">Nenhum bot cadastrado ainda. <a href="/admin/bots/new" class="link link-primary">Cadastre um primeiro</a>.</p>
+      <% } %>
+      <div class="mt-2"><button class="btn btn-primary" type="submit">Salvar vínculos</button></div>
+    </form>
+  </div>
+</div>
 
-<section>
-  <form method="POST" action="/admin/flows/<%= flow.id %>/delete" onsubmit="return confirm('Excluir este fluxo inteiro (boas-vindas, planos, pagamentos)?');">
-    <button class="btn danger" type="submit">Excluir fluxo</button>
-  </form>
-</section>
+<div class="card bg-base-200 border border-error/30 shadow-sm">
+  <div class="card-body">
+    <form method="POST" action="/admin/flows/<%= flow.id %>/delete" onsubmit="return confirm('Excluir este fluxo inteiro (boas-vindas, planos, pagamentos)?');">
+      <button class="btn btn-error btn-outline" type="submit">Excluir fluxo</button>
+    </form>
+  </div>
+</div>
 
   </div>
 </div>
-<%- include("../partials/footer") %>
+<%- include("../partials/footer", { active: "flows" }) %>

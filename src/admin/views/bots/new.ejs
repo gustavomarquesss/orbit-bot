@@ -1,24 +1,35 @@
 <%- include("../partials/header", { title: "Novo bot", active: "bots" }) %>
 
-<section>
-  <h2>Conectar bot</h2>
-  <% if (error) { %><p style="color:var(--danger);"><%= error %></p><% } %>
-  <form method="POST" action="/admin/bots">
-    <label for="label">Nome interno (só pra você identificar no painel)</label>
-    <input type="text" id="label" name="label" required placeholder="Bot principal" />
+<div class="flex items-center justify-between flex-wrap gap-3 mb-6">
+  <h2 class="text-xl font-bold">Conectar bot</h2>
+  <a class="btn btn-outline btn-sm" href="/admin/bots">&larr; Todos os bots</a>
+</div>
 
-    <label for="token">Token do @BotFather</label>
-    <input type="text" id="token" name="token" required placeholder="123456789:AAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" />
-    <div class="hint">
-      Vamos validar o token chamando a API do Telegram antes de salvar. Nunca
-      é exibido de novo depois de salvo (fica criptografado no banco).
-    </div>
+<div class="card bg-base-200 border border-base-300 shadow-sm">
+  <div class="card-body">
+    <% if (error) { %><div class="alert alert-error text-sm mb-3"><%= error %></div><% } %>
+    <form method="POST" action="/admin/bots" class="flex flex-col gap-4">
+      <label class="form-control">
+        <div class="label"><span class="label-text">Nome interno (só pra você identificar no painel)</span></div>
+        <input type="text" name="label" required placeholder="Bot principal" class="input input-bordered w-full" />
+      </label>
 
-    <div class="actions">
-      <button class="btn" type="submit">Conectar</button>
-      <a class="btn secondary" href="/admin/bots">Cancelar</a>
-    </div>
-  </form>
-</section>
+      <label class="form-control">
+        <div class="label"><span class="label-text">Token do @BotFather</span></div>
+        <input type="text" name="token" required placeholder="123456789:AAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" class="input input-bordered w-full" />
+        <div class="label">
+          <span class="label-text-alt text-base-content/60">
+            Vamos validar o token chamando a API do Telegram antes de salvar. Nunca é exibido de novo depois de salvo (fica criptografado no banco).
+          </span>
+        </div>
+      </label>
 
-<%- include("../partials/footer") %>
+      <div class="flex gap-2 mt-2">
+        <button class="btn btn-primary" type="submit">Conectar</button>
+        <a class="btn btn-ghost" href="/admin/bots">Cancelar</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<%- include("../partials/footer", { active: "bots" }) %>

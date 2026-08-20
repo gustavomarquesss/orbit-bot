@@ -1,138 +1,124 @@
 <%- include("../partials/header", { title: flow.name + " — Upsell", active: "flows" }) %>
 <%- include("./partials/nav", { flow, section: "upsell" }) %>
 
-<style>
-  .upsell-warning {
-    background: color-mix(in srgb, var(--warning, #f5a623) 15%, transparent);
-    border: 1px solid var(--warning, #f5a623);
-    color: var(--text);
-    padding: 10px 14px;
-    border-radius: 10px;
-    font-size: 0.85rem;
-    margin-bottom: 16px;
-  }
-  .upsell-message-card { border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
-  .upsell-message-card h3 { margin: 0 0 12px; font-size: 0.95rem; }
-  .upsell-subtable-title { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-muted); margin: 14px 0 6px; }
-  .upsell-mini-table { width: 100%; font-size: 0.85rem; }
-  .upsell-mini-table td, .upsell-mini-table th { padding: 4px 6px; }
-  .upsell-inline-add { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
-  .upsell-inline-add select, .upsell-inline-add input { flex: 1; min-width: 140px; }
-</style>
+<div class="alert alert-warning text-sm mb-6 py-2.5">⚠️ O Upsell é enviado automaticamente após qualquer compra realizada no bot.</div>
 
-<div class="upsell-warning">⚠️ O Upsell é enviado automaticamente após qualquer compra realizada no bot.</div>
-
-<section>
-  <form method="POST" action="/admin/flows/<%= flow.id %>/upsell" class="checkbox-row" style="margin-bottom: 0;">
-    <input type="checkbox" id="active" name="active" onchange="this.form.submit()" <%= sequence.active ? "checked" : "" %> />
-    <label for="active">Upsell ativo</label>
-  </form>
-</section>
+<form method="POST" action="/admin/flows/<%= flow.id %>/upsell" class="mb-6">
+  <label class="label cursor-pointer justify-start gap-3 px-0 w-fit">
+    <input type="checkbox" name="active" onchange="this.form.submit()" <%= sequence.active ? "checked" : "" %> class="checkbox checkbox-primary checkbox-sm" />
+    <span class="label-text">Upsell ativo</span>
+  </label>
+</form>
 
 <% sequence.messages.forEach(function(m, idx) { %>
-  <div class="upsell-message-card">
-    <h3>Mensagem <%= idx + 1 %></h3>
+  <div class="card bg-base-200 border border-base-300 shadow-sm mb-4">
+    <div class="card-body">
+      <h3 class="font-semibold mb-3">Mensagem <%= idx + 1 %></h3>
 
-    <form method="POST" action="/admin/flows/<%= flow.id %>/upsell/messages/<%= m.id %>">
-      <label for="text-<%= m.id %>">Texto</label>
-      <div class="rte-toolbar">
-        <button type="button" onclick="dgWrapSelection('text-<%= m.id %>','&lt;b&gt;','&lt;/b&gt;')"><b>B</b></button>
-        <button type="button" onclick="dgWrapSelection('text-<%= m.id %>','&lt;i&gt;','&lt;/i&gt;')"><i>I</i></button>
-        <button type="button" onclick="dgWrapSelection('text-<%= m.id %>','&lt;u&gt;','&lt;/u&gt;')"><u>U</u></button>
+      <form method="POST" action="/admin/flows/<%= flow.id %>/upsell/messages/<%= m.id %>" class="flex flex-col gap-1">
+        <div class="label"><span class="label-text">Texto</span></div>
+        <div class="flex gap-1 mb-2">
+          <button type="button" class="btn btn-xs btn-square btn-ghost" onclick="dgWrapSelection('text-<%= m.id %>','&lt;b&gt;','&lt;/b&gt;')"><b>B</b></button>
+          <button type="button" class="btn btn-xs btn-square btn-ghost" onclick="dgWrapSelection('text-<%= m.id %>','&lt;i&gt;','&lt;/i&gt;')"><i>I</i></button>
+          <button type="button" class="btn btn-xs btn-square btn-ghost" onclick="dgWrapSelection('text-<%= m.id %>','&lt;u&gt;','&lt;/u&gt;')"><u>U</u></button>
+        </div>
+        <textarea id="text-<%= m.id %>" name="text" rows="4" placeholder="Exemplo de mensagem de upsell..." class="textarea textarea-bordered w-full"><%= m.text || "" %></textarea>
+        <div class="flex gap-1.5 flex-wrap mt-2 mb-2">
+          <% ["nome","saudacao","bot.username"].forEach(function(v) { %>
+            <button type="button" class="badge badge-outline hover:badge-primary cursor-pointer" onclick="dgInsertAtCursor('text-<%= m.id %>', '{<%= v %>}')">{<%= v %>}</button>
+          <% }); %>
+        </div>
+
+        <label class="form-control max-w-xs">
+          <div class="label"><span class="label-text">Tempo (minutos após a compra — 0 = imediato)</span></div>
+          <input type="number" name="delayMinutes" min="0" value="<%= m.delayMinutes %>" class="input input-bordered input-sm w-full" />
+        </label>
+
+        <div class="mt-2"><button class="btn btn-sm btn-primary" type="submit">Salvar mensagem</button></div>
+      </form>
+      <form method="POST" action="/admin/flows/<%= flow.id %>/upsell/messages/<%= m.id %>/delete" class="inline" onsubmit="return confirm('Excluir esta mensagem inteira (planos e botões junto)?');">
+        <button class="btn btn-sm btn-error btn-outline mt-2" type="submit">Excluir mensagem</button>
+      </form>
+
+      <div class="text-xs uppercase tracking-wider text-base-content/40 mt-4 mb-1">Planos anexados</div>
+      <div class="overflow-x-auto">
+        <table class="table table-sm">
+          <thead><tr><th>Nome</th><th>Valor</th><th>Duração</th><th></th></tr></thead>
+          <tbody>
+            <% m.plans.forEach(function(link) { %>
+              <tr>
+                <td><%= link.plan.name %></td>
+                <td><%= formatBRL(link.plan.priceCents) %></td>
+                <td><%= link.plan.durationDays ? link.plan.durationDays + " dias" : "Avulso" %></td>
+                <td>
+                  <form method="POST" action="/admin/flows/<%= flow.id %>/upsell/messages/<%= m.id %>/plans/<%= link.id %>/delete" class="inline">
+                    <button class="btn btn-xs btn-error btn-outline" type="submit">Remover</button>
+                  </form>
+                </td>
+              </tr>
+            <% }); %>
+            <% if (m.plans.length === 0) { %><tr><td colspan="4" class="text-base-content/50 py-2">Nenhum plano anexado.</td></tr><% } %>
+          </tbody>
+        </table>
       </div>
-      <textarea id="text-<%= m.id %>" name="text" rows="4" placeholder="Exemplo de mensagem de upsell..."><%= m.text || "" %></textarea>
-      <div class="var-chips">
-        <% ["nome","saudacao","bot.username"].forEach(function(v) { %>
-          <button type="button" onclick="dgInsertAtCursor('text-<%= m.id %>', '{<%= v %>}')">{<%= v %>}</button>
-        <% }); %>
+      <form method="POST" action="/admin/flows/<%= flow.id %>/upsell/messages/<%= m.id %>/plans" class="flex gap-2 items-center flex-wrap mt-2">
+        <select name="planId" class="select select-bordered select-sm flex-1 min-w-[160px]">
+          <% flow.plans.forEach(function(p) { %>
+            <option value="<%= p.id %>"><%= p.name %> — <%= formatBRL(p.priceCents) %></option>
+          <% }); %>
+        </select>
+        <button class="btn btn-sm btn-outline" type="submit">+ Anexar plano</button>
+      </form>
+
+      <div class="text-xs uppercase tracking-wider text-base-content/40 mt-4 mb-1">Botões</div>
+      <div class="overflow-x-auto">
+        <table class="table table-sm">
+          <thead><tr><th>Texto</th><th>Tipo</th><th>Alvo</th><th></th></tr></thead>
+          <tbody>
+            <% m.buttons.forEach(function(b) { %>
+              <tr>
+                <td><%= b.text %></td>
+                <td><%= b.type === "BUY_PLAN" ? "Comprar plano" : "Abrir link" %></td>
+                <td><%= b.type === "BUY_PLAN" ? (b.targetPlan ? b.targetPlan.name : "—") : b.url %></td>
+                <td>
+                  <form method="POST" action="/admin/flows/<%= flow.id %>/upsell/messages/<%= m.id %>/buttons/<%= b.id %>/delete" class="inline">
+                    <button class="btn btn-xs btn-error btn-outline" type="submit">Remover</button>
+                  </form>
+                </td>
+              </tr>
+            <% }); %>
+            <% if (m.buttons.length === 0) { %><tr><td colspan="4" class="text-base-content/50 py-2">Nenhum botão cadastrado.</td></tr><% } %>
+          </tbody>
+        </table>
       </div>
-
-      <label for="delayMinutes-<%= m.id %>">Tempo (minutos após a compra — 0 = imediato)</label>
-      <input type="number" id="delayMinutes-<%= m.id %>" name="delayMinutes" min="0" value="<%= m.delayMinutes %>" style="max-width:120px;" />
-
-      <div class="actions">
-        <button class="btn small" type="submit">Salvar mensagem</button>
-      </div>
-    </form>
-    <form method="POST" action="/admin/flows/<%= flow.id %>/upsell/messages/<%= m.id %>/delete" class="inline-form" onsubmit="return confirm('Excluir esta mensagem inteira (planos e botões junto)?');">
-      <button class="btn small danger" type="submit">Excluir mensagem</button>
-    </form>
-
-    <div class="upsell-subtable-title">Planos anexados</div>
-    <table class="upsell-mini-table">
-      <thead><tr><th>Nome</th><th>Valor</th><th>Duração</th><th></th></tr></thead>
-      <tbody>
-        <% m.plans.forEach(function(link) { %>
-          <tr>
-            <td><%= link.plan.name %></td>
-            <td><%= formatBRL(link.plan.priceCents) %></td>
-            <td><%= link.plan.durationDays ? link.plan.durationDays + " dias" : "Avulso" %></td>
-            <td>
-              <form method="POST" action="/admin/flows/<%= flow.id %>/upsell/messages/<%= m.id %>/plans/<%= link.id %>/delete" class="inline-form">
-                <button class="btn small danger" type="submit">Remover</button>
-              </form>
-            </td>
-          </tr>
-        <% }); %>
-        <% if (m.plans.length === 0) { %><tr><td colspan="4" class="empty">Nenhum plano anexado.</td></tr><% } %>
-      </tbody>
-    </table>
-    <form method="POST" action="/admin/flows/<%= flow.id %>/upsell/messages/<%= m.id %>/plans" class="upsell-inline-add">
-      <select name="planId">
-        <% flow.plans.forEach(function(p) { %>
-          <option value="<%= p.id %>"><%= p.name %> — <%= formatBRL(p.priceCents) %></option>
-        <% }); %>
-      </select>
-      <button class="btn small secondary" type="submit">+ Anexar plano</button>
-    </form>
-
-    <div class="upsell-subtable-title">Botões</div>
-    <table class="upsell-mini-table">
-      <thead><tr><th>Texto</th><th>Tipo</th><th>Alvo</th><th></th></tr></thead>
-      <tbody>
-        <% m.buttons.forEach(function(b) { %>
-          <tr>
-            <td><%= b.text %></td>
-            <td><%= b.type === "BUY_PLAN" ? "Comprar plano" : "Abrir link" %></td>
-            <td><%= b.type === "BUY_PLAN" ? (b.targetPlan ? b.targetPlan.name : "—") : b.url %></td>
-            <td>
-              <form method="POST" action="/admin/flows/<%= flow.id %>/upsell/messages/<%= m.id %>/buttons/<%= b.id %>/delete" class="inline-form">
-                <button class="btn small danger" type="submit">Remover</button>
-              </form>
-            </td>
-          </tr>
-        <% }); %>
-        <% if (m.buttons.length === 0) { %><tr><td colspan="4" class="empty">Nenhum botão cadastrado.</td></tr><% } %>
-      </tbody>
-    </table>
-    <form method="POST" action="/admin/flows/<%= flow.id %>/upsell/messages/<%= m.id %>/buttons" class="upsell-inline-add"
-      onsubmit="return true;">
-      <input type="text" name="text" placeholder="Texto do botão" required style="min-width:160px;" />
-      <select name="type" onchange="
-        this.closest('form').querySelector('.btn-target-plan').style.display = this.value === 'BUY_PLAN' ? '' : 'none';
-        this.closest('form').querySelector('.btn-target-url').style.display = this.value === 'OPEN_LINK' ? '' : 'none';
-      ">
-        <option value="BUY_PLAN">Comprar plano</option>
-        <option value="OPEN_LINK">Abrir link</option>
-      </select>
-      <select name="targetPlanId" class="btn-target-plan">
-        <% m.plans.forEach(function(link) { %>
-          <option value="<%= link.plan.id %>"><%= link.plan.name %></option>
-        <% }); %>
-      </select>
-      <input type="text" name="url" class="btn-target-url" placeholder="https://..." style="display:none;" />
-      <button class="btn small secondary" type="submit">+ Adicionar botão</button>
-    </form>
-    <% if (m.plans.length === 0) { %>
-      <div class="hint">Anexe pelo menos um plano acima pra poder criar um botão "Comprar plano".</div>
-    <% } %>
+      <form method="POST" action="/admin/flows/<%= flow.id %>/upsell/messages/<%= m.id %>/buttons" class="flex gap-2 items-center flex-wrap mt-2">
+        <input type="text" name="text" placeholder="Texto do botão" required class="input input-bordered input-sm flex-1 min-w-[140px]" />
+        <select name="type" class="select select-bordered select-sm" onchange="
+          this.closest('form').querySelector('.btn-target-plan').style.display = this.value === 'BUY_PLAN' ? '' : 'none';
+          this.closest('form').querySelector('.btn-target-url').style.display = this.value === 'OPEN_LINK' ? '' : 'none';
+        ">
+          <option value="BUY_PLAN">Comprar plano</option>
+          <option value="OPEN_LINK">Abrir link</option>
+        </select>
+        <select name="targetPlanId" class="btn-target-plan select select-bordered select-sm">
+          <% m.plans.forEach(function(link) { %>
+            <option value="<%= link.plan.id %>"><%= link.plan.name %></option>
+          <% }); %>
+        </select>
+        <input type="text" name="url" class="btn-target-url input input-bordered input-sm" placeholder="https://..." style="display:none;" />
+        <button class="btn btn-sm btn-outline" type="submit">+ Adicionar botão</button>
+      </form>
+      <% if (m.plans.length === 0) { %>
+        <p class="text-xs text-base-content/50 mt-2">Anexe pelo menos um plano acima pra poder criar um botão "Comprar plano".</p>
+      <% } %>
+    </div>
   </div>
 <% }); %>
 
 <form method="POST" action="/admin/flows/<%= flow.id %>/upsell/messages">
-  <button class="btn secondary" type="submit">+ Adicionar Nova Mensagem</button>
+  <button class="btn btn-outline" type="submit">+ Adicionar Nova Mensagem</button>
 </form>
 
   </div>
 </div>
-<%- include("../partials/footer") %>
+<%- include("../partials/footer", { active: "flows" }) %>

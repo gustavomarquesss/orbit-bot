@@ -1,57 +1,54 @@
 <%
 /*
- * Abre a estrutura de duas colunas (sidebar + conteúdo) e NÃO fecha as divs
- * — cada página de seção (bots.ejs, welcome.ejs, plans.ejs, payments.ejs)
- * escreve seu conteúdo logo em seguida e fecha </div></div> antes do
- * partials/footer. Truque necessário porque EJS não tem layout/yield nativo.
+ * Abre a estrutura de duas colunas (sidebar do fluxo + conteúdo) e NÃO
+ * fecha as divs — cada página de seção escreve seu conteúdo logo em
+ * seguida e fecha </div></div> antes do partials/footer. Truque necessário
+ * porque EJS não tem layout/yield nativo. Esta é a navegação CONTEXTUAL de
+ * um fluxo específico — diferente da sidebar principal do app (que fica
+ * fora de <main>, em partials/footer.ejs).
  */
 %>
-<style>
-  .flow-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; flex-wrap:wrap; gap:10px; }
-  .flow-header h1 { font-size:1.15rem; margin:0; color: var(--text-strong); }
-  .flow-layout { display:flex; gap:20px; align-items:flex-start; }
-  .flow-sidebar { width:190px; flex-shrink:0; background:var(--surface); border-radius:12px; padding:14px 10px; }
-  .flow-sidebar-group { font-size:0.7rem; letter-spacing:0.04em; text-transform:uppercase; color:var(--text-muted); padding:12px 10px 4px; }
-  .flow-sidebar a, .flow-sidebar span.disabled {
-    display:flex; align-items:center; justify-content:space-between;
-    padding:7px 10px; border-radius:8px; font-size:0.88rem; text-decoration:none;
-    color:var(--text); margin-bottom:2px;
-  }
-  .flow-sidebar a:hover { background: var(--surface-2); }
-  .flow-sidebar a.active { background: var(--accent-soft); color: var(--accent); font-weight:600; }
-  .flow-sidebar span.disabled { color: var(--text-muted); }
-  .flow-sidebar .soon { font-size:0.65rem; background:var(--border); color:var(--text-muted); padding:1px 6px; border-radius:999px; }
-  .flow-main { flex: 1; min-width: 0; }
-  @media (max-width: 640px) {
-    .flow-layout { flex-direction: column; }
-    .flow-sidebar { width: 100%; display:flex; flex-wrap:wrap; gap:4px; }
-    .flow-sidebar-group { display:none; }
-    .flow-sidebar a, .flow-sidebar span.disabled { width:auto; }
-  }
-</style>
-
-<div class="flow-header">
-  <h1><%= flow.name %> <span class="hint">(<%= flow.key %>)</span></h1>
-  <a class="btn secondary small" href="/admin/flows">&larr; Todos os fluxos</a>
+<div class="flex items-center justify-between flex-wrap gap-3 mb-6">
+  <h2 class="text-xl font-bold text-base-content">
+    <%= flow.name %> <span class="text-base-content/40 font-normal text-base">(<%= flow.key %>)</span>
+  </h2>
+  <a class="btn btn-outline btn-sm" href="/admin/flows">&larr; Todos os fluxos</a>
 </div>
 
-<div class="flow-layout">
-  <aside class="flow-sidebar">
-    <div class="flow-sidebar-group">Estrutura</div>
-    <a href="/admin/flows/<%= flow.id %>/bots" class="<%= section === 'bots' ? 'active' : '' %>">Bots</a>
-    <a href="/admin/flows/<%= flow.id %>/welcome" class="<%= section === 'welcome' ? 'active' : '' %>">Boas-vindas</a>
-    <a href="/admin/flows/<%= flow.id %>/plans" class="<%= section === 'plans' ? 'active' : '' %>">Planos</a>
+<div class="flex flex-col lg:flex-row gap-6 items-start">
+  <aside class="w-full lg:w-56 shrink-0 bg-base-200 border border-base-300 rounded-2xl p-3 lg:sticky lg:top-6">
+    <%
+      function navGroup(title) { %>
+        <div class="text-xs font-semibold uppercase tracking-wider text-base-content/40 px-3 pt-3 pb-1"><%= title %></div>
+      <% }
+      function navLink(href, key, label) { %>
+        <a href="<%= href %>" class="flex items-center justify-between rounded-lg px-3 py-2 text-sm no-underline transition-colors <%= section === key
+          ? "bg-primary/15 text-primary font-semibold"
+          : "text-base-content/70 hover:bg-base-300/60 hover:text-base-content" %>"><%= label %></a>
+      <% }
+      function navSoon(label) { %>
+        <span class="flex items-center justify-between rounded-lg px-3 py-2 text-sm text-base-content/35">
+          <%= label %> <span class="text-[10px] bg-base-300 text-base-content/50 px-2 py-0.5 rounded-full">em breve</span>
+        </span>
+      <% }
+    %>
+    <div class="flex flex-col gap-0.5">
+      <% navGroup("Estrutura"); %>
+      <% navLink(`/admin/flows/${flow.id}/bots`, "bots", "Bots"); %>
+      <% navLink(`/admin/flows/${flow.id}/welcome`, "welcome", "Boas-vindas"); %>
+      <% navLink(`/admin/flows/${flow.id}/plans`, "plans", "Planos"); %>
 
-    <div class="flow-sidebar-group">Conversão</div>
-    <a href="/admin/flows/<%= flow.id %>/offers" class="<%= section === 'offers' ? 'active' : '' %>">Order Bump</a>
-    <a href="/admin/flows/<%= flow.id %>/upsell" class="<%= section === 'upsell' ? 'active' : '' %>">Upsell</a>
-    <a href="/admin/flows/<%= flow.id %>/downsell" class="<%= section === 'downsell' ? 'active' : '' %>">Downsell</a>
-    <span class="disabled">Packs <span class="soon">em breve</span></span>
-    <span class="disabled">Prévias <span class="soon">em breve</span></span>
+      <% navGroup("Conversão"); %>
+      <% navLink(`/admin/flows/${flow.id}/offers`, "offers", "Order Bump"); %>
+      <% navLink(`/admin/flows/${flow.id}/upsell`, "upsell", "Upsell"); %>
+      <% navLink(`/admin/flows/${flow.id}/downsell`, "downsell", "Downsell"); %>
+      <% navSoon("Packs"); %>
+      <% navSoon("Prévias"); %>
 
-    <div class="flow-sidebar-group">Operação</div>
-    <a href="/admin/flows/<%= flow.id %>/payments" class="<%= section === 'payments' ? 'active' : '' %>">Pagamentos</a>
-    <span class="disabled">Top Assinantes <span class="soon">em breve</span></span>
+      <% navGroup("Operação"); %>
+      <% navLink(`/admin/flows/${flow.id}/payments`, "payments", "Pagamentos"); %>
+      <% navSoon("Top Assinantes"); %>
+    </div>
   </aside>
 
-  <div class="flow-main">
+  <div class="flex-1 min-w-0 w-full">

@@ -1,36 +1,41 @@
 <%- include("../partials/header", { title: "Fluxos", active: "flows" }) %>
 
-<div class="actions" style="margin-bottom: 20px;">
-  <a class="btn" href="/admin/flows/new">+ Novo fluxo</a>
+<div class="flex items-center justify-between flex-wrap gap-3 mb-6">
+  <h2 class="text-xl font-bold">Fluxos</h2>
+  <a class="btn btn-primary btn-sm" href="/admin/flows/new">+ Novo fluxo</a>
 </div>
 
-<section>
-  <h2>Fluxos configurados</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>Nome</th>
-        <th>Chave</th>
-        <th>Bots vinculados</th>
-        <th>Planos</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-      <% flows.forEach(function(f) { %>
-        <tr>
-          <td><a href="/admin/flows/<%= f.id %>/bots" style="color:var(--accent);text-decoration:none;"><%= f.name %></a></td>
-          <td><code><%= f.key %></code></td>
-          <td><%= f._count.bots %></td>
-          <td><%= f._count.plans %></td>
-          <td><a class="btn small secondary" href="/admin/flows/<%= f.id %>/bots">Editar</a></td>
-        </tr>
-      <% }); %>
-      <% if (flows.length === 0) { %>
-        <tr><td colspan="5" class="empty">Nenhum fluxo cadastrado ainda.</td></tr>
-      <% } %>
-    </tbody>
-  </table>
-</section>
+<div class="card bg-base-200 border border-base-300 shadow-sm">
+  <div class="card-body">
+    <h3 class="font-semibold mb-2">Fluxos configurados</h3>
+    <div class="overflow-x-auto">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Nome</th>
+            <th>Chave</th>
+            <th>Bots vinculados</th>
+            <th>Planos</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% flows.forEach(function(f) { %>
+            <tr>
+              <td><a href="/admin/flows/<%= f.id %>/bots" class="link link-primary no-underline hover:underline font-medium"><%= f.name %></a></td>
+              <td><code class="text-xs bg-base-300/60 px-1.5 py-0.5 rounded"><%= f.key %></code></td>
+              <td><%= f._count.bots %></td>
+              <td><%= f._count.plans %></td>
+              <td><a class="btn btn-outline btn-xs" href="/admin/flows/<%= f.id %>/bots">Editar</a></td>
+            </tr>
+          <% }); %>
+          <% if (flows.length === 0) { %>
+            <tr><td colspan="5" class="text-base-content/50 py-4">Nenhum fluxo cadastrado ainda.</td></tr>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
 
-<%- include("../partials/footer") %>
+<%- include("../partials/footer", { active: "flows" }) %>

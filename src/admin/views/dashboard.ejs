@@ -1,145 +1,129 @@
 <%- include("partials/header", { title: "Dashboard", active: "dashboard" }) %>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
-<style>
-  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
-  .card .label { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 6px; }
-  .card .value { font-size: 1.5rem; font-weight: 600; color: var(--text-strong); }
-  .card.paid .value { color: #4ade80; }
-  .card.pending .value { color: #facc15; }
-  .card.refused .value { color: #f87171; }
-  section { overflow-x: auto; }
-  table { min-width: 480px; }
-  td, th { white-space: nowrap; }
-  .status { padding: 2px 8px; border-radius: 999px; font-size: 0.75rem; }
-  .status-PAID { background: rgba(74,222,128,0.15); color: #4ade80; }
-  .status-PENDING { background: rgba(250,204,21,0.15); color: #facc15; }
-  .status-REFUSED { background: rgba(248,113,113,0.15); color: #f87171; }
-  .status-EXPIRED { background: rgba(148,163,184,0.15); color: #94a3b8; }
-  canvas { max-height: 220px; }
-  .filters { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
-  .filters select { width: auto; min-width: 160px; }
-  .filters label { margin: 0; }
-  .activity-row { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border-soft); font-size: 0.87rem; }
-  .activity-row:last-child { border-bottom: none; }
-  .activity-icon { display: inline-block; width: 20px; text-align: center; }
-  .activity-sub { color: var(--text-muted); white-space: nowrap; }
-  .activity-time { color: var(--text-muted); font-size: 0.78rem; white-space: nowrap; }
-</style>
 
-<form method="GET" action="/admin" class="filters" id="filters-form">
-  <div>
-    <label for="botId">Bot</label>
-    <select id="botId" name="botId" onchange="document.getElementById('filters-form').submit()">
-      <option value="">Todos os bots</option>
-      <% bots.forEach(function(bot) { %>
-        <option value="<%= bot.id %>" <%= selectedBotId === bot.id ? "selected" : "" %>><%= bot.label %></option>
-      <% }); %>
-    </select>
-  </div>
-  <div>
-    <label for="period">Período</label>
-    <select id="period" name="period" onchange="document.getElementById('filters-form').submit()">
-      <option value="hoje" <%= selectedPeriod === "hoje" ? "selected" : "" %>>Hoje</option>
-      <option value="ontem" <%= selectedPeriod === "ontem" ? "selected" : "" %>>Ontem</option>
-      <option value="7d" <%= selectedPeriod === "7d" ? "selected" : "" %>>Últimos 7 dias</option>
-      <option value="30d" <%= selectedPeriod === "30d" ? "selected" : "" %>>Últimos 30 dias</option>
-      <option value="total" <%= selectedPeriod === "total" ? "selected" : "" %>>Total</option>
-    </select>
-  </div>
+<form method="GET" action="/admin" id="filters-form" class="flex flex-wrap gap-3 mb-6">
+  <select name="botId" class="select select-bordered select-sm w-auto min-w-[160px]" onchange="document.getElementById('filters-form').submit()">
+    <option value="">Todos os bots</option>
+    <% bots.forEach(function(bot) { %>
+      <option value="<%= bot.id %>" <%= selectedBotId === bot.id ? "selected" : "" %>><%= bot.label %></option>
+    <% }); %>
+  </select>
+  <select name="period" class="select select-bordered select-sm w-auto min-w-[160px]" onchange="document.getElementById('filters-form').submit()">
+    <option value="hoje" <%= selectedPeriod === "hoje" ? "selected" : "" %>>Hoje</option>
+    <option value="ontem" <%= selectedPeriod === "ontem" ? "selected" : "" %>>Ontem</option>
+    <option value="7d" <%= selectedPeriod === "7d" ? "selected" : "" %>>Últimos 7 dias</option>
+    <option value="30d" <%= selectedPeriod === "30d" ? "selected" : "" %>>Últimos 30 dias</option>
+    <option value="total" <%= selectedPeriod === "total" ? "selected" : "" %>>Total</option>
+  </select>
 </form>
 
-<div class="stats">
-  <div class="card paid">
-    <div class="label">Receita aprovada</div>
-    <div class="value"><%= formatBRL(revenueCents) %></div>
+<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-6">
+  <div class="card bg-base-200 border border-base-300 p-4">
+    <div class="text-xs text-base-content/50 mb-1">Receita aprovada</div>
+    <div class="text-2xl font-bold text-success"><%= formatBRL(revenueCents) %></div>
   </div>
-  <div class="card paid">
-    <div class="label">Vendas aprovadas</div>
-    <div class="value"><%= approvedCount %></div>
+  <div class="card bg-base-200 border border-base-300 p-4">
+    <div class="text-xs text-base-content/50 mb-1">Vendas aprovadas</div>
+    <div class="text-2xl font-bold text-success"><%= approvedCount %></div>
   </div>
-  <div class="card">
-    <div class="label">Ticket médio</div>
-    <div class="value"><%= formatBRL(avgTicketCents) %></div>
+  <div class="card bg-base-200 border border-base-300 p-4">
+    <div class="text-xs text-base-content/50 mb-1">Ticket médio</div>
+    <div class="text-2xl font-bold"><%= formatBRL(avgTicketCents) %></div>
   </div>
-  <div class="card">
-    <div class="label">Tempo médio até pagar</div>
-    <div class="value"><%= avgTimeLabel %></div>
+  <div class="card bg-base-200 border border-base-300 p-4">
+    <div class="text-xs text-base-content/50 mb-1">Tempo médio até pagar</div>
+    <div class="text-2xl font-bold"><%= avgTimeLabel %></div>
   </div>
-  <div class="card">
-    <div class="label">Starts (leads novos)</div>
-    <div class="value"><%= startsCount %></div>
+  <div class="card bg-base-200 border border-base-300 p-4">
+    <div class="text-xs text-base-content/50 mb-1">Starts (leads novos)</div>
+    <div class="text-2xl font-bold"><%= startsCount %></div>
   </div>
-  <div class="card">
-    <div class="label">Conversão de usuário</div>
-    <div class="value"><%= userConversionRate.toFixed(1) %>%</div>
-    <div class="hint">compradores / leads novos</div>
+  <div class="card bg-base-200 border border-base-300 p-4">
+    <div class="text-xs text-base-content/50 mb-1">Conversão de usuário</div>
+    <div class="text-2xl font-bold"><%= userConversionRate.toFixed(1) %>%</div>
+    <div class="text-xs text-base-content/40">compradores / leads novos</div>
   </div>
-  <div class="card">
-    <div class="label">Conversão de pagamento</div>
-    <div class="value"><%= paymentConversionRate.toFixed(1) %>%</div>
-    <div class="hint">pagos / PIX gerados</div>
+  <div class="card bg-base-200 border border-base-300 p-4">
+    <div class="text-xs text-base-content/50 mb-1">Conversão de pagamento</div>
+    <div class="text-2xl font-bold"><%= paymentConversionRate.toFixed(1) %>%</div>
+    <div class="text-xs text-base-content/40">pagos / PIX gerados</div>
   </div>
-  <div class="card pending">
-    <div class="label">PIX pendentes (gerados no período)</div>
-    <div class="value"><%= createdCounts.PENDING %></div>
+  <div class="card bg-base-200 border border-base-300 p-4">
+    <div class="text-xs text-base-content/50 mb-1">PIX pendentes (no período)</div>
+    <div class="text-2xl font-bold text-warning"><%= createdCounts.PENDING %></div>
   </div>
-  <div class="card refused">
-    <div class="label">Recusados/expirados (no período)</div>
-    <div class="value"><%= createdCounts.REFUSED + createdCounts.EXPIRED %></div>
+  <div class="card bg-base-200 border border-base-300 p-4">
+    <div class="text-xs text-base-content/50 mb-1">Recusados/expirados (no período)</div>
+    <div class="text-2xl font-bold text-error"><%= createdCounts.REFUSED + createdCounts.EXPIRED %></div>
   </div>
 </div>
 
-<section>
-  <h2>Cobranças por dia</h2>
-  <canvas id="dailyChart"></canvas>
-</section>
+<div class="card bg-base-200 border border-base-300 shadow-sm mb-6">
+  <div class="card-body">
+    <h3 class="font-semibold mb-3">Cobranças por dia</h3>
+    <canvas id="dailyChart" class="max-h-[220px]"></canvas>
+  </div>
+</div>
 
-<section>
-  <h2>Ranking por Código de Venda (top 5, receita do período)</h2>
-  <table>
-    <thead><tr><th>Código</th><th>Origem</th><th>Vendas</th><th>Receita</th></tr></thead>
-    <tbody>
-      <% originRanking.forEach(function(o) { %>
-        <tr>
-          <td><%= o.param %></td>
-          <td><%= o.label %></td>
-          <td><%= o.count %></td>
-          <td><%= formatBRL(o.revenueCents) %></td>
-        </tr>
-      <% }); %>
-      <% if (originRanking.length === 0) { %>
-        <tr><td colspan="4" class="empty">Nenhuma venda aprovada no período.</td></tr>
-      <% } %>
-    </tbody>
-  </table>
-</section>
-
-<section>
-  <h2>Log de atividade</h2>
-  <p class="hint">Últimos eventos, de todos os bots (ou só do bot filtrado acima) — não é limitado pelo período escolhido, é sempre o mais recente.</p>
-  <% activityLog.forEach(function(ev) { %>
-    <div class="activity-row">
-      <span class="activity-icon"><%= ev.kind === "lead" ? "👋" : ev.kind === "pix" ? "💳" : "✅" %></span>
-      <span style="flex:1;"><%= ev.label %></span>
-      <span class="activity-sub"><%= ev.sub %></span>
-      <span class="activity-time"><%= new Date(ev.at).toLocaleString("pt-BR") %></span>
+<div class="card bg-base-200 border border-base-300 shadow-sm mb-6">
+  <div class="card-body">
+    <h3 class="font-semibold mb-2">Ranking por Código de Venda <span class="text-base-content/40 font-normal text-sm">(top 5, receita do período)</span></h3>
+    <div class="overflow-x-auto">
+      <table class="table">
+        <thead><tr><th>Código</th><th>Origem</th><th>Vendas</th><th>Receita</th></tr></thead>
+        <tbody>
+          <% originRanking.forEach(function(o) { %>
+            <tr>
+              <td><code class="text-xs bg-base-300/60 px-1.5 py-0.5 rounded"><%= o.param %></code></td>
+              <td><%= o.label %></td>
+              <td><%= o.count %></td>
+              <td><%= formatBRL(o.revenueCents) %></td>
+            </tr>
+          <% }); %>
+          <% if (originRanking.length === 0) { %>
+            <tr><td colspan="4" class="text-base-content/50 py-4">Nenhuma venda aprovada no período.</td></tr>
+          <% } %>
+        </tbody>
+      </table>
     </div>
-  <% }); %>
-  <% if (activityLog.length === 0) { %><p class="empty">Nenhuma atividade ainda.</p><% } %>
-</section>
+  </div>
+</div>
+
+<div class="card bg-base-200 border border-base-300 shadow-sm">
+  <div class="card-body">
+    <h3 class="font-semibold mb-1">Log de atividade</h3>
+    <p class="text-sm text-base-content/60 mb-3">Últimos eventos, de todos os bots (ou só do bot filtrado acima) — não é limitado pelo período escolhido, é sempre o mais recente.</p>
+    <div class="flex flex-col divide-y divide-base-300">
+      <% activityLog.forEach(function(ev) { %>
+        <div class="flex items-center justify-between gap-3 py-2.5 text-sm">
+          <span class="flex items-center gap-2 min-w-0">
+            <span class="shrink-0"><%= ev.kind === "lead" ? "👋" : ev.kind === "pix" ? "💳" : "✅" %></span>
+            <span class="truncate"><%= ev.label %></span>
+          </span>
+          <span class="flex items-center gap-3 shrink-0">
+            <span class="text-base-content/50 hidden sm:inline"><%= ev.sub %></span>
+            <span class="text-base-content/40 text-xs whitespace-nowrap"><%= new Date(ev.at).toLocaleString("pt-BR") %></span>
+          </span>
+        </div>
+      <% }); %>
+      <% if (activityLog.length === 0) { %><p class="text-base-content/50 py-4">Nenhuma atividade ainda.</p><% } %>
+    </div>
+  </div>
+</div>
 
 <script>
   const dailyOrders = <%- JSON.stringify(dailyOrders) %>;
-  const ctx = document.getElementById("dailyChart");
-  const themeVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  new Chart(ctx, {
+  const isDark = document.documentElement.getAttribute("data-theme") !== "light";
+  const accentColor = isDark ? "#FF6B6B" : "#E11D33";
+  const mutedColor = isDark ? "#A1A1AA" : "#71717A";
+  new Chart(document.getElementById("dailyChart"), {
     type: "bar",
     data: {
       labels: dailyOrders.map(d => new Date(d.day).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })),
       datasets: [{
         label: "Cobranças",
         data: dailyOrders.map(d => d.count),
-        backgroundColor: themeVar("--accent"),
+        backgroundColor: accentColor,
         borderRadius: 4,
       }],
     },
@@ -147,10 +131,10 @@
       animation: false,
       plugins: { legend: { display: false } },
       scales: {
-        x: { grid: { display: false }, ticks: { color: themeVar("--text-muted") } },
-        y: { beginAtZero: true, ticks: { color: themeVar("--text-muted"), precision: 0 } },
+        x: { grid: { display: false }, ticks: { color: mutedColor } },
+        y: { beginAtZero: true, ticks: { color: mutedColor, precision: 0 } },
       },
     },
   });
 </script>
-<%- include("partials/footer") %>
+<%- include("partials/footer", { active: "dashboard" }) %>

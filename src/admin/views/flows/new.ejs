@@ -1,23 +1,35 @@
 <%- include("../partials/header", { title: "Novo fluxo", active: "flows" }) %>
 
-<section>
-  <h2>Novo fluxo</h2>
-  <% if (error) { %><p style="color:var(--danger);"><%= error %></p><% } %>
-  <form method="POST" action="/admin/flows">
-    <label for="key">Chave (identificador único, ex: <code>boas-vindas</code>)</label>
-    <input type="text" id="key" name="key" required pattern="[a-z0-9\-]+" placeholder="boas-vindas" />
+<div class="flex items-center justify-between flex-wrap gap-3 mb-6">
+  <h2 class="text-xl font-bold">Novo fluxo</h2>
+  <a class="btn btn-outline btn-sm" href="/admin/flows">&larr; Todos os fluxos</a>
+</div>
 
-    <label for="name">Nome (só pra você identificar no painel)</label>
-    <input type="text" id="name" name="name" required placeholder="Funil principal" />
+<div class="card bg-base-200 border border-base-300 shadow-sm">
+  <div class="card-body">
+    <% if (error) { %><div class="alert alert-error text-sm mb-3"><%= error %></div><% } %>
+    <form method="POST" action="/admin/flows" class="flex flex-col gap-4">
+      <label class="form-control">
+        <div class="label"><span class="label-text">Chave (identificador único, ex: <code>boas-vindas</code>)</span></div>
+        <input type="text" name="key" required pattern="[a-z0-9\-]+" placeholder="boas-vindas" class="input input-bordered w-full" />
+      </label>
 
-    <label for="description">Descrição (opcional)</label>
-    <textarea id="description" name="description"></textarea>
+      <label class="form-control">
+        <div class="label"><span class="label-text">Nome (só pra você identificar no painel)</span></div>
+        <input type="text" name="name" required placeholder="Funil principal" class="input input-bordered w-full" />
+      </label>
 
-    <div class="actions">
-      <button class="btn" type="submit">Criar fluxo</button>
-      <a class="btn secondary" href="/admin/flows">Cancelar</a>
-    </div>
-  </form>
-</section>
+      <label class="form-control">
+        <div class="label"><span class="label-text">Descrição (opcional)</span></div>
+        <textarea name="description" class="textarea textarea-bordered w-full" rows="3"></textarea>
+      </label>
 
-<%- include("../partials/footer") %>
+      <div class="flex gap-2 mt-2">
+        <button class="btn btn-primary" type="submit">Criar fluxo</button>
+        <a class="btn btn-ghost" href="/admin/flows">Cancelar</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<%- include("../partials/footer", { active: "flows" }) %>
