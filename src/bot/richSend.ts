@@ -46,7 +46,7 @@ export function prepareRichText(
  */
 export async function registerCountdownIfNeeded(
   prepared: PreparedText,
-  params: { botId: string; chatId: number | bigint; messageId: number }
+  params: { botId: string; chatId: number | bigint; messageId: number; isCaption?: boolean }
 ): Promise<void> {
   if (!prepared.countdownDirective) return;
   try {
@@ -56,6 +56,7 @@ export async function registerCountdownIfNeeded(
       messageId: params.messageId,
       markerTemplate: prepared.text,
       directive: prepared.countdownDirective,
+      isCaption: params.isCaption,
     });
   } catch (err) {
     console.error("[richSend] falha ao registrar countdown ao vivo", err);

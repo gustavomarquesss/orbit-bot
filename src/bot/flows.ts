@@ -145,7 +145,7 @@ async function renderWelcome(
       }
       if (useCaption) {
         if (sent && ctx.chat) {
-          await registerCountdownIfNeeded(prepared, { botId: botRow.id, chatId: ctx.chat.id, messageId: sent.message_id });
+          await registerCountdownIfNeeded(prepared, { botId: botRow.id, chatId: ctx.chat.id, messageId: sent.message_id, isCaption: true });
         }
         return;
       }

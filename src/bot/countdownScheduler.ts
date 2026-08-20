@@ -1,6 +1,19 @@
+import type { Telegraf } from "telegraf";
+import type { ScheduledCountdownEdit } from "@prisma/client";
 import { prisma } from "../db/client.js";
 import { getTelegraf } from "./botManager.js";
 import { COUNTDOWN_MARKER, formatCountdownValue, type CountdownDirective } from "./templating.js";
+
+/** `editMessageText` falha (Bad Request) numa mensagem cujo conteúdo é uma
+ * legenda de mídia — precisa de `editMessageCaption` nesse caso, ver
+ * `ScheduledCountdownEdit.isCaption`. */
+async function editCountdownMessage(telegraf: Telegraf, row: ScheduledCountdownEdit, text: string): Promise<void> {
+  if (row.isCaption) {
+    await telegraf.telegram.editMessageCaption(Number(row.chatId), row.messageId, undefined, text, { parse_mode: "HTML" });
+  } else {
+    await telegraf.telegram.editMessageText(Number(row.chatId), row.messageId, undefined, text, { parse_mode: "HTML" });
+  }
+}
 
 /**
  * Chamado logo depois de enviar uma mensagem cujo template continha
@@ -15,6 +28,7 @@ export async function registerCountdown(params: {
   messageId: number;
   markerTemplate: string;
   directive: CountdownDirective;
+  isCaption?: boolean;
 }): Promise<void> {
   const now = Date.now();
   await prisma.scheduledCountdownEdit.create({
@@ -23,6 +37,7 @@ export async function registerCountdown(params: {
       chatId: BigInt(params.chatId),
       messageId: params.messageId,
       markerTemplate: params.markerTemplate,
+      isCaption: params.isCaption ?? false,
       totalSeconds: params.directive.totalSeconds,
       intervalSeconds: params.directive.intervalSeconds,
       deleteOnZero: params.directive.deleteOnZero,
@@ -60,14 +75,14 @@ export async function processCountdownTicks(): Promise<void> {
           await telegraf.telegram.deleteMessage(Number(row.chatId), row.messageId);
         } else {
           const finalText = row.markerTemplate.replace(COUNTDOWN_MARKER, formatCountdownValue(0));
-          await telegraf.telegram.editMessageText(Number(row.chatId), row.messageId, undefined, finalText, { parse_mode: "HTML" });
+          await editCountdownMessage(telegraf, row, finalText);
         }
         await prisma.scheduledCountdownEdit.update({ where: { id: row.id }, data: { finishedAt: new Date() } });
         continue;
       }
 
       const text = row.markerTemplate.replace(COUNTDOWN_MARKER, formatCountdownValue(remainingSeconds));
-      await telegraf.telegram.editMessageText(Number(row.chatId), row.messageId, undefined, text, { parse_mode: "HTML" });
+      await editCountdownMessage(telegraf, row, text);
       await prisma.scheduledCountdownEdit.update({
         where: { id: row.id },
         data: { nextTickAt: new Date(Date.now() + row.intervalSeconds * 1000) },

@@ -7,9 +7,10 @@ vi.mock("../db/client.js", () => ({
 }));
 
 const editMessageText = vi.fn();
+const editMessageCaption = vi.fn();
 const deleteMessage = vi.fn();
 vi.mock("./botManager.js", () => ({
-  getTelegraf: vi.fn(() => ({ telegram: { editMessageText, deleteMessage } })),
+  getTelegraf: vi.fn(() => ({ telegram: { editMessageText, editMessageCaption, deleteMessage } })),
 }));
 
 import { prisma } from "../db/client.js";
@@ -163,6 +164,31 @@ describe("processCountdownTicks", () => {
       where: { id: "cd-4" },
       data: { finishedAt: expect.any(Date) },
     });
+  });
+
+  it("quando isCaption é true, edita a legenda (editMessageCaption) em vez do texto", async () => {
+    const startedAt = new Date(Date.now() - 20_000);
+    vi.mocked(prisma.scheduledCountdownEdit.findMany).mockResolvedValue([
+      {
+        id: "cd-6",
+        botId: "bot1",
+        chatId: 123n,
+        messageId: 55,
+        markerTemplate: `Expira em ${COUNTDOWN_MARKER}`,
+        isCaption: true,
+        totalSeconds: 60,
+        intervalSeconds: 10,
+        deleteOnZero: false,
+        startedAt,
+        nextTickAt: new Date(),
+        finishedAt: null,
+      },
+    ] as never);
+
+    await processCountdownTicks();
+
+    expect(editMessageCaption).toHaveBeenCalledWith(123, 55, undefined, "Expira em 00:40", { parse_mode: "HTML" });
+    expect(editMessageText).not.toHaveBeenCalled();
   });
 
   it("erro ao editar (ex: mensagem apagada pelo usuário) marca finishedAt em vez de repetir pra sempre", async () => {

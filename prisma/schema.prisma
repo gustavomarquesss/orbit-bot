@@ -851,6 +851,11 @@ model ScheduledCountdownEdit {
   chatId          BigInt
   messageId       Int
   markerTemplate  String    @db.Text
+  /// true quando o texto é legenda de mídia (foto/vídeo com 1 item, sem
+  /// mensagem secundária) — precisa de editMessageCaption, não
+  /// editMessageText (Telegram rejeita editMessageText numa mensagem sem
+  /// texto próprio, só legenda).
+  isCaption       Boolean   @default(false)
   totalSeconds    Int
   intervalSeconds Int
   deleteOnZero    Boolean
