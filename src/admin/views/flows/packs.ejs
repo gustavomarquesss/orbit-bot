@@ -1,0 +1,207 @@
+<%
+  const isEdit = !!editingPack;
+  const pc = flow.packConfig || {};
+  function packDeliveryLabel(p) {
+    if (p.deliveryType === "LINK") return "Link";
+    if (p.deliveryType === "MESSAGE") return "Mensagem";
+    return "Arquivo";
+  }
+%>
+<%- include("../partials/header", { title: flow.name + " — Packs", active: "flows" }) %>
+<%- include("./partials/nav", { flow, section: "packs" }) %>
+
+<% if (error) { %><div class="alert alert-error text-sm mb-4"><%= error %></div><% } %>
+
+<div class="card bg-base-200 border border-base-300 shadow-sm mb-6">
+  <div class="card-body">
+    <h3 class="font-semibold mb-1">Packs</h3>
+    <p class="text-sm text-base-content/60 mb-4">Venda conteúdos avulsos além das assinaturas.</p>
+
+    <form method="POST" action="/admin/flows/<%= flow.id %>/packs/config" class="flex flex-col gap-4">
+      <label class="label cursor-pointer justify-start gap-3 px-0 w-fit">
+        <input type="checkbox" name="active" <%= pc.active ? "checked" : "" %> class="checkbox checkbox-primary checkbox-sm" />
+        <span class="label-text">Ativar Packs</span>
+      </label>
+
+      <label class="form-control max-w-md">
+        <div class="label"><span class="label-text">Texto do Botão</span></div>
+        <input type="text" name="buttonLabel" value="<%= pc.buttonLabel || "" %>" placeholder="📦 Packs Disponíveis" class="input input-bordered w-full" />
+      </label>
+
+      <label class="form-control">
+        <div class="label"><span class="label-text">Mensagem dos Packs</span></div>
+        <textarea name="headerMessage" rows="3" placeholder="Veja abaixo os packs que você pode adquirir..." class="textarea textarea-bordered w-full"><%= pc.headerMessage || "" %></textarea>
+        <div class="label"><span class="label-text-alt text-base-content/60">Mensagem exibida acima da lista de packs. Se vazio, usa a mensagem padrão.</span></div>
+      </label>
+
+      <div><button class="btn btn-primary" type="submit">Salvar</button></div>
+    </form>
+
+    <div class="alert bg-primary/10 border border-primary/30 text-base-content text-sm mt-4 py-2.5">
+      <div>
+        <div class="font-semibold mb-1">Como funciona?</div>
+        Packs são conteúdos avulsos que o cliente pode comprar além das assinaturas.
+        <ul class="list-disc list-inside mt-1">
+          <li>Até 20 packs por fluxo</li>
+          <li>Cada pack com seu canal/grupo de entrega</li>
+          <li>Pagamento via PIX</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card bg-base-200 border border-base-300 shadow-sm mb-6">
+  <div class="card-body">
+    <div class="flex items-center justify-between mb-2">
+      <h3 class="font-semibold">Lista de Packs</h3>
+      <span class="text-sm text-base-content/50"><%= flow.packs.length %>/20</span>
+    </div>
+
+    <div class="flex flex-col divide-y divide-base-300 border-y border-base-300 mb-4">
+      <% flow.packs.forEach(function(p) { %>
+        <div class="flex items-center justify-between py-3 gap-3">
+          <a href="/admin/flows/<%= flow.id %>/packs/<%= p.id %>/edit" class="flex items-center gap-3 flex-1 min-w-0 no-underline text-inherit group">
+            <div class="rounded-lg bg-base-300/60 p-2 shrink-0 text-base-content/70">
+              <%- icon("tag", "w-4 h-4") %>
+            </div>
+            <div class="min-w-0">
+              <div class="font-semibold text-sm truncate group-hover:text-primary transition-colors"><%= p.name %></div>
+              <div class="text-xs text-base-content/50 truncate">
+                <%= formatBRL(p.priceCents) %> • <%= packDeliveryLabel(p) %><% if (!p.active) { %> • inativo<% } %>
+              </div>
+            </div>
+          </a>
+          <div class="flex items-center gap-2 shrink-0">
+            <form method="POST" action="/admin/flows/<%= flow.id %>/packs/<%= p.id %>/delete" onsubmit="return confirm('Excluir este pack?');">
+              <button class="btn btn-xs btn-error btn-outline" type="submit">Excluir</button>
+            </form>
+            <span class="text-base-content/30 text-lg leading-none px-1">&rsaquo;</span>
+          </div>
+        </div>
+      <% }); %>
+      <% if (flow.packs.length === 0) { %><p class="text-base-content/50 py-4 text-sm">Nenhum pack configurado.</p><% } %>
+    </div>
+
+    <button type="button" class="btn btn-outline w-full <%= isEdit ? "hidden" : "" %>" id="showNewPackBtn" onclick="
+      document.getElementById('pack-form-card').classList.remove('hidden');
+      document.getElementById('showNewPackBtn').classList.add('hidden');
+      document.getElementById('pack-form-card').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    ">+ Adicionar Pack</button>
+  </div>
+</div>
+
+<div id="pack-form-card" class="card bg-base-200 border border-base-300 shadow-sm <%= isEdit ? "" : "hidden" %>">
+  <div class="card-body">
+    <h3 class="font-semibold mb-2"><%= isEdit ? "Editar pack" : "Novo pack" %></h3>
+    <% if (typeof fileError !== "undefined" && fileError) { %><div class="alert alert-error text-sm mb-3"><%= fileError %></div><% } %>
+    <form method="POST" action="<%= isEdit ? `/admin/flows/${flow.id}/packs/${editingPack.id}` : `/admin/flows/${flow.id}/packs` %>" class="flex flex-col gap-4">
+      <label class="form-control">
+        <div class="label"><span class="label-text">Nome do Pack</span></div>
+        <input type="text" name="name" required value="<%= editingPack ? editingPack.name : "" %>" placeholder="📦 Pack Especial" class="input input-bordered w-full" />
+        <div class="label"><span class="label-text-alt text-base-content/60">Pode incluir emoji direto no nome.</span></div>
+      </label>
+
+      <label class="form-control max-w-xs">
+        <div class="label"><span class="label-text">Preço (R$)</span></div>
+        <input type="text" name="price" required inputmode="decimal" placeholder="29,90"
+          value="<%= editingPack ? (editingPack.priceCents / 100).toFixed(2).replace('.', ',') : "" %>" class="input input-bordered w-full" />
+      </label>
+
+      <label class="form-control">
+        <div class="label"><span class="label-text">Descrição</span></div>
+        <textarea name="description" rows="3" placeholder="Descrição do pack que será exibida na prévia..." class="textarea textarea-bordered w-full"><%= editingPack && editingPack.description ? editingPack.description : "" %></textarea>
+      </label>
+
+      <label class="label cursor-pointer justify-start gap-3 px-0">
+        <input type="checkbox" name="active" <%= !editingPack || editingPack.active ? "checked" : "" %> class="checkbox checkbox-primary checkbox-sm" />
+        <span class="label-text">Pack ativo</span>
+      </label>
+
+      <label class="form-control max-w-xs">
+        <div class="label"><span class="label-text">Entrega do Pack</span></div>
+        <select id="packDeliveryType" name="deliveryType" class="select select-bordered w-full" onchange="
+          document.getElementById('pack-link-fields').style.display = this.value === 'LINK' ? 'block' : 'none';
+          document.getElementById('pack-message-fields').style.display = this.value === 'MESSAGE' ? 'block' : 'none';
+          document.getElementById('pack-file-fields').style.display = this.value === 'FILE' ? 'block' : 'none';
+        ">
+          <option value="FILE" <%= !editingPack || !editingPack.deliveryType || editingPack.deliveryType === "FILE" ? "selected" : "" %>>
+            <%= salesChannelName ? salesChannelName + " (canal)" : "Canal de vendas (configure em Configurações)" %>
+          </option>
+          <option value="LINK" <%= editingPack && editingPack.deliveryType === "LINK" ? "selected" : "" %>>Link Externo</option>
+          <option value="MESSAGE" <%= editingPack && editingPack.deliveryType === "MESSAGE" ? "selected" : "" %>>Apenas Mensagem</option>
+        </select>
+        <div class="label"><span class="label-text-alt text-base-content/60">
+          <a class="link" href="/admin/settings">Atualizar</a> — recarrega o nome do canal de vendas.
+        </span></div>
+      </label>
+
+      <% /* mediaUploadWidget tem <form> próprio — não pode ficar dentro
+         deste <form> (mesmo motivo documentado em plans.ejs). */ %>
+      <div id="pack-link-fields" style="display: <%= editingPack && editingPack.deliveryType === 'LINK' ? 'block' : 'none' %>;">
+        <label class="form-control">
+          <div class="label"><span class="label-text">Link a enviar após o pagamento</span></div>
+          <input type="text" name="externalLink" value="<%= editingPack && editingPack.externalLink ? editingPack.externalLink : "" %>" placeholder="https://..." class="input input-bordered w-full" />
+        </label>
+      </div>
+      <div id="pack-message-fields" style="display: <%= editingPack && editingPack.deliveryType === 'MESSAGE' ? 'block' : 'none' %>;">
+        <label class="form-control">
+          <div class="label"><span class="label-text">Mensagem a enviar após o pagamento</span></div>
+          <textarea name="messageContent" rows="3" class="textarea textarea-bordered w-full"><%= editingPack && editingPack.messageContent ? editingPack.messageContent : "" %></textarea>
+        </label>
+      </div>
+
+      <div class="flex gap-2">
+        <button class="btn btn-primary" type="submit">Salvar</button>
+        <% if (isEdit) { %>
+          <a class="btn btn-ghost" href="/admin/flows/<%= flow.id %>/packs">Cancelar</a>
+        <% } else { %>
+          <button type="button" class="btn btn-ghost" onclick="
+            document.getElementById('pack-form-card').classList.add('hidden');
+            document.getElementById('showNewPackBtn').classList.remove('hidden');
+          ">Cancelar</button>
+        <% } %>
+      </div>
+    </form>
+
+    <div id="pack-file-fields" class="mt-4 pt-4 border-t border-base-300" style="display: <%= !editingPack || !editingPack.deliveryType || editingPack.deliveryType === 'FILE' ? 'block' : 'none' %>;">
+      <div class="label px-0"><span class="label-text">Arquivo do Pack</span></div>
+      <% if (editingPack && editingPack.fileTelegramId) { %>
+        <p class="text-sm text-success mb-2">✓ Arquivo enviado (mensagem <%= editingPack.fileTelegramId %>).</p>
+      <% } else { %>
+        <p class="text-sm text-base-content/50 mb-2">Nenhum arquivo enviado ainda.</p>
+      <% } %>
+      <% if (isEdit && salesChannelId) { %>
+        <%- include("../partials/mediaUploadWidget", { id: "packFile", uploadUrl: `/admin/flows/${flow.id}/packs/${editingPack.id}/file/upload` }) %>
+      <% } else if (!salesChannelId) { %>
+        <p class="text-sm text-base-content/50">Configure o <a class="link" href="/admin/settings">Canal de vendas e mídias</a> antes de enviar o arquivo.</p>
+      <% } else { %>
+        <p class="text-sm text-base-content/50">Salve o pack primeiro — depois edite pra enviar o arquivo.</p>
+      <% } %>
+    </div>
+
+    <% if (isEdit) { %>
+      <div class="mt-4 pt-4 border-t border-base-300">
+        <div class="label px-0"><span class="label-text">Mídia de Preview (exibida antes da compra)</span></div>
+        <div class="flex flex-col divide-y divide-base-300 mb-2">
+          <% editingPack.previewMedia.forEach(function(m) { %>
+            <div class="flex items-center justify-between py-2 text-sm">
+              <span><%= m.mediaType %> — <code class="text-xs bg-base-300/60 px-1.5 py-0.5 rounded"><%= m.fileId.slice(0, 24) %>…</code></span>
+              <form method="POST" action="/admin/flows/<%= flow.id %>/packs/<%= editingPack.id %>/media/<%= m.id %>/delete" onsubmit="return confirm('Remover esta mídia?');">
+                <button class="btn btn-xs btn-error btn-outline" type="submit">Remover</button>
+              </form>
+            </div>
+          <% }); %>
+          <% if (editingPack.previewMedia.length === 0) { %><p class="text-base-content/50 py-2 text-sm">Nenhuma mídia ainda.</p><% } %>
+        </div>
+        <% if (editingPack.previewMedia.length < 3) { %>
+          <%- include("../partials/mediaUploadWidget", { id: "packPreview", uploadUrl: `/admin/flows/${flow.id}/packs/${editingPack.id}/media/upload` }) %>
+        <% } %>
+      </div>
+    <% } %>
+  </div>
+</div>
+
+  </div>
+</div>
+<%- include("../partials/footer", { active: "flows" }) %>

@@ -93,12 +93,14 @@
           document.getElementById('file-fields').style.display = this.value === 'FILE' ? 'block' : 'none';
           document.getElementById('link-fields').style.display = this.value === 'LINK' ? 'block' : 'none';
           document.getElementById('channel-fields').style.display = this.value === 'CHANNEL' ? 'block' : 'none';
+          document.getElementById('message-fields').style.display = this.value === 'MESSAGE' ? 'block' : 'none';
           document.getElementById('custom-target-field').style.display = this.value === '' ? 'none' : 'block';
         ">
           <option value="" <%= !editingPlan || !editingPlan.deliveryType ? "selected" : "" %>>Usar padrão do fluxo</option>
           <option value="LINK" <%= editingPlan && editingPlan.deliveryType === "LINK" ? "selected" : "" %>>Link externo</option>
           <option value="FILE" <%= editingPlan && editingPlan.deliveryType === "FILE" ? "selected" : "" %>>Arquivo</option>
           <option value="CHANNEL" <%= editingPlan && editingPlan.deliveryType === "CHANNEL" ? "selected" : "" %>>Canal/grupo VIP (assinatura)</option>
+          <option value="MESSAGE" <%= editingPlan && editingPlan.deliveryType === "MESSAGE" ? "selected" : "" %>>Apenas Mensagem</option>
         </select>
       </label>
 
@@ -123,6 +125,12 @@
           <div class="label"><span class="label-text">ID do canal/grupo VIP</span></div>
           <input type="text" name="subscriptionChannelId" value="<%= editingPlan && editingPlan.subscriptionChannelId ? editingPlan.subscriptionChannelId : "" %>" placeholder="-1001234567890" class="input input-bordered w-full" />
           <div class="label"><span class="label-text-alt text-base-content/60">O bot precisa ser admin desse canal/grupo com permissão de convidar e remover membros. Cada compra gera um convite de uso único; se o plano tiver duração, o assinante é removido automaticamente quando expirar (sem renovar).</span></div>
+        </label>
+      </div>
+      <div id="message-fields" style="display: <%= editingPlan && editingPlan.deliveryType === 'MESSAGE' ? 'block' : 'none' %>;">
+        <label class="form-control">
+          <div class="label"><span class="label-text">Mensagem a enviar após o pagamento</span></div>
+          <textarea name="messageContent" rows="3" class="textarea textarea-bordered w-full"><%= editingPlan && editingPlan.messageContent ? editingPlan.messageContent : "" %></textarea>
         </label>
       </div>
 

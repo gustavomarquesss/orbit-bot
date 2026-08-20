@@ -14,6 +14,8 @@ export interface DeliveryPlanLike {
   fileTelegramId: string | null;
   externalLink: string | null;
   subscriptionChannelId: string | null;
+  /// DeliveryType.MESSAGE — corpo mandado literal (Fase 2, Milestone 8).
+  messageContent: string | null;
   protectContent: boolean;
 }
 
@@ -30,7 +32,7 @@ export interface ResolvedDelivery {
  * o funil também não tiver Entrega Padrão configurada (nada a entregar).
  */
 export function resolveEffectiveDelivery(
-  plan: Pick<Plan, "id" | "deliveryType" | "fileTelegramId" | "externalLink" | "subscriptionChannelId" | "customDeliveryTarget" | "protectContent">,
+  plan: Pick<Plan, "id" | "deliveryType" | "fileTelegramId" | "externalLink" | "subscriptionChannelId" | "messageContent" | "customDeliveryTarget" | "protectContent">,
   flowDelivery: FlowDelivery | null
 ): ResolvedDelivery | null {
   if (plan.deliveryType) {
@@ -41,6 +43,7 @@ export function resolveEffectiveDelivery(
         fileTelegramId: plan.fileTelegramId,
         externalLink: plan.externalLink,
         subscriptionChannelId: plan.subscriptionChannelId,
+        messageContent: plan.messageContent,
         protectContent: plan.protectContent,
       },
       deliveryTarget: plan.customDeliveryTarget ?? flowDelivery?.deliveryTarget ?? null,
@@ -54,6 +57,7 @@ export function resolveEffectiveDelivery(
       fileTelegramId: flowDelivery.fileTelegramId,
       externalLink: flowDelivery.externalLink,
       subscriptionChannelId: flowDelivery.subscriptionChannelId,
+      messageContent: null,
       protectContent: plan.protectContent,
     },
     deliveryTarget: flowDelivery.deliveryTarget,
@@ -88,6 +92,14 @@ export async function deliverPlanToLead(params: {
       throw new Error(`Plano ${plan.id} é do tipo LINK mas não tem externalLink configurado`);
     }
     await telegraf.telegram.sendMessage(chatId, `Aqui está seu acesso:\n${plan.externalLink}`);
+    return;
+  }
+
+  if (plan.deliveryType === "MESSAGE") {
+    if (!plan.messageContent) {
+      throw new Error(`Plano ${plan.id} é do tipo MESSAGE mas não tem messageContent configurado`);
+    }
+    await telegraf.telegram.sendMessage(chatId, plan.messageContent);
     return;
   }
 

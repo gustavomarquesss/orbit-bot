@@ -176,6 +176,7 @@ model Flow {
   upsellSequence  UpsellSequence?
   downsellConfig  DownsellConfig?
   delivery        FlowDelivery?
+  packConfig      PackConfig?
 }
 
 /// "Bots Vinculados" de um Flow — quais bots executam este funil.
@@ -284,6 +285,19 @@ enum DeliveryType {
   /// — usado por planos de assinatura (Fase 2, Milestone 5). O bot precisa
   /// ser admin desse canal com permissão de convidar/remover membros.
   CHANNEL
+  /// "Apenas Mensagem" (Fase 2, Milestone 8) — manda só `Plan.messageContent`
+  /// via texto, sem arquivo/link/canal. Vale tanto pra Plan quanto pra Pack.
+  MESSAGE
+}
+
+enum ProductType {
+  /// Plano normal — aparece na aba Planos, no CTA/lista embutida do /start.
+  PLAN
+  /// Conteúdo avulso (Fase 2, Milestone 8) — mesma linha de `Plan` por baixo
+  /// (reaproveita todo o pipeline de cobrança/entrega já validado), mas
+  /// aparece só na aba Packs e no botão de Packs do bot, nunca na lista de
+  /// Planos nem nos seletores de Order Bump/Upsell/Downsell.
+  PACK
 }
 
 /// O que é vendido. `durationDays` nulo = pagamento único/vitalício;
@@ -297,6 +311,14 @@ model Plan {
   priceCents            Int
   durationDays          Int?
   buttonColor           PlanButtonColor @default(PADRAO)
+  /// PLAN (padrão) aparece na aba Planos; PACK aparece só na aba Packs e no
+  /// botão de Packs do bot (Fase 2, Milestone 8) — mesma linha por baixo,
+  /// reaproveita todo o pipeline de Order/entrega já validado com dinheiro
+  /// real, só filtrado/apresentado diferente no admin e no bot.
+  productType           ProductType     @default(PLAN)
+  /// Só usado por Pack — texto mostrado na prévia antes da compra
+  /// (bot.action(/^packDetail:.+/) em src/bot/flows.ts).
+  description           String?
   /// Nulo = "usar padrão do fluxo" (herda tipo/arquivo/link inteiros de
   /// `Flow.delivery` na hora da entrega — ver src/payments/orderStatus.ts).
   /// Preenchido = este plano tem entrega própria, ignora o padrão do fluxo.
@@ -309,6 +331,9 @@ model Plan {
   /// único na compra, e do qual remover o assinante quando expirar (ver
   /// src/payments/subscriptionScheduler.ts).
   subscriptionChannelId String?
+  /// DeliveryType.MESSAGE — corpo da mensagem mandada literal, sem arquivo/
+  /// link/canal (Fase 2, Milestone 8).
+  messageContent        String?
   /// Override do Flow.delivery.deliveryTarget só pra este plano (só faz
   /// sentido quando deliveryType não é nulo).
   customDeliveryTarget  String?
@@ -324,6 +349,34 @@ model Plan {
   upsellMessagePlans    UpsellMessagePlan[]
   upsellMessageButtons  UpsellMessageButton[]
   downsellSequencePlans DownsellSequencePlan[]
+  previewMedia          PackPreviewMedia[]
+}
+
+/// Até 3 mídias de prévia de um Pack, em ordem (mesmo padrão de WelcomeMedia)
+/// — mostradas antes da compra (Fase 2, Milestone 8).
+model PackPreviewMedia {
+  id        String    @id @default(cuid())
+  planId    String
+  plan      Plan      @relation(fields: [planId], references: [id], onDelete: Cascade)
+  order     Int
+  mediaType MediaType
+  fileId    String
+
+  @@unique([planId, order])
+}
+
+/// Config da aba "Packs" de um Flow (Fase 2, Milestone 8) — os Packs em si
+/// são `Plan` com `productType = PACK`, isso aqui é só liga/desliga +
+/// textos do botão/cabeçalho da lista.
+model PackConfig {
+  id            String  @id @default(cuid())
+  flowId        String  @unique
+  flow          Flow    @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  active        Boolean @default(false)
+  buttonLabel   String?
+  /// Mostrada acima da lista de packs quando o botão é clicado — vazio usa
+  /// um texto padrão genérico.
+  headerMessage String?
 }
 
 enum OfferKind {

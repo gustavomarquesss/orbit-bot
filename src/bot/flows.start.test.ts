@@ -50,7 +50,7 @@ function makeCtx() {
 }
 
 const lead = { id: "lead-1", firstName: "Ana", telegramId: 123n };
-const plans = [{ id: "plan-1", name: "Mensal", priceCents: 2990 }];
+const plans = [{ id: "plan-1", name: "Mensal", priceCents: 2990, productType: "PLAN" }];
 
 describe("/start — CTA desligado cai direto nos planos", () => {
   beforeEach(() => {

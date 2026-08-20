@@ -1,6 +1,6 @@
 import { Markup, type Telegraf, type Context } from "telegraf";
 import type { InlineKeyboardButton } from "telegraf/types";
-import type { Lead, Offer, Plan, WelcomeConfig, WelcomeMedia, RedirectButton, Bot } from "@prisma/client";
+import type { Lead, Offer, Plan, WelcomeConfig, WelcomeMedia, RedirectButton, Bot, PackConfig } from "@prisma/client";
 import { prisma } from "../db/client.js";
 import { createOrderAndCharge, type OrderItemInput } from "../payments/orders.js";
 import { resolveOriginAndUpsertLead, touchLead } from "./deepLink.js";
@@ -16,6 +16,9 @@ const CTA_CALLBACK = "cta";
 export const PLAN_CALLBACK_PREFIX = "plan:";
 export const BUMP_ACCEPT_PREFIX = "bmpA:";
 export const BUMP_DECLINE_PREFIX = "bmpD:";
+/** Fase 2, Milestone 8 — Packs. */
+const PACKS_CALLBACK = "packs";
+const PACK_DETAIL_PREFIX = "packDetail:";
 
 async function getFlowForBot(botId: string) {
   const flowBot = await prisma.flowBot.findFirst({
@@ -24,15 +27,31 @@ async function getFlowForBot(botId: string) {
       flow: {
         include: {
           welcomeConfig: { include: { media: true, redirectButtons: true } },
-          plans: { where: { active: true }, orderBy: { order: "asc" } },
+          // `Flow.plans` é a única relação Flow -> Plan no schema, cobre
+          // tanto Plan (productType PLAN) quanto Pack (productType PACK) —
+          // separados abaixo em vez de dois includes na mesma relação
+          // (Fase 2, Milestone 8).
+          plans: { where: { active: true }, orderBy: { order: "asc" }, include: { previewMedia: { orderBy: { order: "asc" } } } },
+          packConfig: true,
         },
       },
     },
   });
-  return flowBot?.flow ?? null;
+  if (!flowBot) return null;
+  const { plans: allProducts, ...flow } = flowBot.flow;
+  return {
+    ...flow,
+    plans: allProducts.filter((p) => p.productType === "PLAN"),
+    packs: allProducts.filter((p) => p.productType === "PACK"),
+  };
 }
 
-function buildWelcomeKeyboard(welcome: WelcomeWithRelations, plans: Plan[]) {
+function buildWelcomeKeyboard(
+  welcome: WelcomeWithRelations,
+  plans: Plan[],
+  packConfig: PackConfig | null,
+  packs: Plan[]
+) {
   const rows: InlineKeyboardButton[][] = [];
   const hasPlans = plans.length > 0;
 
@@ -44,6 +63,13 @@ function buildWelcomeKeyboard(welcome: WelcomeWithRelations, plans: Plan[]) {
     // "Escolha um plano:" pra repetir os mesmos botões (pedido do usuário,
     // 2026-08-20).
     rows.push(...buildPlansKeyboard(plans).reply_markup.inline_keyboard);
+  }
+  // Botão de Packs (Fase 2, Milestone 8) — sempre visível quando ativo e
+  // com pack cadastrado, independente do CTA estar ligado ou desligado
+  // (diferente do botão de Prévias, condicional ao CTA desligado): Pack é
+  // uma linha de produto à parte, não um substituto da lista de planos.
+  if (packConfig?.active && packs.length > 0) {
+    rows.push([Markup.button.callback(packConfig.buttonLabel || "📦 Packs Disponíveis", PACKS_CALLBACK)]);
   }
   for (const rb of welcome.redirectButtons) {
     rows.push([styledUrlButton(rb.label, rb.url)]);
@@ -60,10 +86,12 @@ async function renderWelcome(
   botRow: Bot,
   lead: Lead,
   welcome: WelcomeWithRelations,
-  plans: Plan[]
+  plans: Plan[],
+  packConfig: PackConfig | null,
+  packs: Plan[]
 ): Promise<void> {
   const prepared = prepareRichText(welcome.text, { lead, bot: botRow });
-  const keyboard = buildWelcomeKeyboard(welcome, plans);
+  const keyboard = buildWelcomeKeyboard(welcome, plans, packConfig, packs);
   const replyMarkup = keyboard?.reply_markup;
   const media = welcome.media.slice(0, 3);
   // Legenda na própria mídia só quando faz sentido (1 mídia só, sem pedir
@@ -348,7 +376,7 @@ export function registerFlowHandlers(bot: Telegraf, botId: string): void {
     // Sem CTA, os botões de plano já saem direto na própria mensagem de
     // boas-vindas (ver buildWelcomeKeyboard) — não precisa de um passo à
     // parte pro lead ver os planos.
-    await renderWelcome(ctx, botRow, result.lead, flow.welcomeConfig, flow.plans);
+    await renderWelcome(ctx, botRow, result.lead, flow.welcomeConfig, flow.plans, flow.packConfig, flow.packs);
   });
 
   bot.action(CTA_CALLBACK, async (ctx) => {
@@ -362,6 +390,72 @@ export function registerFlowHandlers(bot: Telegraf, botId: string): void {
       return;
     }
     await ctx.reply("Escolha um plano:", { reply_markup: buildPlansKeyboard(flow.plans).reply_markup });
+  });
+
+  // --- Packs (conteúdo avulso, Fase 2 Milestone 8) ---
+
+  bot.action(PACKS_CALLBACK, async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+    const lead = await touchLead(ctx, botId);
+    if (!lead) return;
+
+    const flow = await getFlowForBot(botId);
+    if (!flow || flow.packs.length === 0) {
+      await ctx.reply("Nenhum pack disponível no momento.");
+      return;
+    }
+    const headerText = flow.packConfig?.headerMessage || "Veja abaixo os packs que você pode adquirir:";
+    const keyboard = Markup.inlineKeyboard(
+      flow.packs.map((p) => [Markup.button.callback(`${p.name} — ${formatBRL(p.priceCents)}`, `${PACK_DETAIL_PREFIX}${p.id}`)])
+    );
+    await ctx.reply(headerText, { reply_markup: keyboard.reply_markup });
+  });
+
+  bot.action(new RegExp(`^${PACK_DETAIL_PREFIX}.+`), async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+    const data = getCallbackData(ctx);
+    const packId = data?.startsWith(PACK_DETAIL_PREFIX) ? data.slice(PACK_DETAIL_PREFIX.length) : null;
+    if (!packId) return;
+
+    const pack = await prisma.plan.findUnique({
+      where: { id: packId },
+      include: { previewMedia: { orderBy: { order: "asc" } } },
+    });
+    if (!pack || pack.productType !== "PACK") return;
+
+    const buyKeyboard = Markup.inlineKeyboard([
+      [Markup.button.callback(`🛒 Comprar — ${formatBRL(pack.priceCents)}`, `${PLAN_CALLBACK_PREFIX}${pack.id}`)],
+    ]);
+
+    const media = pack.previewMedia.slice(0, 3);
+    try {
+      if (media.length === 1) {
+        const m = media[0];
+        const opts = { caption: pack.description || undefined, reply_markup: buyKeyboard.reply_markup };
+        switch (m.mediaType) {
+          case "PHOTO":
+            await ctx.replyWithPhoto(m.fileId, opts);
+            return;
+          case "VIDEO":
+            await ctx.replyWithVideo(m.fileId, opts);
+            return;
+          case "AUDIO":
+            await ctx.replyWithAudio(m.fileId, opts);
+            return;
+          case "DOCUMENT":
+            await ctx.replyWithDocument(m.fileId, opts);
+            return;
+        }
+      } else if (media.length > 1) {
+        await ctx.replyWithMediaGroup(
+          media.map((m) => ({ type: m.mediaType.toLowerCase() as "photo" | "video", media: m.fileId }))
+        );
+      }
+    } catch (err) {
+      console.error(`[flows] falha ao enviar mídia de preview do pack ${packId}, seguindo com o texto`, err);
+    }
+
+    await ctx.reply(pack.description || pack.name, { reply_markup: buyKeyboard.reply_markup });
   });
 
   bot.action(new RegExp(`^${PLAN_CALLBACK_PREFIX}.+`), async (ctx) => {

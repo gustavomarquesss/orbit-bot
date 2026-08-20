@@ -14,7 +14,7 @@ vi.mock("./botManager.js", () => ({
 }));
 
 import { prisma } from "../db/client.js";
-import { notifyAdminOfSale, resolveEffectiveDelivery } from "./delivery.js";
+import { notifyAdminOfSale, resolveEffectiveDelivery, deliverPlanToLead } from "./delivery.js";
 
 const botRow = { id: "bot1", telegramUsername: "meu_bot" };
 const lead = {
@@ -127,7 +127,7 @@ describe("notifyAdminOfSale", () => {
   });
 });
 
-const basePlanFields = { id: "plan-1", protectContent: true };
+const basePlanFields = { id: "plan-1", protectContent: true, messageContent: null };
 
 describe("resolveEffectiveDelivery", () => {
   it("plano com deliveryType próprio usa os campos dele, ignorando o padrão do fluxo", () => {
@@ -135,7 +135,7 @@ describe("resolveEffectiveDelivery", () => {
     const flowDelivery = { id: "fd-1", flowId: "flow-1", deliveryType: "FILE" as const, deliveryTarget: "-100999", fileTelegramId: "50", externalLink: null, subscriptionChannelId: null };
 
     expect(resolveEffectiveDelivery(plan, flowDelivery)).toEqual({
-      plan: { id: "plan-1", deliveryType: "LINK", fileTelegramId: null, externalLink: "https://x.com", subscriptionChannelId: null, protectContent: true },
+      plan: { id: "plan-1", deliveryType: "LINK", fileTelegramId: null, externalLink: "https://x.com", subscriptionChannelId: null, messageContent: null, protectContent: true },
       deliveryTarget: "-100999", // herda do fluxo já que o plano não tem customDeliveryTarget
     });
   });
@@ -152,7 +152,7 @@ describe("resolveEffectiveDelivery", () => {
     const flowDelivery = { id: "fd-1", flowId: "flow-1", deliveryType: "FILE" as const, deliveryTarget: "-100999", fileTelegramId: "50", externalLink: null, subscriptionChannelId: null };
 
     expect(resolveEffectiveDelivery(plan, flowDelivery)).toEqual({
-      plan: { id: "plan-1", deliveryType: "FILE", fileTelegramId: "50", externalLink: null, subscriptionChannelId: null, protectContent: true },
+      plan: { id: "plan-1", deliveryType: "FILE", fileTelegramId: "50", externalLink: null, subscriptionChannelId: null, messageContent: null, protectContent: true },
       deliveryTarget: "-100999",
     });
   });
@@ -167,7 +167,27 @@ describe("resolveEffectiveDelivery", () => {
     const flowDelivery = { id: "fd-1", flowId: "flow-1", deliveryType: "CHANNEL" as const, deliveryTarget: null, fileTelegramId: null, externalLink: null, subscriptionChannelId: "-100888" };
 
     expect(resolveEffectiveDelivery(plan, flowDelivery)).toEqual({
-      plan: { id: "plan-1", deliveryType: "CHANNEL", fileTelegramId: null, externalLink: null, subscriptionChannelId: "-100888", protectContent: true },
+      plan: { id: "plan-1", deliveryType: "CHANNEL", fileTelegramId: null, externalLink: null, subscriptionChannelId: "-100888", messageContent: null, protectContent: true },
+      deliveryTarget: null,
+    });
+  });
+
+  it("plano do tipo MESSAGE entrega mandando o texto configurado", async () => {
+    sendMessage.mockClear();
+    await deliverPlanToLead({
+      botId: "bot1",
+      leadTelegramId: 123n,
+      plan: { id: "pack-1", deliveryType: "MESSAGE", fileTelegramId: null, externalLink: null, subscriptionChannelId: null, messageContent: "Seu acesso já foi liberado!", protectContent: true },
+      deliveryTarget: "",
+    });
+    expect(sendMessage).toHaveBeenCalledWith(123, "Seu acesso já foi liberado!");
+  });
+
+  it("plano do tipo MESSAGE preserva o messageContent", () => {
+    const plan = { ...basePlanFields, deliveryType: "MESSAGE" as const, fileTelegramId: null, externalLink: null, subscriptionChannelId: null, messageContent: "Seu acesso já foi liberado!", customDeliveryTarget: null };
+
+    expect(resolveEffectiveDelivery(plan, null)).toEqual({
+      plan: { id: "plan-1", deliveryType: "MESSAGE", fileTelegramId: null, externalLink: null, subscriptionChannelId: null, messageContent: "Seu acesso já foi liberado!", protectContent: true },
       deliveryTarget: null,
     });
   });

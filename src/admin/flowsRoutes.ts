@@ -3,6 +3,7 @@ import multer from "multer";
 import { prisma } from "../db/client.js";
 import { nextOrder } from "../bot/util.js";
 import { uploadMediaToLibrary, uploadDeliverableFile } from "../bot/mediaUpload.js";
+import { getTelegraf } from "../bot/botManager.js";
 import { withSuccess } from "./toastUtil.js";
 
 // 50MB é o limite real de upload da Bot API do Telegram (sendPhoto/sendVideo/
@@ -55,17 +56,33 @@ export function createFlowsRouter(): Router {
     res.redirect(`/admin/flows/${req.params.id}/bots`);
   });
 
+  // `Plan.flow` é a única relação de Flow -> Plan no schema — não dá pra
+  // pedir `plans` (Plano) e `packs` (Pack, productType diferente) como dois
+  // includes distintos na mesma query, mesmo filtrando por productType em
+  // cada um; por isso Packs é buscado à parte e anexado ao objeto do flow.
   async function loadFlow(flowId: string) {
-    return prisma.flow.findUnique({
-      where: { id: flowId },
-      include: {
-        bots: { include: { bot: true } },
-        welcomeConfig: { include: { media: { orderBy: { order: "asc" } }, redirectButtons: { orderBy: { order: "asc" } } } },
-        paymentMessages: true,
-        plans: { orderBy: { order: "asc" } },
-        delivery: true,
-      },
-    });
+    const [flow, packs] = await Promise.all([
+      prisma.flow.findUnique({
+        where: { id: flowId },
+        include: {
+          bots: { include: { bot: true } },
+          welcomeConfig: { include: { media: { orderBy: { order: "asc" } }, redirectButtons: { orderBy: { order: "asc" } } } },
+          paymentMessages: true,
+          // Só Plan de verdade — Pack (productType PACK) não pode vazar pros
+          // seletores de Order Bump/Upsell/Downsell nem pra lista de Planos.
+          plans: { where: { productType: "PLAN" }, orderBy: { order: "asc" } },
+          delivery: true,
+          packConfig: true,
+        },
+      }),
+      prisma.plan.findMany({
+        where: { flowId, productType: "PACK" },
+        orderBy: { order: "asc" },
+        include: { previewMedia: { orderBy: { order: "asc" } } },
+      }),
+    ]);
+    if (!flow) return null;
+    return { ...flow, packs };
   }
 
   /** Mídia já enviada via upload (ver src/bot/mediaUpload.ts) pelos bots vinculados
@@ -253,9 +270,27 @@ export function createFlowsRouter(): Router {
   }
 
   /** "" (ou ausente) = usar padrão do fluxo (Plan.deliveryType nulo) — ver
-   * FlowDelivery/resolveEffectiveDelivery em src/bot/delivery.ts. */
-  function parseDeliveryType(raw: unknown): "FILE" | "LINK" | "CHANNEL" | null {
-    return raw === "FILE" || raw === "LINK" || raw === "CHANNEL" ? raw : null;
+   * FlowDelivery/resolveEffectiveDelivery em src/bot/delivery.ts. MESSAGE
+   * (Fase 2, Milestone 8) vale tanto pra Plan quanto pra Pack. */
+  function parseDeliveryType(raw: unknown): "FILE" | "LINK" | "CHANNEL" | "MESSAGE" | null {
+    return raw === "FILE" || raw === "LINK" || raw === "CHANNEL" || raw === "MESSAGE" ? raw : null;
+  }
+
+  /** Campos de entrega compartilhados por Plan e Pack (mesma tabela por
+   * baixo) — cada um só preenchido quando faz sentido pro deliveryType
+   * escolhido, os outros ficam null (evita lixo de um tipo anterior). */
+  function buildDeliveryFields(deliveryType: ReturnType<typeof parseDeliveryType>, body: Record<string, unknown>) {
+    const externalLink = String(body.externalLink ?? "").trim() || null;
+    const subscriptionChannelId = String(body.subscriptionChannelId ?? "").trim() || null;
+    const messageContent = String(body.messageContent ?? "").trim() || null;
+    const customDeliveryTarget = String(body.customDeliveryTarget ?? "").trim() || null;
+    return {
+      deliveryType,
+      externalLink: deliveryType === "LINK" ? externalLink : null,
+      subscriptionChannelId: deliveryType === "CHANNEL" ? subscriptionChannelId : null,
+      messageContent: deliveryType === "MESSAGE" ? messageContent : null,
+      customDeliveryTarget: deliveryType ? customDeliveryTarget : null,
+    };
   }
 
   router.post("/:id/plans", async (req, res) => {
@@ -265,9 +300,6 @@ export function createFlowsRouter(): Router {
     const durationDays = String(req.body.durationDays ?? "").trim();
     const buttonColor = String(req.body.buttonColor ?? "PADRAO");
     const deliveryType = parseDeliveryType(req.body.deliveryType);
-    const externalLink = String(req.body.externalLink ?? "").trim() || null;
-    const subscriptionChannelId = String(req.body.subscriptionChannelId ?? "").trim() || null;
-    const customDeliveryTarget = String(req.body.customDeliveryTarget ?? "").trim() || null;
     const protectContent = req.body.protectContent === "on";
     const active = req.body.active === "on";
 
@@ -292,10 +324,7 @@ export function createFlowsRouter(): Router {
         priceCents,
         durationDays: durationDays ? Number(durationDays) : null,
         buttonColor: buttonColor as never,
-        deliveryType: deliveryType ?? undefined,
-        externalLink: deliveryType === "LINK" ? externalLink : null,
-        subscriptionChannelId: deliveryType === "CHANNEL" ? subscriptionChannelId : null,
-        customDeliveryTarget: deliveryType ? customDeliveryTarget : null,
+        ...buildDeliveryFields(deliveryType, req.body),
         protectContent,
         active,
         order: nextOrder(last?.order),
@@ -312,9 +341,6 @@ export function createFlowsRouter(): Router {
     const durationDays = String(req.body.durationDays ?? "").trim();
     const buttonColor = String(req.body.buttonColor ?? "PADRAO");
     const deliveryType = parseDeliveryType(req.body.deliveryType);
-    const externalLink = String(req.body.externalLink ?? "").trim() || null;
-    const subscriptionChannelId = String(req.body.subscriptionChannelId ?? "").trim() || null;
-    const customDeliveryTarget = String(req.body.customDeliveryTarget ?? "").trim() || null;
     const protectContent = req.body.protectContent === "on";
     const active = req.body.active === "on";
 
@@ -334,10 +360,7 @@ export function createFlowsRouter(): Router {
         priceCents,
         durationDays: durationDays ? Number(durationDays) : null,
         buttonColor: buttonColor as never,
-        deliveryType,
-        externalLink: deliveryType === "LINK" ? externalLink : null,
-        subscriptionChannelId: deliveryType === "CHANNEL" ? subscriptionChannelId : null,
-        customDeliveryTarget: deliveryType ? customDeliveryTarget : null,
+        ...buildDeliveryFields(deliveryType, req.body),
         protectContent,
         active,
       },
@@ -392,6 +415,255 @@ export function createFlowsRouter(): Router {
   router.post("/:id/plans/:planId/delete", async (req, res) => {
     await prisma.plan.delete({ where: { id: req.params.planId } });
     res.redirect(withSuccess(`/admin/flows/${req.params.id}/plans`, "Plano excluído com sucesso!"));
+  });
+
+  // --- Packs (conteúdo avulso, Fase 2 Milestone 8) ---
+  // Um Pack é um Plan com productType=PACK — reaproveita todo o pipeline de
+  // Order/pagamento/entrega já validado, só filtrado/apresentado diferente
+  // aqui e no bot (src/bot/flows.ts). Mesmo padrão visual de /plans (lista
+  // colapsada + "Adicionar" escondido até clicar).
+
+  const PACK_MEDIA_LIMIT = 3;
+
+  /** Busca o id + nome de verdade (via getChat, ao vivo — sem cache) do
+   * canal já configurado em Settings.salesChannelId, pra oferecer como
+   * opção pronta na "Entrega do Pack" em vez de exigir colar o ID à mão.
+   * "Atualizar" no formulário é só um reload da página (GET de novo). */
+  async function loadSalesChannel(flow: { bots: { botId: string }[] }) {
+    const settings = await prisma.settings.findUnique({ where: { id: "singleton" } });
+    if (!settings?.salesChannelId) return { salesChannelId: null, salesChannelName: null };
+    const botId = flow.bots[0]?.botId;
+    const telegraf = botId ? getTelegraf(botId) : null;
+    if (!telegraf) return { salesChannelId: settings.salesChannelId, salesChannelName: null };
+    try {
+      const chat = await telegraf.telegram.getChat(settings.salesChannelId);
+      return { salesChannelId: settings.salesChannelId, salesChannelName: "title" in chat ? chat.title : null };
+    } catch (err) {
+      console.error("[flows] falha ao buscar nome do canal de vendas", err);
+      return { salesChannelId: settings.salesChannelId, salesChannelName: null };
+    }
+  }
+
+  router.get("/:id/packs", async (req, res) => {
+    const flow = await loadFlow(req.params.id);
+    if (!flow) return res.status(404).send("Fluxo não encontrado.");
+    const { salesChannelId, salesChannelName } = await loadSalesChannel(flow);
+    const fileError = typeof req.query.fileError === "string" ? req.query.fileError : null;
+    res.render("flows/packs", { flow, editingPack: null, error: null, fileError, salesChannelId, salesChannelName });
+  });
+
+  router.get("/:id/packs/:packId/edit", async (req, res) => {
+    const flow = await loadFlow(req.params.id);
+    if (!flow) return res.status(404).send("Fluxo não encontrado.");
+    const editingPack = flow.packs.find((p) => p.id === req.params.packId) ?? null;
+    const { salesChannelId, salesChannelName } = await loadSalesChannel(flow);
+    const fileError = typeof req.query.fileError === "string" ? req.query.fileError : null;
+    res.render("flows/packs", { flow, editingPack, error: null, fileError, salesChannelId, salesChannelName });
+  });
+
+  router.post("/:id/packs/config", async (req, res) => {
+    const flowId = req.params.id;
+    const active = req.body.active === "on";
+    const buttonLabel = String(req.body.buttonLabel ?? "").trim() || null;
+    const headerMessage = String(req.body.headerMessage ?? "").trim() || null;
+
+    await prisma.packConfig.upsert({
+      where: { flowId },
+      update: { active, buttonLabel, headerMessage },
+      create: { flowId, active, buttonLabel, headerMessage },
+    });
+
+    res.redirect(withSuccess(`/admin/flows/${flowId}/packs`, "Packs salvo com sucesso!"));
+  });
+
+  router.post("/:id/packs", async (req, res) => {
+    const flowId = req.params.id;
+    // Sem campo de emoji separado — mesma convenção já usada nos Planos
+    // normais desta conta, onde o emoji já vem digitado dentro do próprio
+    // nome (ex: "VÍDEOS COM FILHO 🔞😈" nos dados reais desta sessão).
+    const name = String(req.body.name ?? "").trim();
+    const priceCents = parsePriceToCents(String(req.body.price ?? ""));
+    const description = String(req.body.description ?? "").trim() || null;
+    const deliveryType = parseDeliveryType(req.body.deliveryType);
+    const active = req.body.active === "on";
+
+    if (!name || priceCents === null) {
+      const flow = await loadFlow(flowId);
+      return res.status(400).render("flows/packs", {
+        flow,
+        editingPack: null,
+        error: "Nome e preço (maior que zero) são obrigatórios.",
+        fileError: null,
+        salesChannelId: null,
+        salesChannelName: null,
+      });
+    }
+
+    const last = await prisma.plan.findFirst({
+      where: { flowId, productType: "PACK" },
+      orderBy: { order: "desc" },
+      select: { order: true },
+    });
+
+    // Pack não tem campo de canal manual — "Arquivo" sempre usa o canal já
+    // configurado em Settings.salesChannelId (a opção "VENDAS APROVADAS" do
+    // seletor), pra não pedir pro admin colar o ID de novo.
+    const deliveryFields = buildDeliveryFields(deliveryType, req.body);
+    if (deliveryType === "FILE") {
+      const settings = await prisma.settings.findUnique({ where: { id: "singleton" } });
+      deliveryFields.customDeliveryTarget = settings?.salesChannelId ?? null;
+    }
+
+    await prisma.plan.create({
+      data: {
+        flowId,
+        productType: "PACK",
+        name,
+        priceCents,
+        description,
+        ...deliveryFields,
+        protectContent: true,
+        active,
+        order: nextOrder(last?.order),
+      },
+    });
+
+    res.redirect(withSuccess(`/admin/flows/${flowId}/packs`, "Pack criado com sucesso!"));
+  });
+
+  router.post("/:id/packs/:packId", async (req, res) => {
+    const flowId = req.params.id;
+    const name = String(req.body.name ?? "").trim();
+    const priceCents = parsePriceToCents(String(req.body.price ?? ""));
+    const description = String(req.body.description ?? "").trim() || null;
+    const deliveryType = parseDeliveryType(req.body.deliveryType);
+    const active = req.body.active === "on";
+
+    if (!name || priceCents === null) {
+      const flow = await loadFlow(flowId);
+      const editingPack = flow?.packs.find((p) => p.id === req.params.packId) ?? null;
+      return res.status(400).render("flows/packs", {
+        flow,
+        editingPack,
+        error: "Nome e preço (maior que zero) são obrigatórios.",
+        fileError: null,
+        salesChannelId: null,
+        salesChannelName: null,
+      });
+    }
+
+    const deliveryFields = buildDeliveryFields(deliveryType, req.body);
+    if (deliveryType === "FILE") {
+      const settings = await prisma.settings.findUnique({ where: { id: "singleton" } });
+      deliveryFields.customDeliveryTarget = settings?.salesChannelId ?? null;
+    }
+
+    // fileTelegramId propositalmente fora do "data" — mesmo motivo do Plano:
+    // só a rota de upload mexe nesse campo.
+    await prisma.plan.update({
+      where: { id: req.params.packId },
+      data: {
+        name,
+        priceCents,
+        description,
+        ...deliveryFields,
+        active,
+      },
+    });
+
+    res.redirect(withSuccess(`/admin/flows/${flowId}/packs`, "Pack salvo com sucesso!"));
+  });
+
+  router.post("/:id/packs/:packId/delete", async (req, res) => {
+    await prisma.plan.delete({ where: { id: req.params.packId } });
+    res.redirect(withSuccess(`/admin/flows/${req.params.id}/packs`, "Pack excluído com sucesso!"));
+  });
+
+  router.post("/:id/packs/:packId/file/upload", (req, res, next) => {
+    mediaUpload.single("file")(req, res, (err) => {
+      if (!err) return next();
+      console.error(`[flows] falha no upload de arquivo do pack (pack ${req.params.packId})`, err);
+      res.redirect(`/admin/flows/${req.params.id}/packs/${req.params.packId}/edit?fileError=${encodeURIComponent(multerErrorMessage(err))}`);
+    });
+  }, async (req, res) => {
+    const flowId = req.params.id;
+    const packId = req.params.packId;
+    const editUrl = `/admin/flows/${flowId}/packs/${packId}/edit`;
+    const pack = await prisma.plan.findUnique({ where: { id: packId }, include: { flow: { include: { bots: true } } } });
+    if (!pack) return res.status(404).send("Pack não encontrado.");
+    if (!req.file) return res.redirect(editUrl);
+
+    const botId = pack.flow.bots[0]?.botId;
+    if (!botId) {
+      return res.redirect(`${editUrl}?fileError=${encodeURIComponent("Vincule um bot a este fluxo (aba Bots) antes de enviar o arquivo.")}`);
+    }
+    const channelId = pack.customDeliveryTarget;
+    if (!channelId) {
+      return res.redirect(`${editUrl}?fileError=${encodeURIComponent('Configure o Canal de vendas e mídias em /admin/settings antes de enviar o arquivo.')}`);
+    }
+
+    try {
+      const { messageId } = await uploadDeliverableFile({
+        botId,
+        channelId,
+        buffer: req.file.buffer,
+        mimeType: req.file.mimetype,
+        filename: req.file.originalname,
+      });
+      await prisma.plan.update({ where: { id: packId }, data: { fileTelegramId: String(messageId) } });
+    } catch (err) {
+      console.error(`[flows] falha ao subir arquivo do pack ${packId}`, err);
+      const message = err instanceof Error ? err.message : "Falha ao enviar o arquivo.";
+      return res.redirect(`${editUrl}?fileError=${encodeURIComponent(message)}`);
+    }
+    res.redirect(withSuccess(editUrl, "Arquivo enviado com sucesso!"));
+  });
+
+  router.post("/:id/packs/:packId/media/upload", (req, res, next) => {
+    mediaUpload.single("file")(req, res, (err) => {
+      if (!err) return next();
+      console.error(`[flows] falha no upload de mídia de preview (pack ${req.params.packId})`, err);
+      res.redirect(`/admin/flows/${req.params.id}/packs/${req.params.packId}/edit?fileError=${encodeURIComponent(multerErrorMessage(err))}`);
+    });
+  }, async (req, res) => {
+    const flowId = req.params.id;
+    const packId = req.params.packId;
+    const editUrl = `/admin/flows/${flowId}/packs/${packId}/edit`;
+    const pack = await prisma.plan.findUnique({
+      where: { id: packId },
+      include: { flow: { include: { bots: true } }, previewMedia: true },
+    });
+    if (!pack) return res.status(404).send("Pack não encontrado.");
+    if (!req.file) return res.redirect(editUrl);
+    if (pack.previewMedia.length >= PACK_MEDIA_LIMIT) return res.redirect(editUrl);
+
+    const botId = pack.flow.bots[0]?.botId;
+    if (!botId) {
+      return res.redirect(`${editUrl}?fileError=${encodeURIComponent("Vincule um bot a este fluxo (aba Bots) antes de enviar mídia.")}`);
+    }
+
+    try {
+      const asset = await uploadMediaToLibrary({
+        botId,
+        buffer: req.file.buffer,
+        mimeType: req.file.mimetype,
+        filename: req.file.originalname,
+      });
+      const last = pack.previewMedia.reduce((max, m) => Math.max(max, m.order), -1);
+      await prisma.packPreviewMedia.create({
+        data: { planId: packId, order: nextOrder(last === -1 ? null : last), mediaType: asset.mediaType, fileId: asset.fileId },
+      });
+    } catch (err) {
+      console.error(`[flows] falha ao subir mídia de preview (pack ${packId})`, err);
+      const message = err instanceof Error ? err.message : "Falha ao enviar o arquivo.";
+      return res.redirect(`${editUrl}?fileError=${encodeURIComponent(message)}`);
+    }
+    res.redirect(withSuccess(editUrl, "Mídia enviada com sucesso!"));
+  });
+
+  router.post("/:id/packs/:packId/media/:mediaId/delete", async (req, res) => {
+    await prisma.packPreviewMedia.delete({ where: { id: req.params.mediaId } });
+    res.redirect(withSuccess(`/admin/flows/${req.params.id}/packs/${req.params.packId}/edit`, "Mídia removida com sucesso!"));
   });
 
   // --- Entrega Padrão (Fallback) ---
