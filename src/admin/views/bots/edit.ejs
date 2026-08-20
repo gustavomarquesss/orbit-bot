@@ -40,19 +40,11 @@
         <h3 class="font-semibold">Mídia</h3>
         <a class="btn btn-outline btn-sm gap-1.5" href="/admin/bots/<%= bot.id %>/media"><%- icon("folder", "w-4 h-4") %> Biblioteca de mídia</a>
       </div>
-      <p class="text-sm text-base-content/60 mb-3">
-        Configure um canal do Telegram (com este bot como admin) pra postar
-        foto/vídeo/áudio/documento lá — o bot captura o file_id sozinho e
-        deixa disponível na biblioteca, sem precisar colar manualmente.
+      <p class="text-sm text-base-content/60">
+        Envie foto/vídeo/áudio/documento direto pela tela na biblioteca — usa
+        o mesmo canal configurado em <a class="link" href="/admin/settings">Configurações → Canal de vendas</a>
+        pra armazenar o arquivo no Telegram e capturar o file_id automaticamente.
       </p>
-      <form method="POST" action="/admin/bots/<%= bot.id %>/media-channel" class="flex flex-col gap-3">
-        <label class="form-control max-w-sm">
-          <div class="label"><span class="label-text">Canal de mídias (id numérico)</span></div>
-          <input type="text" name="mediaChannelId" value="<%= bot.mediaChannelId || "" %>" placeholder="-1001234567890" class="input input-bordered w-full" />
-          <div class="label"><span class="label-text-alt text-base-content/60">Um file_id só funciona no bot que o recebeu — por isso o canal é configurado por bot, não por fluxo.</span></div>
-        </label>
-        <div><button class="btn btn-sm btn-primary" type="submit">Salvar canal</button></div>
-      </form>
     </div>
   </div>
 

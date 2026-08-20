@@ -4,14 +4,49 @@
   <h2 class="text-xl font-bold">Biblioteca de mídia — <%= bot.label %></h2>
   <a class="btn btn-outline btn-sm" href="/admin/bots/<%= bot.id %>/edit">&larr; Voltar pro bot</a>
 </div>
-<p class="text-sm text-base-content/60 mb-6">
-  <% if (bot.mediaChannelId) { %>
-    Capturando automaticamente do canal <code class="text-xs bg-base-300/60 px-1.5 py-0.5 rounded"><%= bot.mediaChannelId %></code>.
-    Poste uma foto/vídeo/áudio/documento lá (com o bot como admin) que ela aparece aqui.
-  <% } else { %>
-    Nenhum canal de mídias configurado ainda — <a class="link" href="/admin/bots/<%= bot.id %>/edit">configure um</a> pra começar a capturar automaticamente.
-  <% } %>
+<% if (error) { %><div class="alert alert-error text-sm mb-4"><%= error %></div><% } %>
+
+<form method="POST" action="/admin/bots/<%= bot.id %>/media/upload" enctype="multipart/form-data" id="mediaUploadForm">
+  <label for="mediaUploadInput" id="mediaDropZone" class="card bg-base-200 border-2 border-dashed border-base-300 shadow-sm cursor-pointer hover:border-primary/60 transition-colors block mb-2">
+    <div class="card-body flex-row items-center gap-4 p-4">
+      <div class="rounded-lg bg-base-300/60 p-3 pointer-events-none">
+        <%- icon("arrow-up-tray", "w-5 h-5") %>
+      </div>
+      <div class="pointer-events-none">
+        <div class="font-semibold">Adicionar arquivo</div>
+        <div class="text-sm text-base-content/60">Clique ou arraste — foto, vídeo ou áudio (PNG, JPG, MP4, OGG)</div>
+      </div>
+    </div>
+  </label>
+  <input id="mediaUploadInput" type="file" name="file" accept="image/*,video/*,audio/*" class="hidden" onchange="document.getElementById('mediaUploadForm').submit()" />
+</form>
+<p class="text-xs text-base-content/50 mb-6">
+  Para enviar mídias, configure o canal em <a class="link" href="/admin/settings">Configurações</a> e conceda a este bot as permissões necessárias no canal ou grupo.
 </p>
+
+<script>
+  (function () {
+    var zone = document.getElementById("mediaDropZone");
+    var input = document.getElementById("mediaUploadInput");
+    var form = document.getElementById("mediaUploadForm");
+    zone.addEventListener("dragover", function (e) {
+      e.preventDefault();
+      zone.classList.add("border-primary");
+    });
+    ["dragleave", "drop"].forEach(function (evt) {
+      zone.addEventListener(evt, function (e) {
+        e.preventDefault();
+        zone.classList.remove("border-primary");
+      });
+    });
+    zone.addEventListener("drop", function (e) {
+      if (e.dataTransfer.files.length > 0) {
+        input.files = e.dataTransfer.files;
+        form.submit();
+      }
+    });
+  })();
+</script>
 
 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
   <% assets.forEach(function(a) { %>

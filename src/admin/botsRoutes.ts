@@ -1,10 +1,17 @@
 import { randomBytes } from "node:crypto";
 import { Readable } from "node:stream";
 import { Router } from "express";
+import multer from "multer";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../db/client.js";
 import { encryptSecret, decryptSecret } from "../lib/crypto.js";
 import { validateBotToken, registerBot, unregisterBot, getTelegraf } from "../bot/botManager.js";
+import { uploadMediaToLibrary } from "../bot/mediaUpload.js";
+
+// Memória (não disco) — arquivo some depois do request, já foi repassado
+// pro Telegram nesse meio tempo (ver uploadMediaToLibrary). 20MB é
+// conservador em relação ao limite de 50MB da Bot API pra upload de bot.
+const mediaUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
 const COMMAND_DEFAULTS: Record<"START" | "SUPORTE" | "STATUS", { emoji: string; label: string; order: number }> = {
   START: { emoji: "🚀", label: "Iniciar o bot", order: 0 },
@@ -158,11 +165,47 @@ export function createBotsRouter(): Router {
     res.render("bots/media", { bot, assets, error: null });
   });
 
-  router.post("/:id/media-channel", async (req, res) => {
+  router.post("/:id/media/upload", (req, res, next) => {
+    // multer chama next(err) ANTES do handler abaixo rodar (ex: arquivo
+    // maior que o limite) — sem esse wrapper, o erro cairia no handler
+    // genérico do Express (página de erro feia) em vez da tela normal com
+    // a mensagem certa.
+    mediaUpload.single("file")(req, res, async (err) => {
+      if (!err) return next();
+      const bot = await prisma.bot.findUnique({ where: { id: req.params.id } });
+      if (!bot) return res.status(404).send("Bot não encontrado.");
+      const assets = await prisma.mediaAsset.findMany({ where: { botId: bot.id }, orderBy: { createdAt: "desc" } });
+      const message = err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE"
+        ? "Arquivo maior que o limite de 20MB."
+        : "Falha ao processar o arquivo enviado.";
+      res.status(400).render("bots/media", { bot, assets, error: message });
+    });
+  }, async (req, res) => {
     const bot = await prisma.bot.findUnique({ where: { id: req.params.id } });
     if (!bot) return res.status(404).send("Bot não encontrado.");
-    const mediaChannelId = String(req.body.mediaChannelId ?? "").trim() || null;
-    await prisma.bot.update({ where: { id: bot.id }, data: { mediaChannelId } });
+
+    if (!req.file) {
+      const assets = await prisma.mediaAsset.findMany({ where: { botId: bot.id }, orderBy: { createdAt: "desc" } });
+      return res.status(400).render("bots/media", { bot, assets, error: "Nenhum arquivo selecionado." });
+    }
+
+    try {
+      await uploadMediaToLibrary({
+        botId: bot.id,
+        buffer: req.file.buffer,
+        mimeType: req.file.mimetype,
+        filename: req.file.originalname,
+      });
+    } catch (err) {
+      console.error(`[bots] falha ao subir mídia (bot ${bot.id})`, err);
+      const assets = await prisma.mediaAsset.findMany({ where: { botId: bot.id }, orderBy: { createdAt: "desc" } });
+      return res.status(400).render("bots/media", {
+        bot,
+        assets,
+        error: err instanceof Error ? err.message : "Falha ao enviar o arquivo.",
+      });
+    }
+
     res.redirect(`/admin/bots/${bot.id}/media`);
   });
 

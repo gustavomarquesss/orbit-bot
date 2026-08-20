@@ -31,9 +31,14 @@ model Session {
 /// precisar de variável de ambiente nova a cada config (evita redeploy).
 model Settings {
   id             String  @id @default("singleton")
-  /// Canal/grupo do Telegram (id numérico, ex: "-1001234567890") que recebe
-  /// a notificação de toda venda aprovada de todos os bots. Nulo = cai no
-  /// fallback antigo (DM pro TELEGRAM_ADMIN_USER_ID).
+  /// Canal/grupo do Telegram (id numérico, ex: "-1001234567890") — "canal de
+  /// registro" com duas funções: recebe a notificação de toda venda
+  /// aprovada de todos os bots, E serve de armazenamento pra mídia
+  /// enviada via upload no painel (src/bot/mediaUpload.ts) — mesmo campo
+  /// pras duas coisas (decisão do usuário, 2026-08-20, espelhando a
+  /// referência ApexVips). Nulo = notificação de venda cai no fallback
+  /// antigo (DM pro TELEGRAM_ADMIN_USER_ID); upload de mídia fica bloqueado
+  /// até configurar.
   salesChannelId String?
 }
 
@@ -73,13 +78,6 @@ model Bot {
   shortDescription          String?
   /// Usado no path do webhook (/telegram/webhook/:botId/:webhookSecret).
   webhookSecret             String
-  /// Canal do Telegram (id numérico) onde o admin posta mídia pra ser
-  /// capturada automaticamente — o bot precisa ser admin desse canal.
-  /// Nulo = captura automática desligada pra este bot (ver src/bot/
-  /// mediaCapture.ts). Um file_id só é válido pro bot que o recebeu, por
-  /// isso a mídia capturada fica vinculada a este Bot específico — assume
-  /// 1 bot por Flow (confirmado com o usuário em 2026-08-20).
-  mediaChannelId            String?
   active                    Boolean  @default(true)
   createdAt                 DateTime @default(now())
   updatedAt                 DateTime @updatedAt
@@ -92,9 +90,14 @@ model Bot {
   mediaAssets MediaAsset[]
 }
 
-/// Mídia capturada automaticamente do canal configurado em
-/// `Bot.mediaChannelId` — poupa o admin de mandar a mídia manualmente pro
-/// bot e copiar o file_id retornado pra colar no painel.
+/// Mídia enviada pelo admin direto pela tela (upload arrasta-e-solta em
+/// /admin/bots/:id/media) — o servidor sobe o arquivo pro Telegram via
+/// `Settings.salesChannelId` (mesmo canal de notificação de vendas,
+/// reaproveitado como "canal de registro" de mídia também) usando o Bot
+/// dono do upload, e guarda o file_id resultante. Um file_id só é válido
+/// pro bot que o enviou, por isso fica vinculado a este `Bot` específico
+/// (ver src/bot/mediaUpload.ts) — assume 1 bot por Flow, confirmado com o
+/// usuário em 2026-08-20.
 model MediaAsset {
   id        String    @id @default(cuid())
   botId     String
