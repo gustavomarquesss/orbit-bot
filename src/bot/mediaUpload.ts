@@ -4,6 +4,7 @@ import { prisma } from "../db/client.js";
 import { getTelegraf } from "./botManager.js";
 import { probeMp4VideoDimensions } from "./videoProbe.js";
 import { extractVideoThumbnail } from "./videoThumbnail.js";
+import { getSettingsForBot } from "./settingsForBot.js";
 
 function mediaTypeFromMime(mimeType: string): MediaType {
   if (mimeType.startsWith("image/")) return "PHOTO";
@@ -81,7 +82,7 @@ export async function uploadMediaToLibrary(params: {
   const telegraf = getTelegraf(botId);
   if (!telegraf) throw new Error("Bot offline — não é possível enviar mídia agora.");
 
-  const settings = await prisma.settings.findUnique({ where: { id: "singleton" } });
+  const settings = await getSettingsForBot(botId);
   if (!settings?.salesChannelId) {
     throw new Error("Configure o canal de vendas/mídias em Configurações antes de enviar arquivos.");
   }

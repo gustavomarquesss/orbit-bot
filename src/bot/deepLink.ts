@@ -18,16 +18,16 @@ export interface DeepLinkResult {
  * `?start=xyz` e criar uma Origin — aceitável aqui porque é um bot pessoal,
  * de baixo volume, com um único operador olhando a lista periodicamente.
  */
-async function resolveOrigin(startPayload: string | undefined): Promise<Origin | null> {
+async function resolveOrigin(startPayload: string | undefined, ownerId: string): Promise<Origin | null> {
   const param = startPayload?.trim();
   if (!param) return null;
 
-  const existing = await prisma.origin.findUnique({ where: { param } });
+  const existing = await prisma.origin.findFirst({ where: { param, ownerId } });
   if (existing) return existing;
 
-  console.warn(`[deepLink] origem desconhecida "${param}" — criando automaticamente`);
+  console.warn(`[deepLink] origem desconhecida "${param}" (dono ${ownerId}) — criando automaticamente`);
   return prisma.origin.create({
-    data: { param, label: param, kind: "OTHER" },
+    data: { param, label: param, kind: "OTHER", ownerId },
   });
 }
 
@@ -46,8 +46,11 @@ export async function resolveOriginAndUpsertLead(
   const from = ctx.from;
   if (!from) return null;
 
+  const bot = await prisma.bot.findUnique({ where: { id: botId }, select: { ownerId: true } });
+  if (!bot) return null;
+
   const telegramId = BigInt(from.id);
-  const origin = await resolveOrigin(startPayload);
+  const origin = await resolveOrigin(startPayload, bot.ownerId);
 
   const existingLead = await prisma.lead.findUnique({
     where: { telegramId_botId: { telegramId, botId } },

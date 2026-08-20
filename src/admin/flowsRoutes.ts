@@ -21,8 +21,9 @@ function multerErrorMessage(err: unknown): string {
 export function createFlowsRouter(): Router {
   const router = Router();
 
-  router.get("/", async (_req, res) => {
+  router.get("/", async (req, res) => {
     const flows = await prisma.flow.findMany({
+      where: { ownerId: req.session.userId! },
       orderBy: { createdAt: "asc" },
       include: { _count: { select: { bots: true, plans: true } } },
     });
@@ -44,7 +45,7 @@ export function createFlowsRouter(): Router {
 
     try {
       const flow = await prisma.flow.create({
-        data: { key, name, description, welcomeConfig: { create: {} } },
+        data: { ownerId: req.session.userId!, key, name, description, welcomeConfig: { create: {} } },
       });
       res.redirect(withSuccess(`/admin/flows/${flow.id}/bots`, "Fluxo criado com sucesso!"));
     } catch (err) {
@@ -60,10 +61,10 @@ export function createFlowsRouter(): Router {
   // pedir `plans` (Plano) e `packs` (Pack, productType diferente) como dois
   // includes distintos na mesma query, mesmo filtrando por productType em
   // cada um; por isso Packs é buscado à parte e anexado ao objeto do flow.
-  async function loadFlow(flowId: string) {
+  async function loadFlow(flowId: string, ownerId: string) {
     const [flow, packs] = await Promise.all([
-      prisma.flow.findUnique({
-        where: { id: flowId },
+      prisma.flow.findFirst({
+        where: { id: flowId, ownerId },
         include: {
           bots: { include: { bot: true } },
           welcomeConfig: { include: { media: { orderBy: { order: "asc" } }, redirectButtons: { orderBy: { order: "asc" } } } },
@@ -95,24 +96,40 @@ export function createFlowsRouter(): Router {
     return prisma.mediaAsset.findMany({ where: { botId: { in: botIds } }, orderBy: { createdAt: "desc" } });
   }
 
+  /** Confirma que `flowId` (batido direto de `req.params.id`, sem passar
+   * por `loadFlow`) pertence a `ownerId` — usada nas rotas de criação/save
+   * de sub-recursos (planos, packs, ofertas, upsell/downsell...) que não
+   * precisam do Flow inteiro carregado, só da confirmação de posse. */
+  async function ownsFlow(flowId: string, ownerId: string): Promise<boolean> {
+    const flow = await prisma.flow.findFirst({ where: { id: flowId, ownerId }, select: { id: true } });
+    return flow !== null;
+  }
+
   // --- Bots vinculados ---
 
   router.get("/:id/bots", async (req, res) => {
-    const flow = await loadFlow(req.params.id);
+    const flow = await loadFlow(req.params.id, req.session.userId!);
     if (!flow) return res.status(404).send("Fluxo não encontrado.");
-    const allBots = await prisma.bot.findMany({ orderBy: { createdAt: "asc" } });
+    const allBots = await prisma.bot.findMany({ where: { ownerId: req.session.userId! }, orderBy: { createdAt: "asc" } });
     const linkedIds = new Set(flow.bots.map((fb) => fb.botId));
     res.render("flows/bots", { flow, allBots, linkedIds });
   });
 
   router.post("/:id/bots", async (req, res) => {
-    const flow = await prisma.flow.findUnique({ where: { id: req.params.id } });
+    const ownerId = req.session.userId!;
+    const flow = await prisma.flow.findFirst({ where: { id: req.params.id, ownerId } });
     if (!flow) return res.status(404).send("Fluxo não encontrado.");
 
     const rawBotIds: unknown = req.body.botIds;
-    const selected = new Set<string>(
+    const requestedIds = new Set<string>(
       Array.isArray(rawBotIds) ? rawBotIds.map(String) : rawBotIds ? [String(rawBotIds)] : []
     );
+    // Defesa em profundidade além do `<select>` já filtrado na tela: só
+    // aceita vincular bots que realmente pertencem a este usuário, mesmo
+    // que alguém adultere o POST diretamente.
+    const ownedBots = await prisma.bot.findMany({ where: { id: { in: [...requestedIds] }, ownerId }, select: { id: true } });
+    const selected = new Set(ownedBots.map((b) => b.id));
+
     const current = await prisma.flowBot.findMany({ where: { flowId: flow.id } });
     const currentIds = new Set(current.map((c) => c.botId));
 
@@ -132,7 +149,7 @@ export function createFlowsRouter(): Router {
   // --- Boas-vindas ---
 
   router.get("/:id/welcome", async (req, res) => {
-    const flow = await loadFlow(req.params.id);
+    const flow = await loadFlow(req.params.id, req.session.userId!);
     if (!flow) return res.status(404).send("Fluxo não encontrado.");
     const mediaAssets = await loadMediaAssetsForFlow(flow);
     const mediaError = typeof req.query.mediaError === "string" ? req.query.mediaError : null;
@@ -141,6 +158,7 @@ export function createFlowsRouter(): Router {
 
   router.post("/:id/welcome", async (req, res) => {
     const flowId = req.params.id;
+    if (!(await ownsFlow(flowId, req.session.userId!))) return res.status(404).send("Fluxo não encontrado.");
     const text = String(req.body.text ?? "").trim() || null;
     const secondaryMessageEnabled = req.body.secondaryMessageEnabled === "on";
     const ctaButtonEnabled = req.body.ctaButtonEnabled === "on";
@@ -159,6 +177,7 @@ export function createFlowsRouter(): Router {
 
   router.post("/:id/welcome/media", async (req, res) => {
     const flowId = req.params.id;
+    if (!(await ownsFlow(flowId, req.session.userId!))) return res.status(404).send("Fluxo não encontrado.");
     const mediaType = String(req.body.mediaType ?? "");
     const fileId = String(req.body.fileId ?? "").trim();
     if (!mediaType || !fileId) return res.redirect(`/admin/flows/${flowId}/welcome`);
@@ -186,7 +205,7 @@ export function createFlowsRouter(): Router {
     });
   }, async (req, res) => {
     const flowId = req.params.id;
-    const flow = await loadFlow(flowId);
+    const flow = await loadFlow(flowId, req.session.userId!);
     if (!flow) return res.status(404).send("Fluxo não encontrado.");
     const botId = flow.bots[0]?.botId;
     if (!req.file) return res.redirect(`/admin/flows/${flowId}/welcome`);
@@ -218,12 +237,15 @@ export function createFlowsRouter(): Router {
   });
 
   router.post("/:id/welcome/media/:mediaId/delete", async (req, res) => {
-    await prisma.welcomeMedia.delete({ where: { id: req.params.mediaId } });
+    await prisma.welcomeMedia.deleteMany({
+      where: { id: req.params.mediaId, welcomeConfig: { flow: { ownerId: req.session.userId! } } },
+    });
     res.redirect(withSuccess(`/admin/flows/${req.params.id}/welcome`, "Mídia removida com sucesso!"));
   });
 
   router.post("/:id/welcome/redirect-buttons", async (req, res) => {
     const flowId = req.params.id;
+    if (!(await ownsFlow(flowId, req.session.userId!))) return res.status(404).send("Fluxo não encontrado.");
     const label = String(req.body.label ?? "").trim();
     const url = String(req.body.url ?? "").trim();
     if (!label || !url) return res.redirect(`/admin/flows/${flowId}/welcome`);
@@ -240,14 +262,16 @@ export function createFlowsRouter(): Router {
   });
 
   router.post("/:id/welcome/redirect-buttons/:buttonId/delete", async (req, res) => {
-    await prisma.redirectButton.delete({ where: { id: req.params.buttonId } });
+    await prisma.redirectButton.deleteMany({
+      where: { id: req.params.buttonId, welcomeConfig: { flow: { ownerId: req.session.userId! } } },
+    });
     res.redirect(withSuccess(`/admin/flows/${req.params.id}/welcome`, "Botão removido com sucesso!"));
   });
 
   // --- Planos ---
 
   router.get("/:id/plans", async (req, res) => {
-    const flow = await loadFlow(req.params.id);
+    const flow = await loadFlow(req.params.id, req.session.userId!);
     if (!flow) return res.status(404).send("Fluxo não encontrado.");
     const fileError = typeof req.query.fileError === "string" ? req.query.fileError : null;
     const deliveryError = typeof req.query.deliveryError === "string" ? req.query.deliveryError : null;
@@ -255,7 +279,7 @@ export function createFlowsRouter(): Router {
   });
 
   router.get("/:id/plans/:planId/edit", async (req, res) => {
-    const flow = await loadFlow(req.params.id);
+    const flow = await loadFlow(req.params.id, req.session.userId!);
     if (!flow) return res.status(404).send("Fluxo não encontrado.");
     const editingPlan = flow.plans.find((p) => p.id === req.params.planId) ?? null;
     const fileError = typeof req.query.fileError === "string" ? req.query.fileError : null;
@@ -296,6 +320,7 @@ export function createFlowsRouter(): Router {
 
   router.post("/:id/plans", async (req, res) => {
     const flowId = req.params.id;
+    if (!(await ownsFlow(flowId, req.session.userId!))) return res.status(404).send("Fluxo não encontrado.");
     const name = String(req.body.name ?? "").trim();
     const priceCents = parsePriceToCents(String(req.body.price ?? ""));
     const durationDays = String(req.body.durationDays ?? "").trim();
@@ -305,7 +330,7 @@ export function createFlowsRouter(): Router {
     const active = req.body.active === "on";
 
     if (!name || priceCents === null) {
-      const flow = await loadFlow(flowId);
+      const flow = await loadFlow(flowId, req.session.userId!);
       return res.status(400).render("flows/plans", {
         flow,
         editingPlan: null,
@@ -346,7 +371,7 @@ export function createFlowsRouter(): Router {
     const active = req.body.active === "on";
 
     if (!name || priceCents === null) {
-      const flow = await loadFlow(flowId);
+      const flow = await loadFlow(flowId, req.session.userId!);
       const editingPlan = flow?.plans.find((p) => p.id === req.params.planId) ?? null;
       return res.status(400).render("flows/plans", { flow, editingPlan, error: "Nome e preço (maior que zero) são obrigatórios.", fileError: null });
     }
@@ -354,8 +379,8 @@ export function createFlowsRouter(): Router {
     // fileTelegramId propositalmente fora do "data" — trocar de tipo de
     // entrega ou salvar o resto do plano não pode apagar um arquivo já
     // enviado via upload; só a rota de upload mexe nesse campo.
-    await prisma.plan.update({
-      where: { id: req.params.planId },
+    await prisma.plan.updateMany({
+      where: { id: req.params.planId, flow: { ownerId: req.session.userId! } },
       data: {
         name,
         priceCents,
@@ -380,8 +405,8 @@ export function createFlowsRouter(): Router {
     const flowId = req.params.id;
     const planId = req.params.planId;
     const editUrl = `/admin/flows/${flowId}/plans/${planId}/edit`;
-    const plan = await prisma.plan.findUnique({
-      where: { id: planId },
+    const plan = await prisma.plan.findFirst({
+      where: { id: planId, flow: { ownerId: req.session.userId! } },
       include: { flow: { include: { bots: true, delivery: true } } },
     });
     if (!plan) return res.status(404).send("Plano não encontrado.");
@@ -414,7 +439,7 @@ export function createFlowsRouter(): Router {
   });
 
   router.post("/:id/plans/:planId/delete", async (req, res) => {
-    await prisma.plan.delete({ where: { id: req.params.planId } });
+    await prisma.plan.deleteMany({ where: { id: req.params.planId, flow: { ownerId: req.session.userId! } } });
     res.redirect(withSuccess(`/admin/flows/${req.params.id}/plans`, "Plano excluído com sucesso!"));
   });
 
@@ -430,8 +455,8 @@ export function createFlowsRouter(): Router {
    * canal já configurado em Settings.salesChannelId, pra oferecer como
    * opção pronta na "Entrega do Pack" em vez de exigir colar o ID à mão.
    * "Atualizar" no formulário é só um reload da página (GET de novo). */
-  async function loadSalesChannel(flow: { bots: { botId: string }[] }) {
-    const settings = await prisma.settings.findUnique({ where: { id: "singleton" } });
+  async function loadSalesChannel(flow: { ownerId: string; bots: { botId: string }[] }) {
+    const settings = await prisma.settings.findUnique({ where: { ownerId: flow.ownerId } });
     if (!settings?.salesChannelId) return { salesChannelId: null, salesChannelName: null };
     const botId = flow.bots[0]?.botId;
     const telegraf = botId ? getTelegraf(botId) : null;
@@ -446,7 +471,7 @@ export function createFlowsRouter(): Router {
   }
 
   router.get("/:id/packs", async (req, res) => {
-    const flow = await loadFlow(req.params.id);
+    const flow = await loadFlow(req.params.id, req.session.userId!);
     if (!flow) return res.status(404).send("Fluxo não encontrado.");
     const { salesChannelId, salesChannelName } = await loadSalesChannel(flow);
     const fileError = typeof req.query.fileError === "string" ? req.query.fileError : null;
@@ -454,7 +479,7 @@ export function createFlowsRouter(): Router {
   });
 
   router.get("/:id/packs/:packId/edit", async (req, res) => {
-    const flow = await loadFlow(req.params.id);
+    const flow = await loadFlow(req.params.id, req.session.userId!);
     if (!flow) return res.status(404).send("Fluxo não encontrado.");
     const editingPack = flow.packs.find((p) => p.id === req.params.packId) ?? null;
     const { salesChannelId, salesChannelName } = await loadSalesChannel(flow);
@@ -464,6 +489,7 @@ export function createFlowsRouter(): Router {
 
   router.post("/:id/packs/config", async (req, res) => {
     const flowId = req.params.id;
+    if (!(await ownsFlow(flowId, req.session.userId!))) return res.status(404).send("Fluxo não encontrado.");
     const active = req.body.active === "on";
     const buttonLabel = String(req.body.buttonLabel ?? "").trim() || null;
     const headerMessage = String(req.body.headerMessage ?? "").trim() || null;
@@ -479,6 +505,7 @@ export function createFlowsRouter(): Router {
 
   router.post("/:id/packs", async (req, res) => {
     const flowId = req.params.id;
+    if (!(await ownsFlow(flowId, req.session.userId!))) return res.status(404).send("Fluxo não encontrado.");
     // Sem campo de emoji separado — mesma convenção já usada nos Planos
     // normais desta conta, onde o emoji já vem digitado dentro do próprio
     // nome (ex: "VÍDEOS COM FILHO 🔞😈" nos dados reais desta sessão).
@@ -489,7 +516,7 @@ export function createFlowsRouter(): Router {
     const active = req.body.active === "on";
 
     if (!name || priceCents === null) {
-      const flow = await loadFlow(flowId);
+      const flow = await loadFlow(flowId, req.session.userId!);
       return res.status(400).render("flows/packs", {
         flow,
         editingPack: null,
@@ -511,7 +538,7 @@ export function createFlowsRouter(): Router {
     // seletor), pra não pedir pro admin colar o ID de novo.
     const deliveryFields = buildDeliveryFields(deliveryType, req.body);
     if (deliveryType === "FILE") {
-      const settings = await prisma.settings.findUnique({ where: { id: "singleton" } });
+      const settings = await prisma.settings.findUnique({ where: { ownerId: req.session.userId! } });
       deliveryFields.customDeliveryTarget = settings?.salesChannelId ?? null;
     }
 
@@ -541,7 +568,7 @@ export function createFlowsRouter(): Router {
     const active = req.body.active === "on";
 
     if (!name || priceCents === null) {
-      const flow = await loadFlow(flowId);
+      const flow = await loadFlow(flowId, req.session.userId!);
       const editingPack = flow?.packs.find((p) => p.id === req.params.packId) ?? null;
       return res.status(400).render("flows/packs", {
         flow,
@@ -555,14 +582,14 @@ export function createFlowsRouter(): Router {
 
     const deliveryFields = buildDeliveryFields(deliveryType, req.body);
     if (deliveryType === "FILE") {
-      const settings = await prisma.settings.findUnique({ where: { id: "singleton" } });
+      const settings = await prisma.settings.findUnique({ where: { ownerId: req.session.userId! } });
       deliveryFields.customDeliveryTarget = settings?.salesChannelId ?? null;
     }
 
     // fileTelegramId propositalmente fora do "data" — mesmo motivo do Plano:
     // só a rota de upload mexe nesse campo.
-    await prisma.plan.update({
-      where: { id: req.params.packId },
+    await prisma.plan.updateMany({
+      where: { id: req.params.packId, flow: { ownerId: req.session.userId! } },
       data: {
         name,
         priceCents,
@@ -576,7 +603,7 @@ export function createFlowsRouter(): Router {
   });
 
   router.post("/:id/packs/:packId/delete", async (req, res) => {
-    await prisma.plan.delete({ where: { id: req.params.packId } });
+    await prisma.plan.deleteMany({ where: { id: req.params.packId, flow: { ownerId: req.session.userId! } } });
     res.redirect(withSuccess(`/admin/flows/${req.params.id}/packs`, "Pack excluído com sucesso!"));
   });
 
@@ -590,7 +617,10 @@ export function createFlowsRouter(): Router {
     const flowId = req.params.id;
     const packId = req.params.packId;
     const editUrl = `/admin/flows/${flowId}/packs/${packId}/edit`;
-    const pack = await prisma.plan.findUnique({ where: { id: packId }, include: { flow: { include: { bots: true } } } });
+    const pack = await prisma.plan.findFirst({
+      where: { id: packId, flow: { ownerId: req.session.userId! } },
+      include: { flow: { include: { bots: true } } },
+    });
     if (!pack) return res.status(404).send("Pack não encontrado.");
     if (!req.file) return res.redirect(editUrl);
 
@@ -630,8 +660,8 @@ export function createFlowsRouter(): Router {
     const flowId = req.params.id;
     const packId = req.params.packId;
     const editUrl = `/admin/flows/${flowId}/packs/${packId}/edit`;
-    const pack = await prisma.plan.findUnique({
-      where: { id: packId },
+    const pack = await prisma.plan.findFirst({
+      where: { id: packId, flow: { ownerId: req.session.userId! } },
       include: { flow: { include: { bots: true } }, previewMedia: true },
     });
     if (!pack) return res.status(404).send("Pack não encontrado.");
@@ -663,7 +693,9 @@ export function createFlowsRouter(): Router {
   });
 
   router.post("/:id/packs/:packId/media/:mediaId/delete", async (req, res) => {
-    await prisma.packPreviewMedia.delete({ where: { id: req.params.mediaId } });
+    await prisma.packPreviewMedia.deleteMany({
+      where: { id: req.params.mediaId, plan: { flow: { ownerId: req.session.userId! } } },
+    });
     res.redirect(withSuccess(`/admin/flows/${req.params.id}/packs/${req.params.packId}/edit`, "Mídia removida com sucesso!"));
   });
 
@@ -682,7 +714,7 @@ export function createFlowsRouter(): Router {
   }
 
   router.get("/:id/previews", async (req, res) => {
-    const flow = await loadFlow(req.params.id);
+    const flow = await loadFlow(req.params.id, req.session.userId!);
     if (!flow) return res.status(404).send("Fluxo não encontrado.");
     const config = await loadPreviewConfig(flow.id);
     const mediaAssets = await loadMediaAssetsForFlow(flow);
@@ -692,6 +724,7 @@ export function createFlowsRouter(): Router {
 
   router.post("/:id/previews", async (req, res) => {
     const flowId = req.params.id;
+    if (!(await ownsFlow(flowId, req.session.userId!))) return res.status(404).send("Fluxo não encontrado.");
     const active = req.body.active === "on";
     const buttonLabel = String(req.body.buttonLabel ?? "").trim() || null;
     const deleteAfterSeconds = Math.max(1, Number(req.body.deleteAfterSeconds ?? 15) || 15);
@@ -711,6 +744,7 @@ export function createFlowsRouter(): Router {
 
   router.post("/:id/previews/media", async (req, res) => {
     const flowId = req.params.id;
+    if (!(await ownsFlow(flowId, req.session.userId!))) return res.status(404).send("Fluxo não encontrado.");
     const mediaType = String(req.body.mediaType ?? "");
     const fileId = String(req.body.fileId ?? "").trim();
     const config = await loadPreviewConfig(flowId);
@@ -731,7 +765,7 @@ export function createFlowsRouter(): Router {
     });
   }, async (req, res) => {
     const flowId = req.params.id;
-    const flow = await loadFlow(flowId);
+    const flow = await loadFlow(flowId, req.session.userId!);
     if (!flow) return res.status(404).send("Fluxo não encontrado.");
     const botId = flow.bots[0]?.botId;
     if (!req.file) return res.redirect(`/admin/flows/${flowId}/previews`);
@@ -762,7 +796,9 @@ export function createFlowsRouter(): Router {
   });
 
   router.post("/:id/previews/media/:mediaId/delete", async (req, res) => {
-    await prisma.previewMedia.delete({ where: { id: req.params.mediaId } });
+    await prisma.previewMedia.deleteMany({
+      where: { id: req.params.mediaId, previewConfig: { flow: { ownerId: req.session.userId! } } },
+    });
     res.redirect(withSuccess(`/admin/flows/${req.params.id}/previews`, "Mídia removida com sucesso!"));
   });
 
@@ -775,6 +811,7 @@ export function createFlowsRouter(): Router {
 
   router.post("/:id/delivery", async (req, res) => {
     const flowId = req.params.id;
+    if (!(await ownsFlow(flowId, req.session.userId!))) return res.status(404).send("Fluxo não encontrado.");
     const deliveryType = parseDeliveryType(req.body.deliveryType) ?? "FILE";
     const deliveryTarget = String(req.body.deliveryTarget ?? "").trim() || null;
     const externalLink = String(req.body.externalLink ?? "").trim() || null;
@@ -806,7 +843,10 @@ export function createFlowsRouter(): Router {
   }, async (req, res) => {
     const flowId = req.params.id;
     const editUrl = `/admin/flows/${flowId}/plans`;
-    const flow = await prisma.flow.findUnique({ where: { id: flowId }, include: { bots: true, delivery: true } });
+    const flow = await prisma.flow.findFirst({
+      where: { id: flowId, ownerId: req.session.userId! },
+      include: { bots: true, delivery: true },
+    });
     if (!flow) return res.status(404).send("Fluxo não encontrado.");
     if (!req.file) return res.redirect(editUrl);
 
@@ -843,13 +883,14 @@ export function createFlowsRouter(): Router {
   // --- Pagamentos ---
 
   router.get("/:id/payments", async (req, res) => {
-    const flow = await loadFlow(req.params.id);
+    const flow = await loadFlow(req.params.id, req.session.userId!);
     if (!flow) return res.status(404).send("Fluxo não encontrado.");
     res.render("flows/payments", { flow });
   });
 
   router.post("/:id/payments", async (req, res) => {
     const flowId = req.params.id;
+    if (!(await ownsFlow(flowId, req.session.userId!))) return res.status(404).send("Fluxo não encontrado.");
     const pixGeneratedMessage = String(req.body.pixGeneratedMessage ?? "").trim() || null;
     const pixApprovedMessage = String(req.body.pixApprovedMessage ?? "").trim() || null;
     const renewalMessage = String(req.body.renewalMessage ?? "").trim() || null;
@@ -876,7 +917,7 @@ export function createFlowsRouter(): Router {
   }
 
   router.get("/:id/offers", async (req, res) => {
-    const flow = await loadFlow(req.params.id);
+    const flow = await loadFlow(req.params.id, req.session.userId!);
     if (!flow) return res.status(404).send("Fluxo não encontrado.");
     const offers = await loadOffers(flow.id);
     res.render("flows/offers", { flow, offers, error: null });
@@ -884,14 +925,29 @@ export function createFlowsRouter(): Router {
 
   router.post("/:id/offers", async (req, res) => {
     const flowId = req.params.id;
+    const ownerId = req.session.userId!;
     const triggerPlanId = String(req.body.triggerPlanId ?? "").trim();
     const offeredPlanId = String(req.body.offeredPlanId ?? "").trim();
     const message = String(req.body.message ?? "").trim() || null;
     const acceptLabel = String(req.body.acceptLabel ?? "").trim() || null;
     const declineLabel = String(req.body.declineLabel ?? "").trim() || null;
 
-    if (!triggerPlanId || !offeredPlanId) {
-      const flow = await loadFlow(flowId);
+    // Confirma que os dois planos citados realmente pertencem a ESTE fluxo
+    // (e, por tabela, a este dono) — sem isso, dava pra criar um Order Bump
+    // apontando pro plano de outro usuário só sabendo o id (cuid).
+    const validPlanIds = triggerPlanId && offeredPlanId
+      ? new Set(
+          (
+            await prisma.plan.findMany({
+              where: { id: { in: [triggerPlanId, offeredPlanId] }, flowId, flow: { ownerId } },
+              select: { id: true },
+            })
+          ).map((p) => p.id)
+        )
+      : new Set<string>();
+
+    if (!triggerPlanId || !offeredPlanId || !validPlanIds.has(triggerPlanId) || !validPlanIds.has(offeredPlanId)) {
+      const flow = await loadFlow(flowId, ownerId);
       const offers = flow ? await loadOffers(flow.id) : [];
       return res.status(400).render("flows/offers", {
         flow,
@@ -922,7 +978,9 @@ export function createFlowsRouter(): Router {
   });
 
   router.post("/:id/offers/:offerId/toggle", async (req, res) => {
-    const offer = await prisma.offer.findUnique({ where: { id: req.params.offerId } });
+    const offer = await prisma.offer.findFirst({
+      where: { id: req.params.offerId, triggerPlan: { flow: { ownerId: req.session.userId! } } },
+    });
     if (offer) {
       await prisma.offer.update({ where: { id: offer.id }, data: { active: !offer.active } });
     }
@@ -930,7 +988,9 @@ export function createFlowsRouter(): Router {
   });
 
   router.post("/:id/offers/:offerId/delete", async (req, res) => {
-    await prisma.offer.delete({ where: { id: req.params.offerId } });
+    await prisma.offer.deleteMany({
+      where: { id: req.params.offerId, triggerPlan: { flow: { ownerId: req.session.userId! } } },
+    });
     res.redirect(withSuccess(`/admin/flows/${req.params.id}/offers`, "Order Bump excluído com sucesso!"));
   });
 
@@ -955,7 +1015,7 @@ export function createFlowsRouter(): Router {
   }
 
   router.get("/:id/upsell", async (req, res) => {
-    const flow = await loadFlow(req.params.id);
+    const flow = await loadFlow(req.params.id, req.session.userId!);
     if (!flow) return res.status(404).send("Fluxo não encontrado.");
     const sequence = await loadUpsellSequence(flow.id);
     res.render("flows/upsell", { flow, sequence, error: null });
@@ -963,6 +1023,7 @@ export function createFlowsRouter(): Router {
 
   router.post("/:id/upsell", async (req, res) => {
     const flowId = req.params.id;
+    if (!(await ownsFlow(flowId, req.session.userId!))) return res.status(404).send("Fluxo não encontrado.");
     const active = req.body.active === "on";
     await prisma.upsellSequence.upsert({
       where: { flowId },
@@ -974,6 +1035,7 @@ export function createFlowsRouter(): Router {
 
   router.post("/:id/upsell/messages", async (req, res) => {
     const flowId = req.params.id;
+    if (!(await ownsFlow(flowId, req.session.userId!))) return res.status(404).send("Fluxo não encontrado.");
     const sequence = await prisma.upsellSequence.upsert({
       where: { flowId },
       update: {},
@@ -993,22 +1055,32 @@ export function createFlowsRouter(): Router {
   router.post("/:id/upsell/messages/:messageId", async (req, res) => {
     const text = String(req.body.text ?? "").trim() || null;
     const delayMinutes = Math.max(0, Number(req.body.delayMinutes ?? 0) || 0);
-    await prisma.upsellMessage.update({
-      where: { id: req.params.messageId },
+    await prisma.upsellMessage.updateMany({
+      where: { id: req.params.messageId, sequence: { flow: { ownerId: req.session.userId! } } },
       data: { text, delayMinutes },
     });
     res.redirect(withSuccess(`/admin/flows/${req.params.id}/upsell`, "Upsell salvo com sucesso!"));
   });
 
   router.post("/:id/upsell/messages/:messageId/delete", async (req, res) => {
-    await prisma.upsellMessage.delete({ where: { id: req.params.messageId } });
+    await prisma.upsellMessage.deleteMany({
+      where: { id: req.params.messageId, sequence: { flow: { ownerId: req.session.userId! } } },
+    });
     res.redirect(withSuccess(`/admin/flows/${req.params.id}/upsell`, "Upsell salvo com sucesso!"));
   });
 
   router.post("/:id/upsell/messages/:messageId/plans", async (req, res) => {
+    const flowId = req.params.id;
+    const ownerId = req.session.userId!;
     const messageId = req.params.messageId;
     const planId = String(req.body.planId ?? "").trim();
-    if (planId) {
+    // Confirma que a mensagem e o plano citado pertencem a este fluxo/dono
+    // antes de linkar — mesma trava aplicada no Order Bump.
+    const [message, plan] = await Promise.all([
+      prisma.upsellMessage.findFirst({ where: { id: messageId, sequence: { flow: { ownerId, id: flowId } } } }),
+      planId ? prisma.plan.findFirst({ where: { id: planId, flowId, flow: { ownerId } } }) : Promise.resolve(null),
+    ]);
+    if (message && plan) {
       const last = await prisma.upsellMessagePlan.findFirst({
         where: { messageId },
         orderBy: { order: "desc" },
@@ -1022,18 +1094,28 @@ export function createFlowsRouter(): Router {
   });
 
   router.post("/:id/upsell/messages/:messageId/plans/:linkId/delete", async (req, res) => {
-    await prisma.upsellMessagePlan.delete({ where: { id: req.params.linkId } });
+    await prisma.upsellMessagePlan.deleteMany({
+      where: { id: req.params.linkId, message: { sequence: { flow: { ownerId: req.session.userId! } } } },
+    });
     res.redirect(withSuccess(`/admin/flows/${req.params.id}/upsell`, "Upsell salvo com sucesso!"));
   });
 
   router.post("/:id/upsell/messages/:messageId/buttons", async (req, res) => {
+    const flowId = req.params.id;
+    const ownerId = req.session.userId!;
     const messageId = req.params.messageId;
     const text = String(req.body.text ?? "").trim();
     const type = String(req.body.type ?? "BUY_PLAN");
     const targetPlanId = String(req.body.targetPlanId ?? "").trim() || null;
     const url = String(req.body.url ?? "").trim() || null;
 
-    if (text && ((type === "BUY_PLAN" && targetPlanId) || (type === "OPEN_LINK" && url))) {
+    const message = await prisma.upsellMessage.findFirst({ where: { id: messageId, sequence: { flow: { id: flowId, ownerId } } } });
+    const targetPlanValid =
+      type !== "BUY_PLAN" || !targetPlanId
+        ? true
+        : (await prisma.plan.findFirst({ where: { id: targetPlanId, flowId, flow: { ownerId } } })) !== null;
+
+    if (message && targetPlanValid && text && ((type === "BUY_PLAN" && targetPlanId) || (type === "OPEN_LINK" && url))) {
       const last = await prisma.upsellMessageButton.findFirst({
         where: { messageId },
         orderBy: { order: "desc" },
@@ -1054,7 +1136,9 @@ export function createFlowsRouter(): Router {
   });
 
   router.post("/:id/upsell/messages/:messageId/buttons/:buttonId/delete", async (req, res) => {
-    await prisma.upsellMessageButton.delete({ where: { id: req.params.buttonId } });
+    await prisma.upsellMessageButton.deleteMany({
+      where: { id: req.params.buttonId, message: { sequence: { flow: { ownerId: req.session.userId! } } } },
+    });
     res.redirect(withSuccess(`/admin/flows/${req.params.id}/upsell`, "Upsell salvo com sucesso!"));
   });
 
@@ -1080,7 +1164,7 @@ export function createFlowsRouter(): Router {
   }
 
   router.get("/:id/downsell", async (req, res) => {
-    const flow = await loadFlow(req.params.id);
+    const flow = await loadFlow(req.params.id, req.session.userId!);
     if (!flow) return res.status(404).send("Fluxo não encontrado.");
     const config = await loadDownsellConfig(flow.id);
     const mediaAssets = await loadMediaAssetsForFlow(flow);
@@ -1091,6 +1175,7 @@ export function createFlowsRouter(): Router {
 
   router.post("/:id/downsell", async (req, res) => {
     const flowId = req.params.id;
+    if (!(await ownsFlow(flowId, req.session.userId!))) return res.status(404).send("Fluxo não encontrado.");
     const active = req.body.active === "on";
     await prisma.downsellConfig.upsert({
       where: { flowId },
@@ -1104,6 +1189,7 @@ export function createFlowsRouter(): Router {
 
   router.post("/:id/downsell/sequences", async (req, res) => {
     const flowId = req.params.id;
+    if (!(await ownsFlow(flowId, req.session.userId!))) return res.status(404).send("Fluxo não encontrado.");
     const trigger = req.body.trigger === "PIX_GENERATED" ? "PIX_GENERATED" : "GENERAL";
     const config = await loadDownsellConfig(flowId);
 
@@ -1128,15 +1214,19 @@ export function createFlowsRouter(): Router {
     const discountType = req.body.discountType === "FIXED" ? "FIXED" : "PERCENT";
     const discountValue = Math.max(0, Number(req.body.discountValue ?? 0) || 0);
 
-    const sequence = await prisma.downsellSequence.update({
-      where: { id: req.params.seqId },
+    const ownerId = req.session.userId!;
+    await prisma.downsellSequence.updateMany({
+      where: { id: req.params.seqId, config: { flow: { ownerId } } },
       data: { message, delayMinutes, discountType, discountValue },
     });
-    res.redirect(withSuccess(`/admin/flows/${req.params.id}/downsell?tab=${sequence.trigger === "PIX_GENERATED" ? "pix" : "geral"}`, "Sequência salva com sucesso!"));
+    const sequence = await prisma.downsellSequence.findFirst({ where: { id: req.params.seqId, config: { flow: { ownerId } } } });
+    res.redirect(withSuccess(`/admin/flows/${req.params.id}/downsell?tab=${sequence?.trigger === "PIX_GENERATED" ? "pix" : "geral"}`, "Sequência salva com sucesso!"));
   });
 
   router.post("/:id/downsell/sequences/:seqId/toggle", async (req, res) => {
-    const sequence = await prisma.downsellSequence.findUnique({ where: { id: req.params.seqId } });
+    const sequence = await prisma.downsellSequence.findFirst({
+      where: { id: req.params.seqId, config: { flow: { ownerId: req.session.userId! } } },
+    });
     if (sequence) {
       await prisma.downsellSequence.update({ where: { id: sequence.id }, data: { active: !sequence.active } });
     }
@@ -1144,8 +1234,8 @@ export function createFlowsRouter(): Router {
   });
 
   router.post("/:id/downsell/sequences/:seqId/duplicate", async (req, res) => {
-    const original = await prisma.downsellSequence.findUnique({
-      where: { id: req.params.seqId },
+    const original = await prisma.downsellSequence.findFirst({
+      where: { id: req.params.seqId, config: { flow: { ownerId: req.session.userId! } } },
       include: DOWNSELL_SEQUENCE_INCLUDE,
     });
     if (original) {
@@ -1173,8 +1263,10 @@ export function createFlowsRouter(): Router {
   });
 
   router.post("/:id/downsell/sequences/:seqId/delete", async (req, res) => {
-    const sequence = await prisma.downsellSequence.findUnique({ where: { id: req.params.seqId } });
-    await prisma.downsellSequence.delete({ where: { id: req.params.seqId } });
+    const sequence = await prisma.downsellSequence.findFirst({
+      where: { id: req.params.seqId, config: { flow: { ownerId: req.session.userId! } } },
+    });
+    if (sequence) await prisma.downsellSequence.delete({ where: { id: sequence.id } });
     res.redirect(withSuccess(`/admin/flows/${req.params.id}/downsell?tab=${sequence?.trigger === "PIX_GENERATED" ? "pix" : "geral"}`, "Sequência excluída com sucesso!"));
   });
 
@@ -1182,7 +1274,9 @@ export function createFlowsRouter(): Router {
     const seqId = req.params.seqId;
     const mediaType = String(req.body.mediaType ?? "");
     const fileId = String(req.body.fileId ?? "").trim();
-    const sequence = await prisma.downsellSequence.findUnique({ where: { id: seqId } });
+    const sequence = await prisma.downsellSequence.findFirst({
+      where: { id: seqId, config: { flow: { ownerId: req.session.userId! } } },
+    });
     if (mediaType && fileId && sequence) {
       const existing = await prisma.downsellSequenceMedia.findMany({ where: { sequenceId: seqId } });
       if (existing.length < 3) {
@@ -1203,8 +1297,8 @@ export function createFlowsRouter(): Router {
     });
   }, async (req, res) => {
     const seqId = req.params.seqId;
-    const sequence = await prisma.downsellSequence.findUnique({
-      where: { id: seqId },
+    const sequence = await prisma.downsellSequence.findFirst({
+      where: { id: seqId, config: { flow: { ownerId: req.session.userId! } } },
       include: { config: { include: { flow: { include: { bots: true } } } } },
     });
     const tab = sequence?.trigger === "PIX_GENERATED" ? "pix" : "geral";
@@ -1239,8 +1333,8 @@ export function createFlowsRouter(): Router {
   });
 
   router.post("/:id/downsell/sequences/:seqId/media/:mediaId/delete", async (req, res) => {
-    const media = await prisma.downsellSequenceMedia.findUnique({
-      where: { id: req.params.mediaId },
+    const media = await prisma.downsellSequenceMedia.findFirst({
+      where: { id: req.params.mediaId, sequence: { config: { flow: { ownerId: req.session.userId! } } } },
       include: { sequence: true },
     });
     if (media) await prisma.downsellSequenceMedia.delete({ where: { id: media.id } });
@@ -1248,10 +1342,15 @@ export function createFlowsRouter(): Router {
   });
 
   router.post("/:id/downsell/sequences/:seqId/plans", async (req, res) => {
+    const flowId = req.params.id;
+    const ownerId = req.session.userId!;
     const seqId = req.params.seqId;
     const planId = String(req.body.planId ?? "").trim();
-    const sequence = await prisma.downsellSequence.findUnique({ where: { id: seqId } });
-    if (planId && sequence) {
+    const [sequence, plan] = await Promise.all([
+      prisma.downsellSequence.findFirst({ where: { id: seqId, config: { flow: { ownerId } } } }),
+      planId ? prisma.plan.findFirst({ where: { id: planId, flowId, flow: { ownerId } } }) : Promise.resolve(null),
+    ]);
+    if (planId && sequence && plan) {
       const last = await prisma.downsellSequencePlan.findFirst({
         where: { sequenceId: seqId },
         orderBy: { order: "desc" },
@@ -1265,8 +1364,8 @@ export function createFlowsRouter(): Router {
   });
 
   router.post("/:id/downsell/sequences/:seqId/plans/:linkId/delete", async (req, res) => {
-    const link = await prisma.downsellSequencePlan.findUnique({
-      where: { id: req.params.linkId },
+    const link = await prisma.downsellSequencePlan.findFirst({
+      where: { id: req.params.linkId, sequence: { config: { flow: { ownerId: req.session.userId! } } } },
       include: { sequence: true },
     });
     if (link) await prisma.downsellSequencePlan.delete({ where: { id: link.id } });
@@ -1274,7 +1373,7 @@ export function createFlowsRouter(): Router {
   });
 
   router.post("/:id/delete", async (req, res) => {
-    await prisma.flow.delete({ where: { id: req.params.id } });
+    await prisma.flow.deleteMany({ where: { id: req.params.id, ownerId: req.session.userId! } });
     res.redirect(withSuccess("/admin/flows", "Fluxo excluído com sucesso!"));
   });
 

@@ -10,12 +10,17 @@ export function createStatsRouter(): Router {
   const router = Router();
 
   router.get("/", async (req, res) => {
-    const bots = await prisma.bot.findMany({ orderBy: { createdAt: "asc" } });
-    const botId = typeof req.query.botId === "string" && req.query.botId ? req.query.botId : null;
+    const ownerId = req.session.userId!;
+    const bots = await prisma.bot.findMany({ where: { ownerId }, orderBy: { createdAt: "asc" } });
+    const ownerBotIds = bots.map((b) => b.id);
+    // Só aceita um botId da query string se pertencer a este usuário — sem
+    // isso, cai no conjunto de todos os bots dele (nunca do sistema todo).
+    const requestedBotId = typeof req.query.botId === "string" && req.query.botId ? req.query.botId : null;
+    const botId = requestedBotId && ownerBotIds.includes(requestedBotId) ? requestedBotId : null;
     const period = typeof req.query.period === "string" ? req.query.period : "7d";
     const { start, end } = resolvePeriodRange(period);
 
-    const botFilter = botId ? { botId } : {};
+    const botFilter = botId ? { botId } : { botId: { in: ownerBotIds } };
     const paidWhere = { status: "PAID" as const, paidAt: { gte: start, ...(end ? { lt: end } : {}) }, ...botFilter };
     const createdWhere = { createdAt: { gte: start, ...(end ? { lt: end } : {}) }, ...botFilter };
 
@@ -23,7 +28,12 @@ export function createStatsRouter(): Router {
     // o alias que fizer sentido pro seu próprio JOIN.
     const paidAtRange = (col: Prisma.Sql) =>
       Prisma.sql`${col} >= ${start} ${end ? Prisma.sql`AND ${col} < ${end}` : Prisma.empty}`;
-    const botCond = (col: Prisma.Sql) => (botId ? Prisma.sql`AND ${col} = ${botId}` : Prisma.empty);
+    const botCond = (col: Prisma.Sql) =>
+      botId
+        ? Prisma.sql`AND ${col} = ${botId}`
+        : ownerBotIds.length > 0
+          ? Prisma.sql`AND ${col} IN (${Prisma.join(ownerBotIds)})`
+          : Prisma.sql`AND FALSE`;
 
     const [
       // Grupo 1 — Vendas por tempo
@@ -106,14 +116,14 @@ export function createStatsRouter(): Router {
       prisma.lead.count({ where: createdWhere }),
       prisma.order.groupBy({ by: ["status"], where: createdWhere, _count: { _all: true } }),
       prisma.scheduledUpsellSend.findMany({
-        where: { sentAt: { gte: start, ...(end ? { lt: end } : {}) }, ...(botId ? { botId } : {}) },
+        where: { sentAt: { gte: start, ...(end ? { lt: end } : {}) }, ...botFilter },
         select: { leadId: true, sentAt: true },
       }),
       prisma.scheduledDownsellSend.findMany({
         where: {
           sentAt: { gte: start, ...(end ? { lt: end } : {}) },
           sequence: { trigger: "GENERAL" },
-          ...(botId ? { botId } : {}),
+          ...botFilter,
         },
         select: { leadId: true },
       }),
@@ -121,7 +131,7 @@ export function createStatsRouter(): Router {
         where: {
           sentAt: { gte: start, ...(end ? { lt: end } : {}) },
           sequence: { trigger: "PIX_GENERATED" },
-          ...(botId ? { botId } : {}),
+          ...botFilter,
         },
         select: { orderId: true },
       }),
@@ -154,7 +164,7 @@ export function createStatsRouter(): Router {
         orderBy: { _sum: { amountCents: "desc" } },
         take: 10,
       }),
-      prisma.dashboardNote.findMany({ orderBy: { createdAt: "desc" }, take: 50 }),
+      prisma.dashboardNote.findMany({ where: { ownerId }, orderBy: { createdAt: "desc" }, take: 50 }),
     ]);
 
     // ---- Grupo 1: Vendas por tempo ----
@@ -303,7 +313,7 @@ export function createStatsRouter(): Router {
 
     // ---- Fontes de tráfego (reaproveita Código de Venda) ----
     const originIds = originGroups10.map((g) => g.originId).filter((id): id is string => id != null);
-    const origins = await prisma.origin.findMany({ where: { id: { in: originIds } } });
+    const origins = await prisma.origin.findMany({ where: { id: { in: originIds }, ownerId } });
     const originById = new Map(origins.map((o) => [o.id, o]));
     const trafficSources = originGroups10.map((g) => ({
       label: g.originId ? originById.get(g.originId)?.label ?? g.originId : "Direto (sem código)",
@@ -344,12 +354,12 @@ export function createStatsRouter(): Router {
 
   router.post("/notes", async (req, res) => {
     const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
-    if (text) await prisma.dashboardNote.create({ data: { text } });
+    if (text) await prisma.dashboardNote.create({ data: { ownerId: req.session.userId!, text } });
     res.redirect(withSuccess("/admin/stats", "Nota adicionada!"));
   });
 
   router.post("/notes/:id/delete", async (req, res) => {
-    await prisma.dashboardNote.delete({ where: { id: req.params.id } }).catch(() => {});
+    await prisma.dashboardNote.deleteMany({ where: { id: req.params.id, ownerId: req.session.userId! } });
     res.redirect(withSuccess("/admin/stats", "Nota removida."));
   });
 

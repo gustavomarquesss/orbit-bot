@@ -168,11 +168,11 @@ export async function notifyAdminOfSale(params: {
     throw new Error(`notifyAdminOfSale: bot ${botId} não está registrado/ativo`);
   }
 
-  const [botRow, settings, origin] = await Promise.all([
+  const [botRow, origin] = await Promise.all([
     prisma.bot.findUniqueOrThrow({ where: { id: botId } }),
-    prisma.settings.findUnique({ where: { id: "singleton" } }),
     order.originId ? prisma.origin.findUnique({ where: { id: order.originId } }) : Promise.resolve(null),
   ]);
+  const settings = await prisma.settings.findUnique({ where: { ownerId: botRow.ownerId } });
 
   const target: number | string = settings?.salesChannelId ?? config.TELEGRAM_ADMIN_USER_ID;
   const displayName = [lead.firstName, lead.lastName].filter(Boolean).join(" ") || "—";

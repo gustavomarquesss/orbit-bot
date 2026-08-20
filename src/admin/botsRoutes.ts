@@ -25,8 +25,10 @@ const COMMAND_DEFAULTS: Record<"START" | "SUPORTE" | "STATUS", { emoji: string; 
 export function createBotsRouter(): Router {
   const router = Router();
 
-  router.get("/", async (_req, res) => {
+  router.get("/", async (req, res) => {
+    const ownerId = req.session.userId!;
     const bots = await prisma.bot.findMany({
+      where: { ownerId },
       orderBy: { createdAt: "asc" },
       include: {
         _count: { select: { leads: true, orders: true } },
@@ -34,7 +36,7 @@ export function createBotsRouter(): Router {
     });
     const revenueByBot = await prisma.order.groupBy({
       by: ["botId"],
-      where: { status: "PAID" },
+      where: { status: "PAID", bot: { ownerId } },
       _sum: { amountCents: true },
     });
     const revenueMap = new Map(revenueByBot.map((r) => [r.botId, r._sum.amountCents ?? 0]));
@@ -46,6 +48,7 @@ export function createBotsRouter(): Router {
   });
 
   router.post("/", async (req, res) => {
+    const ownerId = req.session.userId!;
     const token = String(req.body.token ?? "").trim();
     const label = String(req.body.label ?? "").trim();
     if (!token || !label) {
@@ -63,6 +66,7 @@ export function createBotsRouter(): Router {
 
     const bot = await prisma.bot.create({
       data: {
+        ownerId,
         label,
         telegramBotTokenEncrypted: encryptSecret(token),
         telegramUsername: me.username ?? null,
@@ -87,8 +91,8 @@ export function createBotsRouter(): Router {
   });
 
   router.get("/:id/edit", async (req, res) => {
-    const bot = await prisma.bot.findUnique({
-      where: { id: req.params.id },
+    const bot = await prisma.bot.findFirst({
+      where: { id: req.params.id, ownerId: req.session.userId! },
       include: { commands: { orderBy: { order: "asc" } } },
     });
     if (!bot) return res.status(404).send("Bot não encontrado.");
@@ -96,7 +100,7 @@ export function createBotsRouter(): Router {
   });
 
   router.post("/:id", async (req, res) => {
-    const bot = await prisma.bot.findUnique({ where: { id: req.params.id } });
+    const bot = await prisma.bot.findFirst({ where: { id: req.params.id, ownerId: req.session.userId! } });
     if (!bot) return res.status(404).send("Bot não encontrado.");
 
     const displayName = String(req.body.displayName ?? "").trim() || null;
@@ -123,7 +127,7 @@ export function createBotsRouter(): Router {
   });
 
   router.post("/:id/commands", async (req, res) => {
-    const bot = await prisma.bot.findUnique({ where: { id: req.params.id } });
+    const bot = await prisma.bot.findFirst({ where: { id: req.params.id, ownerId: req.session.userId! } });
     if (!bot) return res.status(404).send("Bot não encontrado.");
 
     const kinds = ["START", "SUPORTE", "STATUS"] as const;
@@ -162,7 +166,7 @@ export function createBotsRouter(): Router {
   // --- Biblioteca de mídia (captura automática via canal, ver src/bot/mediaCapture.ts) ---
 
   router.get("/:id/media", async (req, res) => {
-    const bot = await prisma.bot.findUnique({ where: { id: req.params.id } });
+    const bot = await prisma.bot.findFirst({ where: { id: req.params.id, ownerId: req.session.userId! } });
     if (!bot) return res.status(404).send("Bot não encontrado.");
     const assets = await prisma.mediaAsset.findMany({ where: { botId: bot.id }, orderBy: { createdAt: "desc" } });
     res.render("bots/media", { bot, assets, error: null });
@@ -175,7 +179,7 @@ export function createBotsRouter(): Router {
     // a mensagem certa.
     mediaUpload.single("file")(req, res, async (err) => {
       if (!err) return next();
-      const bot = await prisma.bot.findUnique({ where: { id: req.params.id } });
+      const bot = await prisma.bot.findFirst({ where: { id: req.params.id, ownerId: req.session.userId! } });
       if (!bot) return res.status(404).send("Bot não encontrado.");
       const assets = await prisma.mediaAsset.findMany({ where: { botId: bot.id }, orderBy: { createdAt: "desc" } });
       const message = err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE"
@@ -184,7 +188,7 @@ export function createBotsRouter(): Router {
       res.status(400).render("bots/media", { bot, assets, error: message });
     });
   }, async (req, res) => {
-    const bot = await prisma.bot.findUnique({ where: { id: req.params.id } });
+    const bot = await prisma.bot.findFirst({ where: { id: req.params.id, ownerId: req.session.userId! } });
     if (!bot) return res.status(404).send("Bot não encontrado.");
 
     if (!req.file) {
@@ -213,7 +217,9 @@ export function createBotsRouter(): Router {
   });
 
   router.post("/:id/media/:mediaId/delete", async (req, res) => {
-    await prisma.mediaAsset.delete({ where: { id: req.params.mediaId } });
+    await prisma.mediaAsset.deleteMany({
+      where: { id: req.params.mediaId, botId: req.params.id, bot: { ownerId: req.session.userId! } },
+    });
     res.redirect(withSuccess(`/admin/bots/${req.params.id}/media`, "Mídia removida com sucesso!"));
   });
 
@@ -226,7 +232,9 @@ export function createBotsRouter(): Router {
       where: { id: req.params.mediaId },
       include: { bot: true },
     });
-    if (!asset || asset.botId !== req.params.id) return res.status(404).send("Mídia não encontrada.");
+    if (!asset || asset.botId !== req.params.id || asset.bot.ownerId !== req.session.userId) {
+      return res.status(404).send("Mídia não encontrada.");
+    }
 
     const telegraf = getTelegraf(asset.botId);
     if (!telegraf) return res.status(503).send("Bot offline — não é possível buscar a mídia agora.");
@@ -248,6 +256,10 @@ export function createBotsRouter(): Router {
   });
 
   router.post("/:id/delete", async (req, res) => {
+    const ownerId = req.session.userId!;
+    const bot = await prisma.bot.findFirst({ where: { id: req.params.id, ownerId } });
+    if (!bot) return res.status(404).send("Bot não encontrado.");
+
     // Deleta do banco ANTES de mexer no Telegram — se o bot tiver Orders
     // (histórico financeiro), o delete falha por causa da foreign key
     // (de propósito: não cascateia venda paga junto com o bot) e não queremos
@@ -257,12 +269,13 @@ export function createBotsRouter(): Router {
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2003") {
         const bots = await prisma.bot.findMany({
+          where: { ownerId },
           orderBy: { createdAt: "asc" },
           include: { _count: { select: { leads: true, orders: true } } },
         });
         const revenueByBot = await prisma.order.groupBy({
           by: ["botId"],
-          where: { status: "PAID" },
+          where: { status: "PAID", bot: { ownerId } },
           _sum: { amountCents: true },
         });
         const revenueMap = new Map(revenueByBot.map((r) => [r.botId, r._sum.amountCents ?? 0]));

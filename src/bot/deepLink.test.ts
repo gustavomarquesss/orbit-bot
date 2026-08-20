@@ -3,7 +3,9 @@ import type { Context } from "telegraf";
 
 vi.mock("../db/client.js", () => ({
   prisma: {
+    bot: { findUnique: vi.fn() },
     origin: {
+      findFirst: vi.fn(),
       findUnique: vi.fn(),
       create: vi.fn(),
     },
@@ -21,6 +23,7 @@ import { resolveOriginAndUpsertLead, touchLead } from "./deepLink.js";
 
 const mockedPrisma = vi.mocked(prisma, { deep: true });
 const BOT_ID = "bot1";
+const OWNER_ID = "owner1";
 
 function fakeCtx(from: { id: number; username?: string; first_name?: string; last_name?: string }): Context {
   return { from } as unknown as Context;
@@ -28,6 +31,7 @@ function fakeCtx(from: { id: number; username?: string; first_name?: string; las
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockedPrisma.bot.findUnique.mockResolvedValue({ ownerId: OWNER_ID } as never);
 });
 
 describe("resolveOriginAndUpsertLead", () => {
@@ -43,7 +47,7 @@ describe("resolveOriginAndUpsertLead", () => {
 
     expect(result?.isNewLead).toBe(true);
     expect(result?.origin).toBeNull();
-    expect(mockedPrisma.origin.findUnique).not.toHaveBeenCalled();
+    expect(mockedPrisma.origin.findFirst).not.toHaveBeenCalled();
     expect(mockedPrisma.lead.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ telegramId: 111n, originId: undefined }) })
     );
@@ -51,7 +55,7 @@ describe("resolveOriginAndUpsertLead", () => {
 
   it("associa o lead novo à origem existente que bate com o param", async () => {
     const origin = { id: "origin1", param: "campanha-x", label: "Campanha X", kind: "CAMPAIGN" };
-    mockedPrisma.origin.findUnique.mockResolvedValue(origin as never);
+    mockedPrisma.origin.findFirst.mockResolvedValue(origin as never);
     mockedPrisma.lead.findUnique.mockResolvedValue(null);
     mockedPrisma.lead.create.mockResolvedValue({
       id: "lead2",
@@ -68,7 +72,7 @@ describe("resolveOriginAndUpsertLead", () => {
   });
 
   it("cria automaticamente uma Origin desconhecida em vez de descartar o param", async () => {
-    mockedPrisma.origin.findUnique.mockResolvedValue(null);
+    mockedPrisma.origin.findFirst.mockResolvedValue(null);
     mockedPrisma.origin.create.mockResolvedValue({
       id: "origin-novo",
       param: "param-nunca-visto",
@@ -82,7 +86,7 @@ describe("resolveOriginAndUpsertLead", () => {
 
     expect(mockedPrisma.origin.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: { param: "param-nunca-visto", label: "param-nunca-visto", kind: "OTHER" },
+        data: { param: "param-nunca-visto", label: "param-nunca-visto", kind: "OTHER", ownerId: OWNER_ID },
       })
     );
     expect(result?.origin?.id).toBe("origin-novo");
@@ -90,9 +94,8 @@ describe("resolveOriginAndUpsertLead", () => {
 
   it("não sobrescreve a origem de um lead que já existia (atribuição de primeiro contato)", async () => {
     const firstTouchOrigin = { id: "origin-original", param: "primeiro", label: "primeiro", kind: "OTHER" };
-    mockedPrisma.origin.findUnique
-      .mockResolvedValueOnce({ id: "origin-segundo", param: "segundo" } as never) // resolveOrigin(payload)
-      .mockResolvedValueOnce(firstTouchOrigin as never); // busca da origin já salva no lead
+    mockedPrisma.origin.findFirst.mockResolvedValueOnce({ id: "origin-segundo", param: "segundo" } as never); // resolveOrigin(payload)
+    mockedPrisma.origin.findUnique.mockResolvedValueOnce(firstTouchOrigin as never); // busca da origin já salva no lead
 
     mockedPrisma.lead.findUnique.mockResolvedValue({
       id: "lead4",

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("../db/client.js", () => ({
   prisma: {
+    bot: { findUnique: vi.fn() },
     settings: { findUnique: vi.fn() },
     mediaAsset: { create: vi.fn() },
   },
@@ -22,7 +23,8 @@ import { uploadMediaToLibrary, uploadDeliverableFile } from "./mediaUpload.js";
 describe("uploadMediaToLibrary", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(prisma.settings.findUnique).mockResolvedValue({ id: "singleton", salesChannelId: "-100123" } as never);
+    vi.mocked(prisma.bot.findUnique).mockResolvedValue({ ownerId: "owner-1" } as never);
+    vi.mocked(prisma.settings.findUnique).mockResolvedValue({ id: "settings-1", ownerId: "owner-1", salesChannelId: "-100123" } as never);
   });
 
   it("sobe foto via sendPhoto e usa a maior resolução como file_id", async () => {
@@ -73,7 +75,7 @@ describe("uploadMediaToLibrary", () => {
   });
 
   it("lança erro claro se o canal de vendas/mídias não está configurado", async () => {
-    vi.mocked(prisma.settings.findUnique).mockResolvedValue({ id: "singleton", salesChannelId: null } as never);
+    vi.mocked(prisma.settings.findUnique).mockResolvedValue({ id: "settings-1", ownerId: "owner-1", salesChannelId: null } as never);
     await expect(
       uploadMediaToLibrary({ botId: "bot-1", buffer: Buffer.from("x"), mimeType: "image/png", filename: "foto.png" })
     ).rejects.toThrow(/configure o canal/i);

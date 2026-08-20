@@ -84,34 +84,47 @@ export function createAdminRouter(): Router {
   router.use("/mailing", createMailingRouter());
   router.use("/stats", createStatsRouter());
 
-  router.get("/settings", async (_req, res) => {
-    const settings = await prisma.settings.findUnique({ where: { id: "singleton" } });
+  router.get("/settings", async (req, res) => {
+    const settings = await prisma.settings.findUnique({ where: { ownerId: req.session.userId! } });
     res.render("settings", { settings: settings ?? { salesChannelId: null } });
   });
 
   router.post("/settings", async (req, res) => {
+    const ownerId = req.session.userId!;
     const salesChannelId =
       typeof req.body?.salesChannelId === "string" && req.body.salesChannelId.trim()
         ? req.body.salesChannelId.trim()
         : null;
 
     await prisma.settings.upsert({
-      where: { id: "singleton" },
+      where: { ownerId },
       update: { salesChannelId },
-      create: { id: "singleton", salesChannelId },
+      create: { ownerId, salesChannelId },
     });
 
     res.redirect(withSuccess("/admin/settings", "Configurações salvas com sucesso!"));
   });
 
   router.get("/", async (req, res) => {
-    const bots = await prisma.bot.findMany({ orderBy: { createdAt: "asc" } });
+    const ownerId = req.session.userId!;
+    const bots = await prisma.bot.findMany({ where: { ownerId }, orderBy: { createdAt: "asc" } });
 
-    const botId = typeof req.query.botId === "string" && req.query.botId ? req.query.botId : null;
+    // Só aceita um botId da query string se ele realmente pertencer a este
+    // usuário — evita que alguém passe o id do bot de outro dono na URL e
+    // veja os dados dele. Sem botId válido, cai no conjunto de TODOS os
+    // bots deste usuário (nunca "todos os bots do sistema").
+    const requestedBotId = typeof req.query.botId === "string" && req.query.botId ? req.query.botId : null;
+    const ownerBotIds = bots.map((b) => b.id);
+    const botId = requestedBotId && ownerBotIds.includes(requestedBotId) ? requestedBotId : null;
     const period = typeof req.query.period === "string" ? req.query.period : "7d";
     const { start, end } = resolvePeriodRange(period);
 
-    const botFilter = botId ? { botId } : {};
+    const botFilter = botId ? { botId } : { botId: { in: ownerBotIds } };
+    const botIdSql = botId
+      ? Prisma.sql`AND "botId" = ${botId}`
+      : ownerBotIds.length > 0
+        ? Prisma.sql`AND "botId" IN (${Prisma.join(ownerBotIds)})`
+        : Prisma.sql`AND FALSE`;
     // "Vendas aprovadas"/ticket médio/tempo médio/ranking são todos sobre
     // QUANDO a venda foi paga (paidAt), não quando o PIX foi gerado — bate
     // com o que já foi corrigido no canal de vendas (Fase 2, Milestone 2).
@@ -147,7 +160,7 @@ export function createAdminRouter(): Router {
         FROM "Order"
         WHERE status = 'PAID' AND "paidAt" >= ${start}
         ${end ? Prisma.sql`AND "paidAt" < ${end}` : Prisma.empty}
-        ${botId ? Prisma.sql`AND "botId" = ${botId}` : Prisma.empty}
+        ${botIdSql}
       `),
       prisma.order.groupBy({
         by: ["originId"],
@@ -192,7 +205,7 @@ export function createAdminRouter(): Router {
         SELECT date_trunc('day', "paidAt" - interval '3 hours') + interval '3 hours' AS day, SUM("amountCents") AS revenue
         FROM "Order"
         WHERE status = 'PAID' AND "paidAt" >= ${new Date(startOfDayBR(new Date()).getTime() - 6 * 86_400_000)}
-        ${botId ? Prisma.sql`AND "botId" = ${botId}` : Prisma.empty}
+        ${botIdSql}
         GROUP BY day
         ORDER BY day ASC
       `),
@@ -205,7 +218,7 @@ export function createAdminRouter(): Router {
     const userConversionRate = startsCount > 0 ? (convertedLeadsCount / startsCount) * 100 : 0;
 
     const originIds = originGroups.map((g) => g.originId).filter((id): id is string => id != null);
-    const origins = await prisma.origin.findMany({ where: { id: { in: originIds } } });
+    const origins = await prisma.origin.findMany({ where: { id: { in: originIds }, ownerId } });
     const originById = new Map(origins.map((o) => [o.id, o]));
     const originRanking = originGroups.map((g) => ({
       label: g.originId ? originById.get(g.originId)?.label ?? g.originId : "Direto (sem código)",

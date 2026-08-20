@@ -24,6 +24,12 @@ model User {
   /// scrypt (src/lib/password.ts) — nunca texto plano.
   passwordHash String
   createdAt    DateTime @default(now())
+
+  bots     Bot[]
+  flows    Flow[]
+  origins  Origin[]
+  settings Settings?
+  notes    DashboardNote[]
 }
 
 /// Tabela do connect-pg-simple (session store do express-session, ver
@@ -39,33 +45,39 @@ model Session {
   @@map("session")
 }
 
-/// Linha única (id fixo "singleton") de configurações globais do painel —
-/// hoje só o canal de vendas, mas o padrão fica pronto pra crescer sem
-/// precisar de variável de ambiente nova a cada config (evita redeploy).
+/// Configurações do painel — uma linha por usuário (Fase 3; era uma linha
+/// global fixa "singleton" antes disso).
 model Settings {
-  id             String  @id @default("singleton")
+  id      String @id @default(cuid())
+  ownerId String @unique
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   /// Canal/grupo do Telegram (id numérico, ex: "-1001234567890") — "canal de
   /// registro" com duas funções: recebe a notificação de toda venda
-  /// aprovada de todos os bots, E serve de armazenamento pra mídia
-  /// enviada via upload no painel (src/bot/mediaUpload.ts) — mesmo campo
-  /// pras duas coisas (decisão do usuário, 2026-08-20, espelhando a
+  /// aprovada de todos os bots do usuário, E serve de armazenamento pra
+  /// mídia enviada via upload no painel (src/bot/mediaUpload.ts) — mesmo
+  /// campo pras duas coisas (decisão do usuário, 2026-08-20, espelhando a
   /// referência ApexVips). Nulo = notificação de venda cai no fallback
   /// antigo (DM pro TELEGRAM_ADMIN_USER_ID); upload de mídia fica bloqueado
   /// até configurar.
   salesChannelId String?
 }
 
-/// Fonte de tráfego rastreável: outro bot, canal, campanha etc.
-/// `param` é o valor usado no deep link t.me/seu_bot?start=param
+/// Fonte de tráfego rastreável: outro bot, canal, campanha etc. `param` é o
+/// valor usado no deep link t.me/seu_bot?start=param — único por usuário
+/// (Fase 3), não mais global, pra dois usuários poderem usar o mesmo código.
 model Origin {
   id        String     @id @default(cuid())
-  param     String     @unique
+  ownerId   String
+  owner     User       @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  param     String
   label     String
   kind      OriginKind @default(OTHER)
   createdAt DateTime   @default(now())
 
   leads  Lead[]
   orders Order[]
+
+  @@unique([ownerId, param])
 }
 
 enum OriginKind {
@@ -79,6 +91,8 @@ enum OriginKind {
 /// TELEGRAM_BOT_TOKEN único no .env — agora dá pra ter vários).
 model Bot {
   id                        String   @id @default(cuid())
+  ownerId                   String
+  owner                     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   label                     String
   /// Token do BotFather, criptografado (AES-256-GCM via src/lib/crypto.ts).
   /// Nunca gravar em texto plano.
@@ -176,7 +190,9 @@ model Lead {
 /// Um funil de vendas (pode ser vinculado a múltiplos Bots via FlowBot).
 model Flow {
   id          String   @id @default(cuid())
-  key         String   @unique
+  ownerId     String
+  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  key         String
   name        String
   description String?
   createdAt   DateTime @default(now())
@@ -192,6 +208,8 @@ model Flow {
   packConfig      PackConfig?
   previewConfig   PreviewConfig?
   previewViews    PreviewView[]
+
+  @@unique([ownerId, key])
 }
 
 /// "Bots Vinculados" de um Flow — quais bots executam este funil.
@@ -832,9 +850,11 @@ model ScheduledCountdownEdit {
 
 /// Uma nota do "Diário de Mudanças" da página Estatísticas — anotação livre
 /// do operador (ex: "mudei o preço do plano X") pra correlacionar com o
-/// resultado depois. Sem autor/categoria: painel de operador único.
+/// resultado depois. Uma por usuário (Fase 3) — sem categoria além disso.
 model DashboardNote {
   id        String   @id @default(cuid())
+  ownerId   String
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   text      String   @db.Text
   createdAt DateTime @default(now())
 }
