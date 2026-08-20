@@ -230,7 +230,9 @@ export function createFlowsRouter(): Router {
   router.get("/:id/plans", async (req, res) => {
     const flow = await loadFlow(req.params.id);
     if (!flow) return res.status(404).send("Fluxo não encontrado.");
-    res.render("flows/plans", { flow, editingPlan: null, error: null, fileError: null });
+    const fileError = typeof req.query.fileError === "string" ? req.query.fileError : null;
+    const deliveryError = typeof req.query.deliveryError === "string" ? req.query.deliveryError : null;
+    res.render("flows/plans", { flow, editingPlan: null, error: null, fileError, deliveryError });
   });
 
   router.get("/:id/plans/:planId/edit", async (req, res) => {
@@ -238,7 +240,8 @@ export function createFlowsRouter(): Router {
     if (!flow) return res.status(404).send("Fluxo não encontrado.");
     const editingPlan = flow.plans.find((p) => p.id === req.params.planId) ?? null;
     const fileError = typeof req.query.fileError === "string" ? req.query.fileError : null;
-    res.render("flows/plans", { flow, editingPlan, error: null, fileError });
+    const deliveryError = typeof req.query.deliveryError === "string" ? req.query.deliveryError : null;
+    res.render("flows/plans", { flow, editingPlan, error: null, fileError, deliveryError });
   });
 
   function parsePriceToCents(input: string): number | null {
@@ -394,41 +397,42 @@ export function createFlowsRouter(): Router {
   // Usada por todo Plano com deliveryType nulo ("usar padrão do fluxo") —
   // ver resolveEffectiveDelivery em src/bot/delivery.ts. Renomeado de
   // "canal-cofre" a pedido do usuário, 2026-08-20, espelhando a referência
-  // ApexVips/SharkBot.
-
-  router.get("/:id/delivery", async (req, res) => {
-    const flow = await loadFlow(req.params.id);
-    if (!flow) return res.status(404).send("Fluxo não encontrado.");
-    const deliveryError = typeof req.query.deliveryError === "string" ? req.query.deliveryError : null;
-    res.render("flows/delivery", { flow, deliveryError });
-  });
+  // ApexVips/SharkBot. Vive dentro da própria tela de Planos (não é mais uma
+  // seção própria do menu) — pedido do usuário, 2026-08-20.
 
   router.post("/:id/delivery", async (req, res) => {
     const flowId = req.params.id;
-    const deliveryType = req.body.deliveryType === "LINK" ? "LINK" : "FILE";
+    const deliveryType = parseDeliveryType(req.body.deliveryType) ?? "FILE";
     const deliveryTarget = String(req.body.deliveryTarget ?? "").trim() || null;
     const externalLink = String(req.body.externalLink ?? "").trim() || null;
+    const subscriptionChannelId = String(req.body.subscriptionChannelId ?? "").trim() || null;
 
     // fileTelegramId propositalmente fora do "data" — mesmo motivo do Plano:
     // só a rota de upload mexe nesse campo.
+    const data = {
+      deliveryType,
+      deliveryTarget: deliveryType === "FILE" ? deliveryTarget : null,
+      externalLink: deliveryType === "LINK" ? externalLink : null,
+      subscriptionChannelId: deliveryType === "CHANNEL" ? subscriptionChannelId : null,
+    };
     await prisma.flowDelivery.upsert({
       where: { flowId },
-      update: { deliveryType, deliveryTarget, externalLink },
-      create: { flowId, deliveryType, deliveryTarget, externalLink },
+      update: data,
+      create: { flowId, ...data },
     });
 
-    res.redirect(`/admin/flows/${flowId}/delivery`);
+    res.redirect(`/admin/flows/${flowId}/plans`);
   });
 
   router.post("/:id/delivery/file/upload", (req, res, next) => {
     mediaUpload.single("file")(req, res, (err) => {
       if (!err) return next();
       console.error(`[flows] falha no upload da Entrega Padrão (flow ${req.params.id})`, err);
-      res.redirect(`/admin/flows/${req.params.id}/delivery?deliveryError=${encodeURIComponent(multerErrorMessage(err))}`);
+      res.redirect(`/admin/flows/${req.params.id}/plans?deliveryError=${encodeURIComponent(multerErrorMessage(err))}`);
     });
   }, async (req, res) => {
     const flowId = req.params.id;
-    const editUrl = `/admin/flows/${flowId}/delivery`;
+    const editUrl = `/admin/flows/${flowId}/plans`;
     const flow = await prisma.flow.findUnique({ where: { id: flowId }, include: { bots: true, delivery: true } });
     if (!flow) return res.status(404).send("Fluxo não encontrado.");
     if (!req.file) return res.redirect(editUrl);

@@ -1,39 +1,60 @@
-<% const isEdit = !!editingPlan; %>
+<%
+  const isEdit = !!editingPlan;
+  const d = flow.delivery || {};
+  function deliveryLabel(p) {
+    if (!p.deliveryType) return "Entrega padrão";
+    if (p.deliveryType === "FILE") return "Arquivo";
+    if (p.deliveryType === "CHANNEL") return "Canal VIP";
+    return "Link";
+  }
+%>
 <%- include("../partials/header", { title: flow.name + " — Planos", active: "flows" }) %>
 <%- include("./partials/nav", { flow, section: "plans" }) %>
 
+<% if (typeof deliveryError !== "undefined" && deliveryError) { %><div class="alert alert-error text-sm mb-4"><%= deliveryError %></div><% } %>
+
 <div class="card bg-base-200 border border-base-300 shadow-sm mb-6">
   <div class="card-body">
-    <h3 class="font-semibold mb-2">Planos</h3>
-    <div class="overflow-x-auto">
-      <table class="table">
-        <thead>
-          <tr><th>Nome</th><th>Preço</th><th>Duração</th><th>Entrega</th><th>Status</th><th></th></tr>
-        </thead>
-        <tbody>
-          <% flow.plans.forEach(function(p) { %>
-            <tr>
-              <td><%= p.name %></td>
-              <td><%= formatBRL(p.priceCents) %></td>
-              <td><%= p.durationDays ? p.durationDays + " dias" : "Pagamento único" %></td>
-              <td><%= !p.deliveryType ? "Padrão do fluxo" : p.deliveryType === "FILE" ? "Arquivo" : p.deliveryType === "CHANNEL" ? "Canal VIP" : "Link" %></td>
-              <td><% if (p.active) { %><span class="badge badge-success badge-sm">ativo</span><% } else { %><span class="badge badge-ghost badge-sm">inativo</span><% } %></td>
-              <td class="flex gap-1.5">
-                <a class="btn btn-xs btn-outline" href="/admin/flows/<%= flow.id %>/plans/<%= p.id %>/edit">Editar</a>
-                <form method="POST" action="/admin/flows/<%= flow.id %>/plans/<%= p.id %>/delete" class="inline" onsubmit="return confirm('Excluir este plano?');">
-                  <button class="btn btn-xs btn-error btn-outline" type="submit">Excluir</button>
-                </form>
-              </td>
-            </tr>
-          <% }); %>
-          <% if (flow.plans.length === 0) { %><tr><td colspan="6" class="text-base-content/50 py-4">Nenhum plano cadastrado ainda.</td></tr><% } %>
-        </tbody>
-      </table>
+    <div class="flex items-center justify-between mb-2">
+      <h3 class="font-semibold">Planos de Pagamento</h3>
+      <span class="text-sm text-base-content/50"><%= flow.plans.length %>/10</span>
     </div>
+    <p class="text-sm text-base-content/60 mb-3">Configure até 10 planos com entregas personalizadas.</p>
+
+    <div class="flex flex-col divide-y divide-base-300 border-y border-base-300 mb-4">
+      <% flow.plans.forEach(function(p) { %>
+        <div class="flex items-center justify-between py-3 gap-3">
+          <a href="/admin/flows/<%= flow.id %>/plans/<%= p.id %>/edit" class="flex items-center gap-3 flex-1 min-w-0 no-underline text-inherit group">
+            <div class="rounded-lg bg-base-300/60 p-2 shrink-0 text-base-content/70">
+              <%- icon("credit-card", "w-4 h-4") %>
+            </div>
+            <div class="min-w-0">
+              <div class="font-semibold text-sm truncate group-hover:text-primary transition-colors"><%= p.name %></div>
+              <div class="text-xs text-base-content/50 truncate">
+                <%= formatBRL(p.priceCents) %> • <%= p.durationDays ? p.durationDays + " dias" : "Pagamento único" %> • <%= deliveryLabel(p) %><% if (!p.active) { %> • inativo<% } %>
+              </div>
+            </div>
+          </a>
+          <div class="flex items-center gap-2 shrink-0">
+            <form method="POST" action="/admin/flows/<%= flow.id %>/plans/<%= p.id %>/delete" onsubmit="return confirm('Excluir este plano?');">
+              <button class="btn btn-xs btn-error btn-outline" type="submit">Excluir</button>
+            </form>
+            <span class="text-base-content/30 text-lg leading-none px-1">&rsaquo;</span>
+          </div>
+        </div>
+      <% }); %>
+      <% if (flow.plans.length === 0) { %><p class="text-base-content/50 py-4 text-sm">Nenhum plano cadastrado ainda.</p><% } %>
+    </div>
+
+    <button type="button" class="btn btn-outline w-full <%= isEdit ? "hidden" : "" %>" id="showNewPlanBtn" onclick="
+      document.getElementById('plan-form-card').classList.remove('hidden');
+      document.getElementById('showNewPlanBtn').classList.add('hidden');
+      document.getElementById('plan-form-card').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    ">+ Adicionar Plano</button>
   </div>
 </div>
 
-<div class="card bg-base-200 border border-base-300 shadow-sm">
+<div id="plan-form-card" class="card bg-base-200 border border-base-300 shadow-sm mb-6 <%= isEdit ? "" : "hidden" %>">
   <div class="card-body">
     <h3 class="font-semibold mb-2"><%= isEdit ? "Editar plano" : "Novo plano" %></h3>
     <% if (error) { %><div class="alert alert-error text-sm mb-3"><%= error %></div><% } %>
@@ -66,7 +87,7 @@
       </label>
 
       <label class="form-control">
-        <div class="label"><span class="label-text">Tipo de entrega</span></div>
+        <div class="label"><span class="label-text">Destino da Entrega</span></div>
         <select id="deliveryType" name="deliveryType" class="select select-bordered w-full" onchange="
           document.getElementById('default-fields-note').style.display = this.value === '' ? 'block' : 'none';
           document.getElementById('file-fields').style.display = this.value === 'FILE' ? 'block' : 'none';
@@ -82,7 +103,7 @@
       </label>
 
       <p id="default-fields-note" class="text-sm text-base-content/60 -mt-2" style="display: <%= !editingPlan || !editingPlan.deliveryType ? "block" : "none" %>;">
-        Este plano vai usar a <a class="link" href="/admin/flows/<%= flow.id %>/delivery">Entrega Padrão do fluxo</a>.
+        Este plano vai usar a Entrega Padrão do fluxo (logo abaixo).
       </p>
 
       <% /* O upload de arquivo (mediaUploadWidget) tem <form> próprio — não
@@ -123,7 +144,14 @@
 
       <div class="flex gap-2">
         <button class="btn btn-primary" type="submit">Salvar</button>
-        <% if (isEdit) { %><a class="btn btn-ghost" href="/admin/flows/<%= flow.id %>/plans">Cancelar</a><% } %>
+        <% if (isEdit) { %>
+          <a class="btn btn-ghost" href="/admin/flows/<%= flow.id %>/plans">Cancelar</a>
+        <% } else { %>
+          <button type="button" class="btn btn-ghost" onclick="
+            document.getElementById('plan-form-card').classList.add('hidden');
+            document.getElementById('showNewPlanBtn').classList.remove('hidden');
+          ">Cancelar</button>
+        <% } %>
       </div>
     </form>
 
@@ -138,6 +166,68 @@
         <%- include("../partials/mediaUploadWidget", { id: "planFile", uploadUrl: `/admin/flows/${flow.id}/plans/${editingPlan.id}/file/upload` }) %>
       <% } else { %>
         <p class="text-sm text-base-content/50">Salve o plano primeiro (com "Arquivo" selecionado) — depois edite pra enviar o arquivo.</p>
+      <% } %>
+    </div>
+  </div>
+</div>
+
+<div class="card bg-base-200 border border-base-300 shadow-sm">
+  <div class="card-body">
+    <h3 class="font-semibold mb-1">Entrega Padrão (Fallback)</h3>
+    <p class="text-sm text-base-content/60 mb-4">Usada quando o plano está em "Usar padrão do fluxo" (a opção default ao criar um Plano novo) — assim você não precisa configurar arquivo/link/canal em todo Plano, um só já cobre todos.</p>
+
+    <form method="POST" action="/admin/flows/<%= flow.id %>/delivery" class="flex flex-col gap-4">
+      <label class="form-control">
+        <div class="label"><span class="label-text">Destino da Entrega</span></div>
+        <select id="flowDeliveryType" name="deliveryType" class="select select-bordered w-full max-w-xs" onchange="
+          document.getElementById('flow-delivery-file-fields').style.display = this.value === 'FILE' ? 'block' : 'none';
+          document.getElementById('flow-delivery-link-fields').style.display = this.value === 'LINK' ? 'block' : 'none';
+          document.getElementById('flow-delivery-channel-fields').style.display = this.value === 'CHANNEL' ? 'block' : 'none';
+          document.getElementById('delivery-file-fields').style.display = this.value === 'FILE' ? 'block' : 'none';
+        ">
+          <option value="FILE" <%= !d.deliveryType || d.deliveryType === "FILE" ? "selected" : "" %>>Arquivo</option>
+          <option value="LINK" <%= d.deliveryType === "LINK" ? "selected" : "" %>>Link externo</option>
+          <option value="CHANNEL" <%= d.deliveryType === "CHANNEL" ? "selected" : "" %>>Canal/grupo VIP (assinatura)</option>
+        </select>
+      </label>
+
+      <div id="flow-delivery-file-fields" style="display: <%= !d.deliveryType || d.deliveryType === "FILE" ? "block" : "none" %>;">
+        <label class="form-control">
+          <div class="label"><span class="label-text">Canal do arquivo-fonte (Telegram)</span></div>
+          <input type="text" name="deliveryTarget" value="<%= d.deliveryTarget || "" %>" placeholder="-1001234567890" class="input input-bordered w-full" />
+          <div class="label"><span class="label-text-alt text-base-content/60">O bot precisa ser membro desse canal/grupo. Salve aqui antes de enviar o arquivo abaixo.</span></div>
+        </label>
+      </div>
+
+      <div id="flow-delivery-link-fields" style="display: <%= d.deliveryType === "LINK" ? "block" : "none" %>;">
+        <label class="form-control">
+          <div class="label"><span class="label-text">Link a enviar após o pagamento</span></div>
+          <input type="text" name="externalLink" value="<%= d.externalLink || "" %>" placeholder="https://..." class="input input-bordered w-full" />
+        </label>
+      </div>
+
+      <div id="flow-delivery-channel-fields" style="display: <%= d.deliveryType === "CHANNEL" ? "block" : "none" %>;">
+        <label class="form-control">
+          <div class="label"><span class="label-text">ID do canal/grupo VIP</span></div>
+          <input type="text" name="subscriptionChannelId" value="<%= d.subscriptionChannelId || "" %>" placeholder="-1001234567890" class="input input-bordered w-full" />
+          <div class="label"><span class="label-text-alt text-base-content/60">O bot precisa ser admin desse canal/grupo com permissão de convidar e remover membros — sem upload de arquivo nenhum, é só o convite.</span></div>
+        </label>
+      </div>
+
+      <div><button class="btn btn-primary" type="submit">Salvar</button></div>
+    </form>
+
+    <div id="delivery-file-fields" class="mt-4 pt-4 border-t border-base-300" style="display: <%= !d.deliveryType || d.deliveryType === "FILE" ? "block" : "none" %>;">
+      <div class="label px-0"><span class="label-text">Arquivo entregue</span></div>
+      <% if (d.fileTelegramId) { %>
+        <p class="text-sm text-success mb-2">✓ Arquivo enviado (mensagem <%= d.fileTelegramId %> no canal configurado).</p>
+      <% } else { %>
+        <p class="text-sm text-base-content/50 mb-2">Nenhum arquivo enviado ainda.</p>
+      <% } %>
+      <% if (d.deliveryTarget) { %>
+        <%- include("../partials/mediaUploadWidget", { id: "flowDelivery", uploadUrl: "/admin/flows/" + flow.id + "/delivery/file/upload" }) %>
+      <% } else { %>
+        <p class="text-sm text-base-content/50">Preencha e salve o "Destino da Entrega" acima antes de enviar o arquivo.</p>
       <% } %>
     </div>
   </div>

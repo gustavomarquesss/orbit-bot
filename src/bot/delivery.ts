@@ -53,7 +53,7 @@ export function resolveEffectiveDelivery(
       deliveryType: flowDelivery.deliveryType,
       fileTelegramId: flowDelivery.fileTelegramId,
       externalLink: flowDelivery.externalLink,
-      subscriptionChannelId: null,
+      subscriptionChannelId: flowDelivery.subscriptionChannelId,
       protectContent: plan.protectContent,
     },
     deliveryTarget: flowDelivery.deliveryTarget,

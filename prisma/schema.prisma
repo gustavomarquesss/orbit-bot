@@ -232,6 +232,11 @@ model FlowDelivery {
   fileTelegramId String?
   /// Usado quando deliveryType = LINK.
   externalLink   String?
+  /// Usado quando deliveryType = CHANNEL — mesmo mecanismo de convite de uso
+  /// único do Plan.subscriptionChannelId (2026-08-20, pedido do usuário: a
+  /// Entrega Padrão também precisa suportar Canal sem exigir upload de
+  /// arquivo).
+  subscriptionChannelId String?
 }
 
 enum MediaType {
