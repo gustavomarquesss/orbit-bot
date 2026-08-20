@@ -239,13 +239,52 @@ estado). Verificado com um disparo real (segmento "Todos", 1 lead) —
 painel mostrou "1 enviada / 0 falharam" e o usuário confirmou a mensagem
 chegando no Telegram.
 
+**Milestone 7 (dashboard) implementado e verificado (2026-08-19)** — fecha
+a Fase 2 inteira, exceto WiinPay (bloqueado, ver abaixo). Dashboard
+reescrito com filtro de bot + período (`hoje`/`ontem`/`7d`/`30d`/`total`,
+querystring `?botId=&period=`) na querystring do `GET /admin`. Métricas
+novas, todas deriváveis do que já existe (sem modelo novo): vendas
+aprovadas (qtd+R$, por `paidAt`, não `createdAt` — mesmo critério já usado
+no canal de vendas), ticket médio, tempo médio até pagar (`paidAt -
+createdAt`, raw SQL com `EXTRACT(EPOCH ...)`), starts (Leads novos no
+período), conversão de usuário (compradores/leads novos), conversão de
+pagamento (pagos/PIX gerados no período), ranking top-5 por Código de Venda
+(Origin, soma de receita). Gráfico de cobranças por dia agora acompanha o
+período escolhido (antes fixo em 14 dias); em período "total" o gráfico é
+limitado aos últimos 90 dias por legibilidade, mas as métricas continuam
+all-time. Nova seção "Log de atividade" — mescla lead-criado/PIX-gerado/
+venda-aprovada num único feed ordenado por hora, sempre os 20 mais
+recentes (deliberadamente NÃO filtrado por período, senão ficaria vazio
+toda vez que o usuário escolhesse "hoje" sem venda ainda). Pequeno acerto
+à parte: "hoje"/"ontem" calculados com deslocamento fixo de -3h (Brasil não
+observa horário de verão desde 2019), não UTC puro — senão o corte do dia
+ficaria errado pro fuso do usuário. Fora de escopo (já descartado desde o
+planejamento original): Ranking/Premiações/Top Players — features de
+plataforma multi-tenant, não fazem sentido pra uma operação de bot pessoal
+única. Verificado com dados reais via browser (8 vendas, R$11,00, ticket
+médio R$1,38, conversão de pagamento 57.1% — todos os números batendo à
+mão contra o banco).
+
+**Achado durante a verificação**: notei mudanças no repositório fora desta
+conversa — o usuário está configurando Tailwind CSS + DaisyUI em paralelo
+(`tailwind.config.js`, `postcss.config.js`, `src/public/css/`,
+`package.json`/`.gitignore` alterados, `header.ejs` já parcialmente migrado
+pro visual novo, incluindo um novo `npm run dev` que roda servidor+watcher
+de CSS junto via `concurrently`). Confirmado com o usuário: é trabalho dele
+mesmo, ainda não terminado — as views de feature (dashboard/bots/flows/
+mailing/settings) continuam consumindo as variáveis CSS/classes antigas de
+propósito (comentário deixado no próprio `header.ejs`), então nada do que
+foi construído nesta fase precisou mudar. **Importante**: os commits desta
+sessão não incluem esses arquivos do Tailwind (ficam como trabalho não
+commitado do usuário) — só os arquivos de fato tocados por cada milestone.
+
 **Próximo**: Milestone 3 (WiinPay) segue bloqueado — usuário vai contatar o
-suporte deles pra conseguir acesso à API/documentação (não é pública).
-Milestone 7 (dashboard) não depende de nada pendente. Plano em
+suporte deles pra conseguir acesso à API/documentação (não é pública). Com
+o Milestone 7 fechado, a Fase 2 está completa exceto WiinPay. Plano em
 `C:\Users\gusta\.claude\plans\rippling-rolling-castle.md` já atualizado
-pra refletir o rebuild do Upsell (Downsell/Assinatura seguem documentados
-lá como "desenho original, histórico" — atualizar lá também na próxima
-passada, junto com Mailing).
+pra refletir o rebuild do Upsell (Downsell/Assinatura/Mailing/Dashboard
+seguem documentados lá como "desenho original, histórico" — atualizar lá
+também na próxima passada).
 
 ## Redesign pro modelo Shark Bot (2026-08-19)
 
