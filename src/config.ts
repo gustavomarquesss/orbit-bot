@@ -17,7 +17,9 @@ const envSchema = z.object({
 
   DATABASE_URL: z.string().min(1),
 
-  ADMIN_PANEL_PASSWORD: z.string().min(8),
+  // Login do painel virou multi-usuário (Fase 3) — contas ficam no banco
+  // (model User), cadastradas via `npm run user:create`, sem senha única
+  // fixa aqui.
   SESSION_SECRET: z.string().min(16),
 
   PORT: z.coerce.number().int().default(3000),

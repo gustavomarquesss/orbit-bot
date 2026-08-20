@@ -2,10 +2,10 @@ import express, { Router, type Request, type Response, type NextFunction } from 
 import session from "express-session";
 import createPgSessionStore from "connect-pg-simple";
 import pg from "pg";
-import { timingSafeEqual } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../db/client.js";
 import { config } from "../config.js";
+import { verifyPassword } from "../lib/password.js";
 import { createBotsRouter } from "./botsRoutes.js";
 import { createFlowsRouter } from "./flowsRoutes.js";
 import { createMailingRouter } from "./mailingRoutes.js";
@@ -24,19 +24,12 @@ const PgSessionStore = createPgSessionStore(session);
 
 declare module "express-session" {
   interface SessionData {
-    isAdmin?: boolean;
+    userId?: string;
   }
 }
 
-function passwordMatches(input: string): boolean {
-  const expected = Buffer.from(config.ADMIN_PANEL_PASSWORD);
-  const given = Buffer.from(input);
-  if (expected.length !== given.length) return false;
-  return timingSafeEqual(expected, given);
-}
-
 function requireAuth(req: Request, res: Response, next: NextFunction) {
-  if (req.session.isAdmin) return next();
+  if (req.session.userId) return next();
   res.redirect("/admin/login");
 }
 
@@ -64,17 +57,20 @@ export function createAdminRouter(): Router {
   });
 
   router.get("/login", (req, res) => {
-    if (req.session.isAdmin) return res.redirect("/admin");
+    if (req.session.userId) return res.redirect("/admin");
     res.render("login", { error: null });
   });
 
-  router.post("/login", (req, res) => {
+  router.post("/login", async (req, res) => {
+    const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
     const password = typeof req.body?.password === "string" ? req.body.password : "";
-    if (password && passwordMatches(password)) {
-      req.session.isAdmin = true;
+    const user = email ? await prisma.user.findUnique({ where: { email } }) : null;
+    const valid = user && password ? await verifyPassword(password, user.passwordHash) : false;
+    if (user && valid) {
+      req.session.userId = user.id;
       return res.redirect("/admin");
     }
-    res.status(401).render("login", { error: "Senha incorreta." });
+    res.status(401).render("login", { error: "E-mail ou senha incorretos." });
   });
 
   router.post("/logout", (req, res) => {

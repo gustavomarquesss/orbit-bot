@@ -13,6 +13,19 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/// Usuário do painel (Fase 3 — multi-tenant). Sem papéis/permissões: cada
+/// usuário é dono isolado dos próprios Bot/Flow/Origin/Settings, sem visão
+/// cruzada nem admin com acesso a tudo (decisão do usuário, 2026-08-20).
+/// Cadastro é manual via `npm run user:create` (scripts/createUser.ts) —
+/// sem tela pública de auto-cadastro.
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  /// scrypt (src/lib/password.ts) — nunca texto plano.
+  passwordHash String
+  createdAt    DateTime @default(now())
+}
+
 /// Tabela do connect-pg-simple (session store do express-session, ver
 /// src/admin/routes.ts) — a lib gerencia essa tabela em runtime, não o
 /// Prisma Client. Declarada aqui só pra Prisma Migrate saber que ela existe

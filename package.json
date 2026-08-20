@@ -18,6 +18,8 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
+    "user:create": "tsx scripts/createUser.ts",
+    "user:list": "tsx scripts/listUsers.ts",
     "test": "vitest run",
     "lint": "tsc --noEmit"
   },
