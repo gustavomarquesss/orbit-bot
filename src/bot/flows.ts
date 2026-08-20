@@ -339,6 +339,13 @@ export function registerFlowHandlers(bot: Telegraf, botId: string): void {
 
     const botRow = await prisma.bot.findUniqueOrThrow({ where: { id: botId } });
     await renderWelcome(ctx, botRow, result.lead, flow.welcomeConfig, flow.plans.length > 0);
+
+    // Sem CTA, não faz sentido deixar o lead sem próximo passo — cai direto
+    // na lista de planos (mesma mensagem que o botão CTA mostraria), em vez
+    // de esperar um clique que não existe.
+    if (!flow.welcomeConfig.ctaButtonEnabled && flow.plans.length > 0) {
+      await ctx.reply("Escolha um plano:", { reply_markup: buildPlansKeyboard(flow.plans).reply_markup });
+    }
   });
 
   bot.action(CTA_CALLBACK, async (ctx) => {
