@@ -5,6 +5,8 @@
   <a class="btn btn-primary btn-sm" href="/admin/bots/new">+ Novo bot</a>
 </div>
 
+<% if (typeof error !== "undefined" && error) { %><div class="alert alert-error text-sm mb-6"><%= error %></div><% } %>
+
 <div class="card bg-base-200 border border-base-300 shadow-sm">
   <div class="card-body">
     <h3 class="font-semibold mb-2">Meus bots</h3>

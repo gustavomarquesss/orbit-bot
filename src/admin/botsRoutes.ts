@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { Router } from "express";
+import { Prisma } from "@prisma/client";
 import { prisma } from "../db/client.js";
 import { encryptSecret } from "../lib/crypto.js";
 import { validateBotToken, registerBot, unregisterBot, getTelegraf } from "../bot/botManager.js";
@@ -26,7 +27,7 @@ export function createBotsRouter(): Router {
       _sum: { amountCents: true },
     });
     const revenueMap = new Map(revenueByBot.map((r) => [r.botId, r._sum.amountCents ?? 0]));
-    res.render("bots/list", { bots, revenueMap });
+    res.render("bots/list", { bots, revenueMap, error: null });
   });
 
   router.get("/new", async (_req, res) => {
@@ -148,8 +149,39 @@ export function createBotsRouter(): Router {
   });
 
   router.post("/:id/delete", async (req, res) => {
-    await unregisterBot(req.params.id);
-    await prisma.bot.delete({ where: { id: req.params.id } });
+    // Deleta do banco ANTES de mexer no Telegram — se o bot tiver Orders
+    // (histórico financeiro), o delete falha por causa da foreign key
+    // (de propósito: não cascateia venda paga junto com o bot) e não queremos
+    // ter já removido o webhook de um bot que continua existindo no painel.
+    try {
+      await prisma.bot.delete({ where: { id: req.params.id } });
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2003") {
+        const bots = await prisma.bot.findMany({
+          orderBy: { createdAt: "asc" },
+          include: { _count: { select: { leads: true, orders: true } } },
+        });
+        const revenueByBot = await prisma.order.groupBy({
+          by: ["botId"],
+          where: { status: "PAID" },
+          _sum: { amountCents: true },
+        });
+        const revenueMap = new Map(revenueByBot.map((r) => [r.botId, r._sum.amountCents ?? 0]));
+        return res.status(400).render("bots/list", {
+          bots,
+          revenueMap,
+          error: "Esse bot já tem vendas registradas — não dá pra excluir sem perder o histórico. Desative-o em vez de excluir.",
+        });
+      }
+      throw err;
+    }
+
+    try {
+      await unregisterBot(req.params.id);
+    } catch (err) {
+      console.error(`[bots] falha ao remover webhook do Telegram (bot ${req.params.id})`, err);
+    }
+
     res.redirect("/admin/bots");
   });
 

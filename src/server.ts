@@ -24,6 +24,20 @@ const DOWNSELL_SCHEDULER_INTERVAL_MS = 30_000;
 // granularidade fina — 1h é conservador o bastante.
 const SUBSCRIPTION_SCHEDULER_INTERVAL_MS = 60 * 60_000;
 
+// Rede de segurança: sem isso, um erro não tratado em QUALQUER rota async
+// (ex: uma constraint do banco estourando, como aconteceu ao tentar excluir
+// um Bot com Orders) vira uma unhandled promise rejection que, desde o
+// Node 15, derruba o processo inteiro por padrão — tirando o bot do ar pra
+// todo mundo por causa de um clique isolado no painel. Logar em vez de
+// deixar crashar: a requisição que causou o erro fica sem resposta (o
+// cliente vê timeout), mas o servidor continua de pé pro resto do tráfego.
+process.on("unhandledRejection", (reason) => {
+  console.error("[server] unhandledRejection não tratada — processo NÃO foi derrubado", reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("[server] uncaughtException não tratada — processo NÃO foi derrubado", err);
+});
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 async function main() {
