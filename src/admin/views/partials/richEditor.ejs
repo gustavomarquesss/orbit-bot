@@ -22,8 +22,8 @@
   <button type="button" class="btn btn-xs btn-square btn-ghost" title="Código" onclick="dgWrapSelection('<%= id %>','&lt;code&gt;','&lt;/code&gt;')">&lt;/&gt;</button>
   <button type="button" class="btn btn-xs btn-square btn-ghost" title="Citação" onclick="dgWrapSelection('<%= id %>','&lt;blockquote&gt;','&lt;/blockquote&gt;')">&rdquo;</button>
   <span class="w-px h-4 bg-base-300 mx-0.5"></span>
-  <button type="button" class="btn btn-xs btn-outline" onclick="dgOpenVarModal('<%= id %>')">🧩 Variáveis</button>
-  <button type="button" class="btn btn-xs btn-outline" onclick="dgOpenPreview('<%= id %>')">👁 Pré-visualizar</button>
+  <button type="button" class="btn btn-xs btn-outline gap-1" onclick="dgOpenVarModal('<%= id %>')"><%- icon("tag", "w-3.5 h-3.5") %> Variáveis</button>
+  <button type="button" class="btn btn-xs btn-outline gap-1" onclick="dgOpenPreview('<%= id %>')"><%- icon("eye", "w-3.5 h-3.5") %> Pré-visualizar</button>
 </div>
 <textarea
   id="<%= id %>"

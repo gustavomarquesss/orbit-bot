@@ -9,7 +9,7 @@
 -->
 <dialog id="dg-var-modal" class="modal">
   <div class="modal-box max-w-2xl">
-    <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+    <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"><%- icon("x-mark", "w-4 h-4") %></button></form>
     <h3 class="font-bold text-lg mb-3">Inserir variável</h3>
 
     <div class="flex flex-col gap-4 max-h-[60vh] overflow-y-auto pr-1">
@@ -97,8 +97,17 @@
       <div>
         <div class="text-xs uppercase tracking-wider text-base-content/40 mb-1.5">Efeitos animados (só chat privado, só no envio)</div>
         <div class="flex gap-1.5 flex-wrap">
-          <% [["fire","🔥 Fogo"],["confetti","🎉 Confete"],["heart","❤️ Coração"],["thumbsup","👍 Joinha"],["thumbsdown","👎 Joinha pra baixo"],["poop","💩 Cocô"]].forEach(function(e) { %>
-            <button type="button" class="badge badge-outline hover:badge-primary cursor-pointer" onclick="dgInsertVar('effect:<%= e[0] %>')"><%= e[1] %></button>
+          <% [
+            ["fire", "Fogo", "fire"],
+            ["confetti", "Confete", "sparkles"],
+            ["heart", "Coração", "heart"],
+            ["thumbsup", "Joinha", "hand-thumb-up"],
+            ["thumbsdown", "Joinha pra baixo", "hand-thumb-down"],
+            ["poop", "Cocô", null],
+          ].forEach(function(e) { %>
+            <button type="button" class="badge badge-outline hover:badge-primary cursor-pointer gap-1" onclick="dgInsertVar('effect:<%= e[0] %>')">
+              <% if (e[2]) { %><%- icon(e[2], "w-3.5 h-3.5") %><% } %><%= e[1] %>
+            </button>
           <% }); %>
         </div>
         <p class="text-xs text-base-content/50 mt-1">Só tem efeito em mensagens novas no chat privado com o lead — não funciona em edição nem em grupos/canais.</p>
@@ -128,7 +137,7 @@
 
 <dialog id="dg-color-modal" class="modal">
   <div class="modal-box max-w-sm">
-    <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+    <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"><%- icon("x-mark", "w-4 h-4") %></button></form>
     <h3 class="font-bold text-lg mb-3">Cor do botão</h3>
     <p class="text-xs text-base-content/50 mb-3">A Bot API do Telegram (9.4) só suporta estas 3 cores reais — qualquer outra opção não teria efeito visual de verdade.</p>
     <div class="flex gap-2 flex-wrap">
@@ -143,7 +152,7 @@
 
 <dialog id="dg-preview-modal" class="modal">
   <div class="modal-box max-w-sm">
-    <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">✕</button></form>
+    <form method="dialog"><button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"><%- icon("x-mark", "w-4 h-4") %></button></form>
     <h3 class="font-bold text-lg mb-3">Pré-visualização</h3>
     <p class="text-xs text-base-content/50 mb-2">Com dados de exemplo — os valores reais variam por lead/pagamento.</p>
     <div class="rounded-2xl p-4" style="background:#0e1621;">

@@ -97,7 +97,7 @@
       <% activityLog.forEach(function(ev) { %>
         <div class="flex items-center justify-between gap-3 py-2.5 text-sm">
           <span class="flex items-center gap-2 min-w-0">
-            <span class="shrink-0"><%= ev.kind === "lead" ? "👋" : ev.kind === "pix" ? "💳" : "✅" %></span>
+            <span class="shrink-0"><%- icon(ev.kind === "lead" ? "user-plus" : ev.kind === "pix" ? "credit-card" : "check-circle", "w-4 h-4") %></span>
             <span class="truncate"><%= ev.label %></span>
           </span>
           <span class="flex items-center gap-3 shrink-0">

@@ -10,6 +10,7 @@ import { startDownsellScheduler } from "./bot/downsellScheduler.js";
 import { startSubscriptionScheduler } from "./payments/subscriptionScheduler.js";
 import { startCountdownScheduler } from "./bot/countdownScheduler.js";
 import { createAdminRouter } from "./admin/routes.js";
+import { icon } from "./admin/icons.js";
 
 // Varredura de pedidos PENDING pra cobrir o caso do postback da SyncPay não
 // chegar (ver src/payments/reconciliation.ts). 20s é conservador o bastante
@@ -51,6 +52,9 @@ async function main() {
   app.set("view engine", "ejs");
   app.set("views", join(__dirname, "admin", "views"));
   app.use(express.static(join(__dirname, "..", "public")));
+  // Disponível em toda view EJS sem precisar passar por parâmetro — ver
+  // src/admin/icons.ts (biblioteca própria de ícones inline, sem emoji).
+  app.locals.icon = icon;
 
   // Usado pelo Docker healthcheck (docker-compose.yml) — ver ARCHITECTURE.md.
   app.get("/health", (_req, res) => {

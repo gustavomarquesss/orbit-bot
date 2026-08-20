@@ -24,7 +24,7 @@
         <% } else if (a.mediaType === "AUDIO") { %>
           <audio src="/admin/bots/<%= bot.id %>/media/<%= a.id %>/file" controls class="w-full mb-2"></audio>
         <% } else { %>
-          <a href="/admin/bots/<%= bot.id %>/media/<%= a.id %>/file" target="_blank" class="btn btn-outline btn-sm w-full mb-2">📄 Baixar documento</a>
+          <a href="/admin/bots/<%= bot.id %>/media/<%= a.id %>/file" target="_blank" class="btn btn-outline btn-sm w-full mb-2 gap-1.5"><%- icon("document", "w-4 h-4") %> Baixar documento</a>
         <% } %>
         <div class="badge badge-ghost badge-sm mb-1"><%= a.mediaType %></div>
         <p class="text-sm truncate" title="<%= a.label || "" %>"><%= a.label || "(sem legenda)" %></p>

@@ -1,7 +1,7 @@
 <%- include("../partials/header", { title: flow.name + " — Upsell", active: "flows" }) %>
 <%- include("./partials/nav", { flow, section: "upsell" }) %>
 
-<div class="alert alert-warning text-sm mb-6 py-2.5">⚠️ O Upsell é enviado automaticamente após qualquer compra realizada no bot.</div>
+<div class="alert alert-warning text-sm mb-6 py-2.5"><%- icon("exclamation-triangle", "w-4 h-4 shrink-0") %> O Upsell é enviado automaticamente após qualquer compra realizada no bot.</div>
 
 <form method="POST" action="/admin/flows/<%= flow.id %>/upsell" class="mb-6">
   <label class="label cursor-pointer justify-start gap-3 px-0 w-fit">
@@ -83,7 +83,7 @@
       </div>
       <form method="POST" action="/admin/flows/<%= flow.id %>/upsell/messages/<%= m.id %>/buttons" class="flex gap-2 items-center flex-wrap mt-2">
         <input type="text" id="btnText-<%= m.id %>" name="text" placeholder="Texto do botão" required class="input input-bordered input-sm flex-1 min-w-[140px]" />
-        <button type="button" class="btn btn-outline btn-sm" title="Cor do botão" onclick="dgOpenColorModal('btnText-<%= m.id %>')">🎨</button>
+        <button type="button" class="btn btn-outline btn-sm" title="Cor do botão" onclick="dgOpenColorModal('btnText-<%= m.id %>')"><%- icon("paint-brush", "w-4 h-4") %></button>
         <select name="type" class="select select-bordered select-sm" onchange="
           this.closest('form').querySelector('.btn-target-plan').style.display = this.value === 'BUY_PLAN' ? '' : 'none';
           this.closest('form').querySelector('.btn-target-url').style.display = this.value === 'OPEN_LINK' ? '' : 'none';
