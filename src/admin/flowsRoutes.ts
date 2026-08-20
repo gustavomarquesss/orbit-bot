@@ -4,7 +4,17 @@ import { prisma } from "../db/client.js";
 import { nextOrder } from "../bot/util.js";
 import { uploadMediaToLibrary } from "../bot/mediaUpload.js";
 
-const mediaUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+// 50MB é o limite real de upload da Bot API do Telegram (sendPhoto/sendVideo/
+// etc) — usar o mesmo aqui em vez de um número arbitrário menor, que cortava
+// vídeo de celular em silêncio (bug real encontrado pelo usuário, 2026-08-20).
+const mediaUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+
+function multerErrorMessage(err: unknown): string {
+  if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE") {
+    return "Arquivo maior que o limite de 50MB da Bot API do Telegram.";
+  }
+  return "Falha ao processar o arquivo enviado.";
+}
 
 export function createFlowsRouter(): Router {
   const router = Router();
@@ -153,7 +163,7 @@ export function createFlowsRouter(): Router {
     mediaUpload.single("file")(req, res, (err) => {
       if (!err) return next();
       console.error(`[flows] falha no upload de mídia de boas-vindas (flow ${req.params.id})`, err);
-      res.redirect(`/admin/flows/${req.params.id}/welcome`);
+      res.redirect(`/admin/flows/${req.params.id}/welcome?mediaError=${encodeURIComponent(multerErrorMessage(err))}`);
     });
   }, async (req, res) => {
     const flowId = req.params.id;
@@ -687,7 +697,7 @@ export function createFlowsRouter(): Router {
     mediaUpload.single("file")(req, res, (err) => {
       if (!err) return next();
       console.error(`[flows] falha no upload de mídia de downsell (seq ${req.params.seqId})`, err);
-      res.redirect(`/admin/flows/${req.params.id}/downsell`);
+      res.redirect(`/admin/flows/${req.params.id}/downsell?mediaError=${encodeURIComponent(multerErrorMessage(err))}`);
     });
   }, async (req, res) => {
     const seqId = req.params.seqId;

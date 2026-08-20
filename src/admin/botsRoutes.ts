@@ -9,9 +9,11 @@ import { validateBotToken, registerBot, unregisterBot, getTelegraf } from "../bo
 import { uploadMediaToLibrary } from "../bot/mediaUpload.js";
 
 // Memória (não disco) — arquivo some depois do request, já foi repassado
-// pro Telegram nesse meio tempo (ver uploadMediaToLibrary). 20MB é
-// conservador em relação ao limite de 50MB da Bot API pra upload de bot.
-const mediaUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+// pro Telegram nesse meio tempo (ver uploadMediaToLibrary). 50MB é o limite
+// real de upload da Bot API (sendPhoto/sendVideo/etc) — um limite menor
+// cortava vídeo de celular em silêncio (bug real encontrado pelo usuário,
+// 2026-08-20, corrigido também em flowsRoutes.ts).
+const mediaUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
 const COMMAND_DEFAULTS: Record<"START" | "SUPORTE" | "STATUS", { emoji: string; label: string; order: number }> = {
   START: { emoji: "🚀", label: "Iniciar o bot", order: 0 },
@@ -176,7 +178,7 @@ export function createBotsRouter(): Router {
       if (!bot) return res.status(404).send("Bot não encontrado.");
       const assets = await prisma.mediaAsset.findMany({ where: { botId: bot.id }, orderBy: { createdAt: "desc" } });
       const message = err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE"
-        ? "Arquivo maior que o limite de 20MB."
+        ? "Arquivo maior que o limite de 50MB da Bot API do Telegram."
         : "Falha ao processar o arquivo enviado.";
       res.status(400).render("bots/media", { bot, assets, error: message });
     });
