@@ -200,10 +200,26 @@ modelo que existia até aqui, e não dá pra "revogar" de verdade). Mudanças:
   `orderStatus.test.ts` (novo arquivo — não existia teste dedicado pra
   `applyNormalizedStatus` antes; cobre o cálculo de `accessExpiresAt`).
   Verificado no painel via browser (toggle de campos por tipo de entrega,
-  round-trip de salvar/recarregar a mensagem de renovação). **Teste real de
-  ponta a ponta (compra de plano CHANNEL, convite chegando, expiração
-  simulada revogando) ainda pendente com o usuário** — precisa de um canal
-  VIP de teste real e do bot promovido a admin nele.
+  round-trip de salvar/recarregar a mensagem de renovação).
+
+**Verificado de ponta a ponta pelo usuário (2026-08-19)**: canal de teste
+criado, bot promovido a admin (`can_invite_users`/`can_restrict_members`
+confirmados via `getChatMember` antes do teste), plano "Plano Mensal VIP"
+reconfigurado pra `CHANNEL` apontando pro canal — compra real confirmou
+`accessExpiresAt` calculado certinho (`paidAt + 30 dias`, exato) e o convite
+de uso único chegou no DM, usuário entrou no canal com sucesso. Revogação
+testada simulando vencimento (backdate manual de `accessExpiresAt`,
+`revokeExpiredAccess()` disparado manualmente): a chamada real
+`banChatMember` retornou **`400: Bad Request: can't remove chat owner`** —
+achado esperado, não é bug: quem comprou/testou é dono do canal de teste, e
+a Bot API nunca deixa banir o dono via API. Em produção o dono é sempre o
+operador (nunca um cliente), então isso nunca ocorre numa venda real.
+Confirmado que o tratamento de erro funcionou como projetado: logou o erro
+e marcou `revokedAt` mesmo assim (não fica tentando pra sempre). Teste com
+uma segunda conta não-dona (pra ver o kick de verdade acontecer) foi
+avaliado e considerado dispensável pelo usuário — `banChatMember`/
+`unbanChatMember` são chamadas padrão da Bot API, não lógica própria do
+projeto que precise de validação extra.
 
 **Próximo**: Milestone 3 (WiinPay) segue bloqueado esperando a captura real
 do usuário (ver acima). Milestones 6 (mailing) e 7 (dashboard) não
