@@ -286,6 +286,53 @@ pra refletir o rebuild do Upsell (Downsell/Assinatura/Mailing/Dashboard
 seguem documentados lá como "desenho original, histórico" — atualizar lá
 também na próxima passada).
 
+## Redesign visual — Tailwind/DaisyUI + paleta vermelha (2026-08-20)
+
+Fora do escopo da Fase 2 (que fechou no Milestone 7) — pedido separado do
+usuário, antes de ele testar a operação real: deixar o painel fiel a um
+design de referência que ele mandou (arquivo `paleta-cores-saas.html`,
+fora do repo — escala de vermelho de marca 50→950 + cinza neutro 50→950,
+regra explícita "nunca repetir o mesmo tom de vermelho nos dois modos,
+mais claro no escuro / mais escuro no claro").
+
+**Decisões confirmadas com o usuário antes de começar**: (1) migrar TODAS
+as telas de feature pra Tailwind/DaisyUI agora, não só trocar cor em cima
+do CSS legado; (2) cores de status (pago/pendente/recusado, ativo/inativo)
+continuam semânticas verde/amarelo/vermelho, independentes da cor de
+marca; (3) migrar a navegação de nav horizontal pra sidebar fixa (estilo
+ApexVips/Shark Bot).
+
+**Implementado**: `tailwind.config.js` com a paleta exata do usuário
+(`theme.extend.colors.red`/`.gray`, sobrescrevendo os tons padrão do
+Tailwind) + temas DaisyUI `dark`/`light` mapeados nela (primary red-400 no
+escuro, red-600 no claro, conforme a regra do usuário). Shell novo em
+`partials/header.ejs`/`partials/footer.ejs`: sidebar fixa via DaisyUI
+`drawer` (responsiva — vira menu hambúrguer com overlay no mobile, testado
+em 375px). Todas as 17 telas de feature reescritas com componentes DaisyUI
+nativos (`card`, `table`, `btn`, `input input-bordered`, `select-bordered`,
+`textarea-bordered`, `badge`, `checkbox`, `alert`, `tabs-boxed`) — JS
+inline preservado (toggle de campos por tipo de entrega, RTE toolbar,
+chips de variável, tabs do Downsell). `flows/partials/nav.ejs` (sidebar
+contextual de dentro de um Flow) também migrado, convivendo com a sidebar
+principal do app.
+
+**Achado de processo**: a pasta de trabalho é compartilhada entre esta
+sessão e os terminais do usuário — duas vezes nesta sessão um commit saiu
+no branch errado (`feat/ui-foundation` vs `dev`) porque o branch mudou sob
+os pés enquanto uma tarefa estava em andamento. Resolvido nas duas vezes
+sem perda de trabalho (stash + reset + cherry-pick). O usuário commitou a
+fundação Tailwind dele (`1621f2e`) e já tinha feito merge pra `dev` antes
+de eu montar a paleta final/sidebar em cima — sem conflito real, só
+sequenciamento de branch a observar da próxima vez.
+
+**Verificado via browser (não pelo usuário ainda)**: dark/light mode,
+drawer mobile abrindo/fechando, JS de campos dinâmicos, todas as 17 telas
+renderizando com dados reais sem erro no console (só um erro de MIME
+"stale" no console de uma requisição de ANTES do build do CSS — confirmado
+via `curl`/network log que a requisição atual retorna 200 `text/css`
+normalmente). **Pendente**: revisão visual do usuário comparando com a
+referência antes de considerar fechado.
+
 ## Redesign pro modelo Shark Bot (2026-08-19)
 
 Usuário mostrou 13 telas reais do Shark Bot e confirmou que o painel
