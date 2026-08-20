@@ -1,6 +1,7 @@
 import { prisma } from "../db/client.js";
 import { getTransactionStatus, normalizeChargeStatus } from "./syncpay.js";
 import { applyNormalizedStatus, findOrderByChargeId } from "./orderStatus.js";
+import { resolveSyncPayCredentialsForBot, type SyncPayCredentials } from "./syncpayCredentials.js";
 
 /**
  * Rede de segurança pro caso do postback da SyncPay não chegar (visto no
@@ -14,12 +15,22 @@ import { applyNormalizedStatus, findOrderByChargeId } from "./orderStatus.js";
 export async function pollPendingOrders(): Promise<void> {
   const pending = await prisma.order.findMany({
     where: { status: "PENDING" },
-    select: { syncpayChargeId: true },
+    select: { syncpayChargeId: true, botId: true },
   });
 
-  for (const { syncpayChargeId } of pending) {
+  // Cache de credenciais por bot dentro desta varredura — vários Orders
+  // pendentes do mesmo bot não precisam resolver a credencial de novo.
+  const credentialsByBot = new Map<string, SyncPayCredentials>();
+
+  for (const { syncpayChargeId, botId } of pending) {
     try {
-      const rawStatus = await getTransactionStatus(syncpayChargeId);
+      let credentials = credentialsByBot.get(botId);
+      if (!credentials) {
+        credentials = await resolveSyncPayCredentialsForBot(botId);
+        credentialsByBot.set(botId, credentials);
+      }
+
+      const rawStatus = await getTransactionStatus(syncpayChargeId, credentials);
       const normalized = normalizeChargeStatus(rawStatus);
       if (normalized === "PENDING" || normalized === "UNKNOWN") continue;
 

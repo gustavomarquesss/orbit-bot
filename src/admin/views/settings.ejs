@@ -36,4 +36,40 @@
   </div>
 </div>
 
+<div class="card bg-base-200 border border-base-300 shadow-sm mt-6">
+  <div class="card-body">
+    <h3 class="font-semibold mb-1">Conta SyncPay</h3>
+    <p class="text-sm text-base-content/60 mb-4">
+      Suas vendas caem direto na sua própria conta SyncPay — cole o Client ID
+      e o Client Secret do painel da SyncPay (API &gt; Credenciais). O
+      webhook de confirmação de pagamento é configurado automaticamente,
+      não precisa colar nada lá.
+    </p>
+    <form method="POST" action="/admin/settings/syncpay" class="flex flex-col gap-4">
+      <label class="form-control">
+        <div class="label"><span class="label-text">Client ID</span></div>
+        <input
+          type="text"
+          name="syncpayClientId"
+          value="<%= settings.syncpayClientId || '' %>"
+          placeholder="ID da sua conta SyncPay"
+          class="input input-bordered w-full"
+        />
+      </label>
+      <label class="form-control">
+        <div class="label"><span class="label-text">Client Secret</span></div>
+        <input
+          type="password"
+          name="syncpayClientSecret"
+          placeholder="<%= settings.syncpayClientSecretEncrypted ? '•••••••• já configurado — deixe em branco pra manter' : 'Cole o Client Secret' %>"
+          class="input input-bordered w-full"
+        />
+      </label>
+      <div class="flex items-center gap-3">
+        <button class="btn btn-primary" type="submit">Salvar conta SyncPay</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <%- include("partials/footer", { active: "settings" }) %>

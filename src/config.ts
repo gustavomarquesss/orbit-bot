@@ -10,10 +10,10 @@ const envSchema = z.object({
   // SHA-256 internamente.
   BOT_TOKEN_ENCRYPTION_KEY: z.string().min(16),
 
-  SYNCPAY_CLIENT_ID: z.string().min(1),
-  SYNCPAY_CLIENT_SECRET: z.string().min(1),
+  // client_id/client_secret/webhook secret viraram por usuário (Fase 3
+  // Milestone 3, ver Settings no schema + src/payments/syncpayCredentials.ts)
+  // — só o endpoint da API continua global (é o mesmo pra todo mundo).
   SYNCPAY_API_BASE_URL: z.string().url().default("https://api.syncpayments.com.br"),
-  SYNCPAY_WEBHOOK_SECRET: z.string().min(1),
 
   DATABASE_URL: z.string().min(1),
 

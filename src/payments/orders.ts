@@ -1,6 +1,7 @@
 import type { Order, OrderItemKind } from "@prisma/client";
 import { prisma } from "../db/client.js";
 import { createCharge } from "./syncpay.js";
+import { resolveSyncPayCredentialsForBot } from "./syncpayCredentials.js";
 
 export interface CreatedCharge {
   order: Order;
@@ -70,9 +71,11 @@ export async function createOrderAndCharge(params: {
   // raro (crash no meio do processo).
   // Confirmado com chamada real à SyncPay (ver PROJECT_STATE.md): a cobrança
   // não pede nenhum dado do comprador (nome/email/CPF) — só valor e descrição.
+  const credentials = await resolveSyncPayCredentialsForBot(params.botId);
   const charge = await createCharge({
     amountCents: totalCents,
     description,
+    credentials,
   });
 
   const order = await prisma.order.create({

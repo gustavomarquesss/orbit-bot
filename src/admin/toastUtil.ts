@@ -9,3 +9,11 @@ export function withSuccess(url: string, message = "Salvo com sucesso!"): string
   const separator = url.includes("?") ? "&" : "?";
   return `${url}${separator}success=${encodeURIComponent(message)}`;
 }
+
+/** Mesma ideia de `withSuccess`, pro caso de erro — a maioria das rotas já
+ * monta `?error=`/`?fileError=`/etc na mão por convenção própria; este
+ * helper só evita repetir a mesma concatenação nos casos novos. */
+export function withError(url: string, message: string): string {
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}error=${encodeURIComponent(message)}`;
+}

@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Request, Response } from "express";
 
+const TEST_OWNER_ID = "owner-1";
+const TEST_WEBHOOK_SECRET = "webhook-secret-test";
+
 vi.mock("../../db/client.js", () => ({
   prisma: {
     webhookEvent: {
@@ -11,6 +14,12 @@ vi.mock("../../db/client.js", () => ({
     order: {
       findUnique: vi.fn(),
       update: vi.fn(),
+    },
+    bot: {
+      findUnique: vi.fn(),
+    },
+    settings: {
+      findUnique: vi.fn(),
     },
   },
 }));
@@ -37,7 +46,6 @@ import { prisma } from "../../db/client.js";
 import { deliverPlanToLead, notifyAdminOfSale, notifyLeadOfApproval } from "../../bot/delivery.js";
 import { scheduleUpsellSequence } from "../../bot/upsellScheduler.js";
 import { cancelPendingDownsellsForLead } from "../../bot/downsellScheduler.js";
-import { config } from "../../config.js";
 import {
   handleSyncpayWebhook,
   isValidWebhookSecret,
@@ -53,26 +61,44 @@ function mockRes(): Response {
 }
 
 function mockReq(overrides: Partial<Request> = {}): Request {
-  return { query: {}, body: {}, ...overrides } as unknown as Request;
+  return { params: {}, body: {}, ...overrides } as unknown as Request;
+}
+
+/** A maioria dos testes de `handleSyncpayWebhook` quer o secret válido pra
+ * chegar até a lógica de processamento — helper monta req com o
+ * ownerId/secret certos, já que agora o secret é validado via lookup no
+ * banco (Settings do dono), não mais uma env var fixa. */
+function reqWithValidSecret(overrides: Partial<Request> = {}): Request {
+  return mockReq({ params: { ownerId: TEST_OWNER_ID, secret: TEST_WEBHOOK_SECRET }, ...overrides });
 }
 
 describe("isValidWebhookSecret", () => {
-  it("aceita o secret configurado (SYNCPAY_WEBHOOK_SECRET)", () => {
-    expect(isValidWebhookSecret(config.SYNCPAY_WEBHOOK_SECRET)).toBe(true);
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(prisma.settings.findUnique).mockResolvedValue({ syncpayWebhookSecret: TEST_WEBHOOK_SECRET } as never);
   });
 
-  it("rejeita secret incorreto", () => {
-    expect(isValidWebhookSecret("secret-errado")).toBe(false);
+  it("aceita o secret configurado pro dono", async () => {
+    expect(await isValidWebhookSecret(TEST_OWNER_ID, TEST_WEBHOOK_SECRET)).toBe(true);
   });
 
-  it("rejeita ausência de secret", () => {
-    expect(isValidWebhookSecret(undefined)).toBe(false);
-    expect(isValidWebhookSecret("")).toBe(false);
+  it("rejeita secret incorreto", async () => {
+    expect(await isValidWebhookSecret(TEST_OWNER_ID, "secret-errado")).toBe(false);
   });
 
-  it("rejeita valor que não é string", () => {
-    expect(isValidWebhookSecret(["array"])).toBe(false);
-    expect(isValidWebhookSecret(123)).toBe(false);
+  it("rejeita ausência de secret", async () => {
+    expect(await isValidWebhookSecret(TEST_OWNER_ID, undefined)).toBe(false);
+    expect(await isValidWebhookSecret(TEST_OWNER_ID, "")).toBe(false);
+  });
+
+  it("rejeita valor que não é string", async () => {
+    expect(await isValidWebhookSecret(TEST_OWNER_ID, ["array"])).toBe(false);
+    expect(await isValidWebhookSecret(TEST_OWNER_ID, 123)).toBe(false);
+  });
+
+  it("rejeita quando o dono não tem webhook secret configurado ainda", async () => {
+    vi.mocked(prisma.settings.findUnique).mockResolvedValue(null);
+    expect(await isValidWebhookSecret(TEST_OWNER_ID, TEST_WEBHOOK_SECRET)).toBe(false);
   });
 });
 
@@ -102,10 +128,14 @@ describe("extractExternalId / extractStatus", () => {
 describe("handleSyncpayWebhook", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(prisma.settings.findUnique).mockResolvedValue({ syncpayWebhookSecret: TEST_WEBHOOK_SECRET } as never);
+    // Integridade: por padrão o bot do Order resolvido pertence ao mesmo
+    // dono do secret validado na URL (ver comentário em webhook.ts).
+    vi.mocked(prisma.bot.findUnique).mockResolvedValue({ ownerId: TEST_OWNER_ID } as never);
   });
 
   it("rejeita com 401 quando o secret é inválido, sem tocar no banco", async () => {
-    const req = mockReq({ query: { secret: "errado" } });
+    const req = mockReq({ params: { ownerId: TEST_OWNER_ID, secret: "errado" } });
     const res = mockRes();
 
     await handleSyncpayWebhook(req, res);
@@ -115,7 +145,7 @@ describe("handleSyncpayWebhook", () => {
   });
 
   it("rejeita com 401 quando o secret está ausente", async () => {
-    const req = mockReq({ query: {} });
+    const req = mockReq({ params: { ownerId: TEST_OWNER_ID } });
     const res = mockRes();
 
     await handleSyncpayWebhook(req, res);
@@ -124,8 +154,7 @@ describe("handleSyncpayWebhook", () => {
   });
 
   it("responde 200 sem reprocessar quando o WebhookEvent já tem processedAt (idempotência)", async () => {
-    const req = mockReq({
-      query: { secret: config.SYNCPAY_WEBHOOK_SECRET },
+    const req = reqWithValidSecret({
       body: { idTransaction: "tx-1", status_transaction: "PAID_OUT" },
     });
     const res = mockRes();
@@ -144,8 +173,7 @@ describe("handleSyncpayWebhook", () => {
   });
 
   it("responde 200 sem id reconhecível e não toca no banco", async () => {
-    const req = mockReq({
-      query: { secret: config.SYNCPAY_WEBHOOK_SECRET },
+    const req = reqWithValidSecret({
       body: { foo: "bar" },
     });
     const res = mockRes();
@@ -157,8 +185,7 @@ describe("handleSyncpayWebhook", () => {
   });
 
   it("marca Order como PAID e chama entrega + notificação na primeira confirmação", async () => {
-    const req = mockReq({
-      query: { secret: config.SYNCPAY_WEBHOOK_SECRET },
+    const req = reqWithValidSecret({
       body: { idTransaction: "tx-2", status_transaction: "PAID_OUT" },
     });
     const res = mockRes();
@@ -221,8 +248,7 @@ describe("handleSyncpayWebhook", () => {
   });
 
   it("processa o payload real da SyncPay, aninhado em `data` (regressão: pagamento real em 2026-08-19 foi ignorado por assumirmos campos no nível raiz)", async () => {
-    const req = mockReq({
-      query: { secret: config.SYNCPAY_WEBHOOK_SECRET },
+    const req = reqWithValidSecret({
       body: {
         data: {
           id: "tx-real",
@@ -273,8 +299,7 @@ describe("handleSyncpayWebhook", () => {
   });
 
   it("não chama entrega/notificação de novo se o Order já estava PAID", async () => {
-    const req = mockReq({
-      query: { secret: config.SYNCPAY_WEBHOOK_SECRET },
+    const req = reqWithValidSecret({
       body: { idTransaction: "tx-3", status_transaction: "PAID_OUT" },
     });
     const res = mockRes();
@@ -312,8 +337,7 @@ describe("handleSyncpayWebhook", () => {
   });
 
   it("responde 200 com aviso quando não encontra Order pro syncpayChargeId", async () => {
-    const req = mockReq({
-      query: { secret: config.SYNCPAY_WEBHOOK_SECRET },
+    const req = reqWithValidSecret({
       body: { idTransaction: "tx-4", status_transaction: "PAID_OUT" },
     });
     const res = mockRes();
@@ -333,9 +357,37 @@ describe("handleSyncpayWebhook", () => {
     expect(prisma.order.update).not.toHaveBeenCalled();
   });
 
+  it("rejeita com 404 quando o Order resolvido pertence a outro usuário (integridade do secret por conta)", async () => {
+    const req = reqWithValidSecret({
+      body: { idTransaction: "tx-6", status_transaction: "PAID_OUT" },
+    });
+    const res = mockRes();
+
+    const lead = { id: "lead-1", telegramId: 123n };
+    const plan = { id: "plan-1", name: "Plano X", deliveryType: "LINK", externalLink: "https://x", customDeliveryTarget: null, flow: { delivery: { deliveryTarget: "-100999" } } };
+
+    vi.mocked(prisma.webhookEvent.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.webhookEvent.create).mockResolvedValue({ id: "we-6", processedAt: null } as never);
+    vi.mocked(prisma.order.findUnique).mockResolvedValue({
+      id: "order-6",
+      botId: "bot-de-outro-dono",
+      status: "PENDING",
+      paidAt: null,
+      lead,
+      items: [{ plan }],
+    } as never);
+    // Esse bot pertence a outro dono, não ao ownerId validado na URL.
+    vi.mocked(prisma.bot.findUnique).mockResolvedValue({ ownerId: "owner-outro" } as never);
+
+    await handleSyncpayWebhook(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(404);
+    expect(prisma.order.update).not.toHaveBeenCalled();
+    expect(deliverPlanToLead).not.toHaveBeenCalled();
+  });
+
   it("marca REFUSED sem chamar entrega/notificação", async () => {
-    const req = mockReq({
-      query: { secret: config.SYNCPAY_WEBHOOK_SECRET },
+    const req = reqWithValidSecret({
       body: { idTransaction: "tx-5", status_transaction: "REFUSED" },
     });
     const res = mockRes();

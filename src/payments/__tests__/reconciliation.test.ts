@@ -18,6 +18,15 @@ vi.mock("../syncpay.js", async () => {
   };
 });
 
+vi.mock("../syncpayCredentials.js", () => ({
+  resolveSyncPayCredentialsForBot: vi.fn().mockResolvedValue({
+    ownerId: "owner-1",
+    clientId: "client-id-test",
+    clientSecret: "client-secret-test",
+    webhookSecret: "webhook-secret-test",
+  }),
+}));
+
 vi.mock("../../bot/delivery.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../bot/delivery.js")>();
   return {

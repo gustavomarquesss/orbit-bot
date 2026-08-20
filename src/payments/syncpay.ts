@@ -1,5 +1,6 @@
 import QRCode from "qrcode";
 import { config } from "../config.js";
+import type { SyncPayCredentials } from "./syncpayCredentials.js";
 
 const REQUEST_TIMEOUT_MS = 15_000;
 
@@ -25,6 +26,9 @@ export class SyncPayError extends Error {
 export interface CreateChargeParams {
   amountCents: number;
   description: string;
+  /** Conta SyncPay do dono do bot vendendo (Fase 3 Milestone 3) — cada
+   * usuário recebe na própria conta, não numa credencial fixa global. */
+  credentials: SyncPayCredentials;
 }
 
 export interface CreateChargeResult {
@@ -41,11 +45,13 @@ interface CachedToken {
   expiresAtMs: number;
 }
 
-let cachedToken: CachedToken | null = null;
+// Um cache por conta (ownerId) — cada usuário tem seu próprio client_id/
+// secret (Fase 3 Milestone 3) e, portanto, seu próprio token de acesso.
+const tokenCacheByOwner = new Map<string, CachedToken>();
 
 /** Só para testes — força a próxima chamada a buscar um token novo. */
 export function _resetTokenCacheForTests(): void {
-  cachedToken = null;
+  tokenCacheByOwner.clear();
 }
 
 // Margem de segurança pra renovar antes do token expirar de fato (evita usar
@@ -76,10 +82,11 @@ function extractErrorMessage(payload: unknown): string | undefined {
  * Cacheado em memória do processo; single-instância (VPS única, sem
  * múltiplos workers), então cache local é suficiente sem precisar de Redis.
  */
-async function getAccessToken(): Promise<string> {
+async function getAccessToken(credentials: SyncPayCredentials): Promise<string> {
   const now = Date.now();
-  if (cachedToken && cachedToken.expiresAtMs - TOKEN_REFRESH_MARGIN_MS > now) {
-    return cachedToken.accessToken;
+  const cached = tokenCacheByOwner.get(credentials.ownerId);
+  if (cached && cached.expiresAtMs - TOKEN_REFRESH_MARGIN_MS > now) {
+    return cached.accessToken;
   }
 
   const endpoint = new URL("/api/partner/v1/auth-token", config.SYNCPAY_API_BASE_URL).toString();
@@ -90,8 +97,8 @@ async function getAccessToken(): Promise<string> {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        client_id: config.SYNCPAY_CLIENT_ID,
-        client_secret: config.SYNCPAY_CLIENT_SECRET,
+        client_id: credentials.clientId,
+        client_secret: credentials.clientSecret,
       }),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
@@ -127,20 +134,22 @@ async function getAccessToken(): Promise<string> {
     );
   }
 
-  cachedToken = {
+  tokenCacheByOwner.set(credentials.ownerId, {
     accessToken: access_token,
     expiresAtMs: now + (expires_in ?? 3600) * 1000,
-  };
+  });
   return access_token;
 }
 
-function buildWebhookUrl(): string {
-  const url = new URL("/webhooks/syncpay", config.PUBLIC_BASE_URL);
+function buildWebhookUrl(credentials: SyncPayCredentials): string {
   // Mecanismo de assinatura do webhook não documentado publicamente (ver
-  // PROJECT_STATE.md). Usamos SYNCPAY_WEBHOOK_SECRET como shared-secret
-  // embutido na própria webhook_url, validado em src/payments/webhook.ts.
-  url.searchParams.set("secret", config.SYNCPAY_WEBHOOK_SECRET);
-  return url.toString();
+  // PROJECT_STATE.md). Usamos um shared-secret gerado por nós (por conta,
+  // não mais global — Fase 3 Milestone 3) embutido no próprio path da
+  // webhook_url, espelhando o padrão já usado pro webhook do Telegram
+  // (/telegram/webhook/:botId/:secret) — validado em
+  // src/payments/webhook.ts.
+  const path = `/webhooks/syncpay/${encodeURIComponent(credentials.ownerId)}/${encodeURIComponent(credentials.webhookSecret)}`;
+  return new URL(path, config.PUBLIC_BASE_URL).toString();
 }
 
 interface RawChargeResponse {
@@ -187,13 +196,13 @@ async function buildQrCodeDataUri(pixCopyPaste: string): Promise<string> {
 export async function createCharge(
   params: CreateChargeParams
 ): Promise<CreateChargeResult> {
-  const accessToken = await getAccessToken();
+  const accessToken = await getAccessToken(params.credentials);
   const endpoint = new URL("/api/partner/v1/cash-in", config.SYNCPAY_API_BASE_URL).toString();
 
   const body = {
     amount: params.amountCents / 100,
     description: params.description,
-    webhook_url: buildWebhookUrl(),
+    webhook_url: buildWebhookUrl(params.credentials),
   };
 
   let response: Response;
@@ -281,8 +290,11 @@ interface RawTransactionResponse {
  *   GET /api/partner/v1/transaction/{identifier}
  *   → { data: { reference_id, currency, amount, status, description, pix_code } }
  */
-export async function getTransactionStatus(externalId: string): Promise<string | undefined> {
-  const accessToken = await getAccessToken();
+export async function getTransactionStatus(
+  externalId: string,
+  credentials: SyncPayCredentials
+): Promise<string | undefined> {
+  const accessToken = await getAccessToken(credentials);
   const endpoint = new URL(
     `/api/partner/v1/transaction/${encodeURIComponent(externalId)}`,
     config.SYNCPAY_API_BASE_URL

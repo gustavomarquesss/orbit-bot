@@ -60,6 +60,19 @@ model Settings {
   /// antigo (DM pro TELEGRAM_ADMIN_USER_ID); upload de mídia fica bloqueado
   /// até configurar.
   salesChannelId String?
+
+  /// Conta SyncPay própria deste usuário (Fase 3 Milestone 3) — antes era
+  /// uma credencial só, fixa no .env, compartilhada por todo mundo. Client
+  /// ID/Secret vêm do painel da SyncPay do próprio usuário; client secret
+  /// criptografado (AES-256-GCM via src/lib/crypto.ts), nunca texto plano.
+  syncpayClientId              String?
+  syncpayClientSecretEncrypted String?
+  /// Segredo gerado por NÓS (crypto.randomBytes) na primeira vez que o
+  /// usuário salva a config de pagamento — usado só pra validar que a
+  /// chamada em /webhooks/syncpay/:ownerId/:secret é legítima. Não é uma
+  /// credencial de terceiro, por isso texto plano (mesma categoria de
+  /// risco de Bot.webhookSecret, já em texto plano).
+  syncpayWebhookSecret         String?
 }
 
 /// Fonte de tráfego rastreável: outro bot, canal, campanha etc. `param` é o

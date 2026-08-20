@@ -13,6 +13,15 @@ vi.mock("../syncpay.js", async (importOriginal) => {
   return { ...actual, createCharge: vi.fn() };
 });
 
+vi.mock("../syncpayCredentials.js", () => ({
+  resolveSyncPayCredentialsForBot: vi.fn().mockResolvedValue({
+    ownerId: "owner-1",
+    clientId: "client-id-test",
+    clientSecret: "client-secret-test",
+    webhookSecret: "webhook-secret-test",
+  }),
+}));
+
 import { prisma } from "../../db/client.js";
 import { createCharge } from "../syncpay.js";
 import { createOrderAndCharge } from "../orders.js";

@@ -24,9 +24,17 @@ function mockFetchForCharge(chargeResponse: () => Response): typeof fetch {
   }) as unknown as typeof fetch;
 }
 
+const testCredentials = {
+  ownerId: "owner-test",
+  clientId: "client-id-test",
+  clientSecret: "client-secret-test",
+  webhookSecret: "webhook-secret-test",
+};
+
 const baseParams = {
   amountCents: 1990,
   description: "Produto Teste",
+  credentials: testCredentials,
 };
 
 describe("normalizeChargeStatus", () => {
@@ -83,7 +91,7 @@ describe("createCharge", () => {
     );
     global.fetch = fetchMock;
 
-    await createCharge({ amountCents: 100, description: "Plano R$1,00" });
+    await createCharge({ amountCents: 100, description: "Plano R$1,00", credentials: testCredentials });
 
     const chargeCall = vi
       .mocked(fetchMock)

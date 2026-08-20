@@ -1,27 +1,31 @@
 import crypto from "node:crypto";
 import express, { type Request, type Response } from "express";
 import type { Prisma } from "@prisma/client";
-import { config } from "../config.js";
 import { prisma } from "../db/client.js";
 import { normalizeChargeStatus } from "./syncpay.js";
 import { applyNormalizedStatus, findOrderByChargeId } from "./orderStatus.js";
+import { getSyncpayWebhookSecretForOwner } from "./syncpayCredentials.js";
 
 const PROVIDER = "syncpay";
 
 /**
  * A doc da SyncPay acessível na pesquisa não documenta nenhum mecanismo de
  * assinatura de webhook (HMAC, header custom, etc — ver relatório da task).
- * Como fallback, exigimos um shared-secret (SYNCPAY_WEBHOOK_SECRET) embutido
- * na própria webhook_url que registramos na cobrança (src/payments/syncpay.ts,
- * buildWebhookUrl) e comparamos aqui via timingSafeEqual. Isso PRECISA ser
- * confirmado/substituído por um mecanismo oficial assim que a doc real (ou
- * suporte da SyncPay) confirmar como eles assinam o postback.
+ * Como fallback, exigimos um shared-secret embutido no próprio path da
+ * webhook_url que registramos na cobrança (src/payments/syncpay.ts,
+ * buildWebhookUrl) — um por usuário desde a Fase 3 Milestone 3 (era um só,
+ * fixo, global), espelhando o padrão do webhook do Telegram
+ * (/telegram/webhook/:botId/:secret). Isso PRECISA ser confirmado/
+ * substituído por um mecanismo oficial assim que a doc real (ou suporte da
+ * SyncPay) confirmar como eles assinam o postback.
  */
-export function isValidWebhookSecret(receivedSecret: unknown): boolean {
+export async function isValidWebhookSecret(ownerId: string, receivedSecret: unknown): Promise<boolean> {
   if (typeof receivedSecret !== "string" || receivedSecret.length === 0) {
     return false;
   }
-  const expected = Buffer.from(config.SYNCPAY_WEBHOOK_SECRET);
+  const expectedSecret = await getSyncpayWebhookSecretForOwner(ownerId);
+  if (!expectedSecret) return false;
+  const expected = Buffer.from(expectedSecret);
   const received = Buffer.from(receivedSecret);
   if (expected.length !== received.length) {
     return false;
@@ -71,7 +75,8 @@ function unwrapFields(payload: Record<string, unknown>): Record<string, unknown>
  * diretamente com req/res mockados).
  */
 export async function handleSyncpayWebhook(req: Request, res: Response): Promise<void> {
-  if (!isValidWebhookSecret(req.query.secret)) {
+  const ownerId = req.params.ownerId;
+  if (!ownerId || !(await isValidWebhookSecret(ownerId, req.params.secret))) {
     console.warn("[syncpay-webhook] secret ausente ou inválido — requisição rejeitada.");
     res.status(401).json({ ok: false, error: "invalid secret" });
     return;
@@ -125,6 +130,20 @@ export async function handleSyncpayWebhook(req: Request, res: Response): Promise
       return;
     }
 
+    // Defesa em profundidade: o secret na URL já garante que quem chamou
+    // conhece o segredo DESTE usuário, mas confirma também que o Order
+    // resolvido pelo syncpayChargeId (id global da SyncPay, não escopado
+    // por conta) realmente pertence a um bot deste mesmo dono — evita
+    // reprocessar/aplicar status num Order de outro usuário por engano.
+    const bot = await prisma.bot.findUnique({ where: { id: order.botId }, select: { ownerId: true } });
+    if (bot?.ownerId !== ownerId) {
+      console.error(
+        `[syncpay-webhook] Order ${order.id} (chargeId=${externalId}) pertence a outro usuário — requisição rejeitada.`
+      );
+      res.status(404).json({ ok: false, error: "order not found" });
+      return;
+    }
+
     const normalizedStatus = normalizeChargeStatus(extractStatus(fields));
 
     // Só entrega/notifica na transição PENDING -> PAID, nunca em reprocessamento
@@ -153,4 +172,4 @@ export const syncpayWebhookRouter = express.Router();
 // Depende de `app.use(express.json())` já estar montado globalmente antes
 // deste router (ver src/server.ts) — não duplicamos aqui pra evitar
 // reprocessar o stream do request.
-syncpayWebhookRouter.post("/", handleSyncpayWebhook);
+syncpayWebhookRouter.post("/:ownerId/:secret", handleSyncpayWebhook);

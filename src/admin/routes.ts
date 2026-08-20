@@ -2,16 +2,18 @@ import express, { Router, type Request, type Response, type NextFunction } from 
 import session from "express-session";
 import createPgSessionStore from "connect-pg-simple";
 import pg from "pg";
+import { randomBytes } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../db/client.js";
 import { config } from "../config.js";
 import { verifyPassword } from "../lib/password.js";
+import { encryptSecret } from "../lib/crypto.js";
 import { createBotsRouter } from "./botsRoutes.js";
 import { createFlowsRouter } from "./flowsRoutes.js";
 import { createMailingRouter } from "./mailingRoutes.js";
 import { createStatsRouter } from "./statsRoutes.js";
 import { applyDiscount } from "../bot/downsellMessage.js";
-import { withSuccess } from "./toastUtil.js";
+import { withSuccess, withError } from "./toastUtil.js";
 import { formatBRL, formatSecondsDuration, resolvePeriodRange, startOfDayBR } from "./metricsUtil.js";
 
 // Pool dedicado do connect-pg-simple (ele gerencia sua própria tabela de
@@ -86,7 +88,9 @@ export function createAdminRouter(): Router {
 
   router.get("/settings", async (req, res) => {
     const settings = await prisma.settings.findUnique({ where: { ownerId: req.session.userId! } });
-    res.render("settings", { settings: settings ?? { salesChannelId: null } });
+    res.render("settings", {
+      settings: settings ?? { salesChannelId: null, syncpayClientId: null, syncpayClientSecretEncrypted: null },
+    });
   });
 
   router.post("/settings", async (req, res) => {
@@ -103,6 +107,43 @@ export function createAdminRouter(): Router {
     });
 
     res.redirect(withSuccess("/admin/settings", "Configurações salvas com sucesso!"));
+  });
+
+  router.post("/settings/syncpay", async (req, res) => {
+    const ownerId = req.session.userId!;
+    const clientId = typeof req.body?.syncpayClientId === "string" ? req.body.syncpayClientId.trim() : "";
+    const clientSecret = typeof req.body?.syncpayClientSecret === "string" ? req.body.syncpayClientSecret.trim() : "";
+
+    if (!clientId) {
+      return res.redirect(withError("/admin/settings", "Client ID é obrigatório."));
+    }
+
+    const existing = await prisma.settings.findUnique({ where: { ownerId } });
+    // Secret em branco no form = manter o já salvo (nunca reexibido, mesmo
+    // padrão write-only do token de Bot). Sem secret nenhum salvo ainda e o
+    // campo veio vazio, não dá pra continuar.
+    if (!clientSecret && !existing?.syncpayClientSecretEncrypted) {
+      return res.redirect(withError("/admin/settings", "Client Secret é obrigatório."));
+    }
+
+    await prisma.settings.upsert({
+      where: { ownerId },
+      update: {
+        syncpayClientId: clientId,
+        ...(clientSecret ? { syncpayClientSecretEncrypted: encryptSecret(clientSecret) } : {}),
+        // Gera o segredo do webhook na primeira vez que a conta é
+        // configurada — nunca reexibido/regenerado depois disso.
+        syncpayWebhookSecret: existing?.syncpayWebhookSecret ?? randomBytes(24).toString("hex"),
+      },
+      create: {
+        ownerId,
+        syncpayClientId: clientId,
+        syncpayClientSecretEncrypted: encryptSecret(clientSecret),
+        syncpayWebhookSecret: randomBytes(24).toString("hex"),
+      },
+    });
+
+    res.redirect(withSuccess("/admin/settings", "Conta SyncPay salva com sucesso!"));
   });
 
   router.get("/", async (req, res) => {
