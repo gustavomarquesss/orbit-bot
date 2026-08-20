@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { prisma } from "../db/client.js";
 import { sendBroadcast } from "../bot/broadcast.js";
+import { withSuccess } from "./toastUtil.js";
 
 export function createMailingRouter(): Router {
   const router = Router();
@@ -35,7 +36,7 @@ export function createMailingRouter(): Router {
     // O admin acompanha sentCount/failedCount dando refresh em /admin/mailing.
     sendBroadcast(broadcast.id).catch((err) => console.error("[mailing] falha no broadcast", broadcast.id, err));
 
-    res.redirect("/admin/mailing");
+    res.redirect(withSuccess("/admin/mailing", "Disparo iniciado com sucesso!"));
   });
 
   return router;

@@ -10,6 +10,7 @@ import { createBotsRouter } from "./botsRoutes.js";
 import { createFlowsRouter } from "./flowsRoutes.js";
 import { createMailingRouter } from "./mailingRoutes.js";
 import { applyDiscount } from "../bot/downsellMessage.js";
+import { withSuccess } from "./toastUtil.js";
 
 // Pool dedicado do connect-pg-simple (ele gerencia sua própria tabela de
 // sessões, "session", criada automaticamente com createTableIfMissing).
@@ -138,7 +139,7 @@ export function createAdminRouter(): Router {
 
   router.get("/settings", async (_req, res) => {
     const settings = await prisma.settings.findUnique({ where: { id: "singleton" } });
-    res.render("settings", { settings: settings ?? { salesChannelId: null }, saved: false });
+    res.render("settings", { settings: settings ?? { salesChannelId: null } });
   });
 
   router.post("/settings", async (req, res) => {
@@ -147,13 +148,13 @@ export function createAdminRouter(): Router {
         ? req.body.salesChannelId.trim()
         : null;
 
-    const settings = await prisma.settings.upsert({
+    await prisma.settings.upsert({
       where: { id: "singleton" },
       update: { salesChannelId },
       create: { id: "singleton", salesChannelId },
     });
 
-    res.render("settings", { settings, saved: true });
+    res.redirect(withSuccess("/admin/settings", "Configurações salvas com sucesso!"));
   });
 
   router.get("/", async (req, res) => {

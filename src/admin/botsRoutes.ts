@@ -7,6 +7,7 @@ import { prisma } from "../db/client.js";
 import { encryptSecret, decryptSecret } from "../lib/crypto.js";
 import { validateBotToken, registerBot, unregisterBot, getTelegraf } from "../bot/botManager.js";
 import { uploadMediaToLibrary } from "../bot/mediaUpload.js";
+import { withSuccess } from "./toastUtil.js";
 
 // Memória (não disco) — arquivo some depois do request, já foi repassado
 // pro Telegram nesse meio tempo (ver uploadMediaToLibrary). 50MB é o limite
@@ -82,7 +83,7 @@ export function createBotsRouter(): Router {
       console.error(`[bots] falha ao subir a instância do bot ${bot.id} recém-criado`, err);
     }
 
-    res.redirect(`/admin/bots/${bot.id}/edit`);
+    res.redirect(withSuccess(`/admin/bots/${bot.id}/edit`, "Bot criado com sucesso!"));
   });
 
   router.get("/:id/edit", async (req, res) => {
@@ -118,7 +119,7 @@ export function createBotsRouter(): Router {
       }
     }
 
-    res.redirect(`/admin/bots/${bot.id}/edit`);
+    res.redirect(withSuccess(`/admin/bots/${bot.id}/edit`, "Perfil salvo com sucesso!"));
   });
 
   router.post("/:id/commands", async (req, res) => {
@@ -155,7 +156,7 @@ export function createBotsRouter(): Router {
       }
     }
 
-    res.redirect(`/admin/bots/${bot.id}/edit`);
+    res.redirect(withSuccess(`/admin/bots/${bot.id}/edit`, "Comandos salvos com sucesso!"));
   });
 
   // --- Biblioteca de mídia (captura automática via canal, ver src/bot/mediaCapture.ts) ---
@@ -208,12 +209,12 @@ export function createBotsRouter(): Router {
       });
     }
 
-    res.redirect(`/admin/bots/${bot.id}/media`);
+    res.redirect(withSuccess(`/admin/bots/${bot.id}/media`, "Mídia enviada com sucesso!"));
   });
 
   router.post("/:id/media/:mediaId/delete", async (req, res) => {
     await prisma.mediaAsset.delete({ where: { id: req.params.mediaId } });
-    res.redirect(`/admin/bots/${req.params.id}/media`);
+    res.redirect(withSuccess(`/admin/bots/${req.params.id}/media`, "Mídia removida com sucesso!"));
   });
 
   // Proxy autenticado (sessão admin, mesmo middleware do resto de /admin) —
@@ -280,7 +281,7 @@ export function createBotsRouter(): Router {
       console.error(`[bots] falha ao remover webhook do Telegram (bot ${req.params.id})`, err);
     }
 
-    res.redirect("/admin/bots");
+    res.redirect(withSuccess("/admin/bots", "Bot excluído com sucesso!"));
   });
 
   return router;

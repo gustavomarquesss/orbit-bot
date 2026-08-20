@@ -1,0 +1,85 @@
+<!--
+  Toast global de sucesso/erro + guarda contra duplo clique em formulário.
+  Incluído uma vez em partials/footer.ejs — cobre o painel inteiro sem
+  precisar mexer em cada tela (pedido do usuário, 2026-08-20: "em todo meu
+  sistema"). Duas responsabilidades:
+
+  1) Lê ?success=... / ?error=... (e os nomes de erro já existentes no
+     código — fileError/mediaError/deliveryError — sem precisar tocar nas
+     rotas que já os usam) da query string no load da página, mostra um
+     toast e limpa a URL via history.replaceState (refresh não reabre o
+     toast nem tenta reenviar nada, já que o painel usa POST-redirect-GET).
+  2) Desabilita o(s) botão(ões) de submit no momento do submit de QUALQUER
+     form da página — evita duplo envio em clique duplo/conexão lenta, e dá
+     o feedback de "carregando". Respeita `onsubmit="return confirm(...)"`
+     já usado nos botões de excluir (não desabilita se o usuário cancelou).
+-->
+<div id="toast-root" class="toast toast-top toast-end z-50" aria-live="polite"></div>
+<script>
+  (function () {
+    var TOAST_MS = 4500;
+
+    function showToast(kind, message) {
+      var root = document.getElementById("toast-root");
+      if (!root || !message) return;
+      var el = document.createElement("div");
+      el.className = "alert " + (kind === "error" ? "alert-error" : "alert-success") + " shadow-lg text-sm py-2.5 pr-2 items-start";
+      var span = document.createElement("span");
+      span.textContent = message;
+      var closeBtn = document.createElement("button");
+      closeBtn.type = "button";
+      closeBtn.className = "btn btn-ghost btn-xs";
+      closeBtn.textContent = "✕";
+      closeBtn.setAttribute("aria-label", "Fechar");
+      closeBtn.addEventListener("click", function () { dismiss(); });
+      el.appendChild(span);
+      el.appendChild(closeBtn);
+      root.appendChild(el);
+
+      var timer = setTimeout(dismiss, TOAST_MS);
+      function dismiss() {
+        clearTimeout(timer);
+        el.style.transition = "opacity .2s";
+        el.style.opacity = "0";
+        setTimeout(function () { el.remove(); }, 200);
+      }
+    }
+
+    var params = new URLSearchParams(location.search);
+    var success = params.get("success");
+    var error = params.get("error") || params.get("fileError") || params.get("mediaError") || params.get("deliveryError");
+    if (success) showToast("success", success);
+    if (error) showToast("error", error);
+    if (success || error) {
+      ["success", "error", "fileError", "mediaError", "deliveryError"].forEach(function (k) { params.delete(k); });
+      var qs = params.toString();
+      history.replaceState(null, "", location.pathname + (qs ? "?" + qs : "") + location.hash);
+    }
+
+    document.addEventListener("submit", function (e) {
+      if (e.defaultPrevented) return; // ex: onsubmit="return confirm(...)" cancelado pelo usuário
+      var form = e.target;
+      if (!(form instanceof HTMLFormElement) || form.dataset.dgSubmitting === "1") {
+        if (form instanceof HTMLFormElement) e.preventDefault();
+        return;
+      }
+      form.dataset.dgSubmitting = "1";
+      var buttons = form.querySelectorAll('button[type="submit"], input[type="submit"]');
+      buttons.forEach(function (btn) {
+        btn.disabled = true;
+        btn.dataset.dgOriginalHtml = btn.innerHTML;
+        btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span> ' + (btn.textContent || "").trim();
+      });
+      // Rede-de-segurança: se a navegação não acontecer (ex: erro de rede),
+      // reabilita depois de um tempo em vez de deixar o botão travado pra sempre.
+      setTimeout(function () {
+        if (form.dataset.dgSubmitting !== "1") return;
+        form.dataset.dgSubmitting = "";
+        buttons.forEach(function (btn) {
+          btn.disabled = false;
+          if (btn.dataset.dgOriginalHtml) btn.innerHTML = btn.dataset.dgOriginalHtml;
+        });
+      }, 15000);
+    });
+  })();
+</script>

@@ -3,6 +3,7 @@ import multer from "multer";
 import { prisma } from "../db/client.js";
 import { nextOrder } from "../bot/util.js";
 import { uploadMediaToLibrary, uploadDeliverableFile } from "../bot/mediaUpload.js";
+import { withSuccess } from "./toastUtil.js";
 
 // 50MB é o limite real de upload da Bot API do Telegram (sendPhoto/sendVideo/
 // etc) — usar o mesmo aqui em vez de um número arbitrário menor, que cortava
@@ -44,7 +45,7 @@ export function createFlowsRouter(): Router {
       const flow = await prisma.flow.create({
         data: { key, name, description, welcomeConfig: { create: {} } },
       });
-      res.redirect(`/admin/flows/${flow.id}/bots`);
+      res.redirect(withSuccess(`/admin/flows/${flow.id}/bots`, "Fluxo criado com sucesso!"));
     } catch (err) {
       res.status(400).render("flows/new", { error: `Não foi possível criar o fluxo (chave "${key}" já existe?).` });
     }
@@ -107,7 +108,7 @@ export function createFlowsRouter(): Router {
       ),
     ]);
 
-    res.redirect(`/admin/flows/${flow.id}/bots`);
+    res.redirect(withSuccess(`/admin/flows/${flow.id}/bots`, "Bots vinculados salvos com sucesso!"));
   });
 
   // --- Boas-vindas ---
@@ -135,7 +136,7 @@ export function createFlowsRouter(): Router {
       create: { flowId, text, secondaryMessageEnabled, ctaButtonEnabled, ctaLabel, miniAppEnabled, miniAppUrl },
     });
 
-    res.redirect(`/admin/flows/${flowId}/welcome`);
+    res.redirect(withSuccess(`/admin/flows/${flowId}/welcome`, "Boas-vindas salvas com sucesso!"));
   });
 
   router.post("/:id/welcome/media", async (req, res) => {
@@ -156,7 +157,7 @@ export function createFlowsRouter(): Router {
     await prisma.welcomeMedia.create({
       data: { welcomeConfigId: welcome.id, order: nextOrder(last === -1 ? null : last), mediaType: mediaType as never, fileId },
     });
-    res.redirect(`/admin/flows/${flowId}/welcome`);
+    res.redirect(withSuccess(`/admin/flows/${flowId}/welcome`, "Mídia adicionada com sucesso!"));
   });
 
   router.post("/:id/welcome/media/upload", (req, res, next) => {
@@ -195,12 +196,12 @@ export function createFlowsRouter(): Router {
       const message = err instanceof Error ? err.message : "Falha ao enviar o arquivo.";
       return res.redirect(`/admin/flows/${flowId}/welcome?mediaError=${encodeURIComponent(message)}`);
     }
-    res.redirect(`/admin/flows/${flowId}/welcome`);
+    res.redirect(withSuccess(`/admin/flows/${flowId}/welcome`, "Mídia enviada com sucesso!"));
   });
 
   router.post("/:id/welcome/media/:mediaId/delete", async (req, res) => {
     await prisma.welcomeMedia.delete({ where: { id: req.params.mediaId } });
-    res.redirect(`/admin/flows/${req.params.id}/welcome`);
+    res.redirect(withSuccess(`/admin/flows/${req.params.id}/welcome`, "Mídia removida com sucesso!"));
   });
 
   router.post("/:id/welcome/redirect-buttons", async (req, res) => {
@@ -217,12 +218,12 @@ export function createFlowsRouter(): Router {
     await prisma.redirectButton.create({
       data: { welcomeConfigId: welcome.id, order: nextOrder(last === -1 ? null : last), label, url },
     });
-    res.redirect(`/admin/flows/${flowId}/welcome`);
+    res.redirect(withSuccess(`/admin/flows/${flowId}/welcome`, "Botão adicionado com sucesso!"));
   });
 
   router.post("/:id/welcome/redirect-buttons/:buttonId/delete", async (req, res) => {
     await prisma.redirectButton.delete({ where: { id: req.params.buttonId } });
-    res.redirect(`/admin/flows/${req.params.id}/welcome`);
+    res.redirect(withSuccess(`/admin/flows/${req.params.id}/welcome`, "Botão removido com sucesso!"));
   });
 
   // --- Planos ---
@@ -301,7 +302,7 @@ export function createFlowsRouter(): Router {
       },
     });
 
-    res.redirect(`/admin/flows/${flowId}/plans`);
+    res.redirect(withSuccess(`/admin/flows/${flowId}/plans`, "Plano criado com sucesso!"));
   });
 
   router.post("/:id/plans/:planId", async (req, res) => {
@@ -342,7 +343,7 @@ export function createFlowsRouter(): Router {
       },
     });
 
-    res.redirect(`/admin/flows/${flowId}/plans`);
+    res.redirect(withSuccess(`/admin/flows/${flowId}/plans`, "Plano salvo com sucesso!"));
   });
 
   router.post("/:id/plans/:planId/file/upload", (req, res, next) => {
@@ -385,12 +386,12 @@ export function createFlowsRouter(): Router {
       const message = err instanceof Error ? err.message : "Falha ao enviar o arquivo.";
       return res.redirect(`${editUrl}?fileError=${encodeURIComponent(message)}`);
     }
-    res.redirect(editUrl);
+    res.redirect(withSuccess(editUrl, "Arquivo enviado com sucesso!"));
   });
 
   router.post("/:id/plans/:planId/delete", async (req, res) => {
     await prisma.plan.delete({ where: { id: req.params.planId } });
-    res.redirect(`/admin/flows/${req.params.id}/plans`);
+    res.redirect(withSuccess(`/admin/flows/${req.params.id}/plans`, "Plano excluído com sucesso!"));
   });
 
   // --- Entrega Padrão (Fallback) ---
@@ -421,7 +422,7 @@ export function createFlowsRouter(): Router {
       create: { flowId, ...data },
     });
 
-    res.redirect(`/admin/flows/${flowId}/plans`);
+    res.redirect(withSuccess(`/admin/flows/${flowId}/plans`, "Entrega Padrão salva com sucesso!"));
   });
 
   router.post("/:id/delivery/file/upload", (req, res, next) => {
@@ -464,7 +465,7 @@ export function createFlowsRouter(): Router {
       const message = err instanceof Error ? err.message : "Falha ao enviar o arquivo.";
       return res.redirect(`${editUrl}?deliveryError=${encodeURIComponent(message)}`);
     }
-    res.redirect(editUrl);
+    res.redirect(withSuccess(editUrl, "Arquivo enviado com sucesso!"));
   });
 
   // --- Pagamentos ---
@@ -489,7 +490,7 @@ export function createFlowsRouter(): Router {
       create: { flowId, pixGeneratedMessage, pixApprovedMessage, renewalMessage, buttonStyle: buttonStyle as never, showConfirmationStep },
     });
 
-    res.redirect(`/admin/flows/${flowId}/payments`);
+    res.redirect(withSuccess(`/admin/flows/${flowId}/payments`, "Mensagens de pagamento salvas com sucesso!"));
   });
 
   // --- Order Bump ---
@@ -545,7 +546,7 @@ export function createFlowsRouter(): Router {
       },
     });
 
-    res.redirect(`/admin/flows/${flowId}/offers`);
+    res.redirect(withSuccess(`/admin/flows/${flowId}/offers`, "Order Bump criado com sucesso!"));
   });
 
   router.post("/:id/offers/:offerId/toggle", async (req, res) => {
@@ -553,12 +554,12 @@ export function createFlowsRouter(): Router {
     if (offer) {
       await prisma.offer.update({ where: { id: offer.id }, data: { active: !offer.active } });
     }
-    res.redirect(`/admin/flows/${req.params.id}/offers`);
+    res.redirect(withSuccess(`/admin/flows/${req.params.id}/offers`, "Order Bump atualizado com sucesso!"));
   });
 
   router.post("/:id/offers/:offerId/delete", async (req, res) => {
     await prisma.offer.delete({ where: { id: req.params.offerId } });
-    res.redirect(`/admin/flows/${req.params.id}/offers`);
+    res.redirect(withSuccess(`/admin/flows/${req.params.id}/offers`, "Order Bump excluído com sucesso!"));
   });
 
   // --- Upsell (sequência de mensagens após qualquer compra do funil) ---
@@ -596,7 +597,7 @@ export function createFlowsRouter(): Router {
       update: { active },
       create: { flowId, active },
     });
-    res.redirect(`/admin/flows/${flowId}/upsell`);
+    res.redirect(withSuccess(`/admin/flows/${flowId}/upsell`, "Upsell salvo com sucesso!"));
   });
 
   router.post("/:id/upsell/messages", async (req, res) => {
@@ -614,7 +615,7 @@ export function createFlowsRouter(): Router {
     await prisma.upsellMessage.create({
       data: { sequenceId: sequence.id, order: nextOrder(last?.order) },
     });
-    res.redirect(`/admin/flows/${flowId}/upsell`);
+    res.redirect(withSuccess(`/admin/flows/${flowId}/upsell`, "Upsell salvo com sucesso!"));
   });
 
   router.post("/:id/upsell/messages/:messageId", async (req, res) => {
@@ -624,12 +625,12 @@ export function createFlowsRouter(): Router {
       where: { id: req.params.messageId },
       data: { text, delayMinutes },
     });
-    res.redirect(`/admin/flows/${req.params.id}/upsell`);
+    res.redirect(withSuccess(`/admin/flows/${req.params.id}/upsell`, "Upsell salvo com sucesso!"));
   });
 
   router.post("/:id/upsell/messages/:messageId/delete", async (req, res) => {
     await prisma.upsellMessage.delete({ where: { id: req.params.messageId } });
-    res.redirect(`/admin/flows/${req.params.id}/upsell`);
+    res.redirect(withSuccess(`/admin/flows/${req.params.id}/upsell`, "Upsell salvo com sucesso!"));
   });
 
   router.post("/:id/upsell/messages/:messageId/plans", async (req, res) => {
@@ -645,12 +646,12 @@ export function createFlowsRouter(): Router {
         .create({ data: { messageId, planId, order: nextOrder(last?.order) } })
         .catch(() => {}); // unique[messageId,planId] -- ignora se já estava anexado
     }
-    res.redirect(`/admin/flows/${req.params.id}/upsell`);
+    res.redirect(withSuccess(`/admin/flows/${req.params.id}/upsell`, "Upsell salvo com sucesso!"));
   });
 
   router.post("/:id/upsell/messages/:messageId/plans/:linkId/delete", async (req, res) => {
     await prisma.upsellMessagePlan.delete({ where: { id: req.params.linkId } });
-    res.redirect(`/admin/flows/${req.params.id}/upsell`);
+    res.redirect(withSuccess(`/admin/flows/${req.params.id}/upsell`, "Upsell salvo com sucesso!"));
   });
 
   router.post("/:id/upsell/messages/:messageId/buttons", async (req, res) => {
@@ -677,12 +678,12 @@ export function createFlowsRouter(): Router {
         },
       });
     }
-    res.redirect(`/admin/flows/${req.params.id}/upsell`);
+    res.redirect(withSuccess(`/admin/flows/${req.params.id}/upsell`, "Upsell salvo com sucesso!"));
   });
 
   router.post("/:id/upsell/messages/:messageId/buttons/:buttonId/delete", async (req, res) => {
     await prisma.upsellMessageButton.delete({ where: { id: req.params.buttonId } });
-    res.redirect(`/admin/flows/${req.params.id}/upsell`);
+    res.redirect(withSuccess(`/admin/flows/${req.params.id}/upsell`, "Upsell salvo com sucesso!"));
   });
 
   // --- Downsell (Geral: pós-/start sem compra · PIX Gerado: PIX abandonado) ---
@@ -724,7 +725,7 @@ export function createFlowsRouter(): Router {
       update: { active },
       create: { flowId, active },
     });
-    res.redirect(`/admin/flows/${flowId}/downsell`);
+    res.redirect(withSuccess(`/admin/flows/${flowId}/downsell`, "Downsell atualizado com sucesso!"));
   });
 
   const DOWNSELL_SEQUENCE_LIMIT = 20;
@@ -746,7 +747,7 @@ export function createFlowsRouter(): Router {
         },
       });
     }
-    res.redirect(`/admin/flows/${flowId}/downsell?tab=${trigger === "PIX_GENERATED" ? "pix" : "geral"}`);
+    res.redirect(withSuccess(`/admin/flows/${flowId}/downsell?tab=${trigger === "PIX_GENERATED" ? "pix" : "geral"}`, "Sequência criada com sucesso!"));
   });
 
   router.post("/:id/downsell/sequences/:seqId", async (req, res) => {
@@ -759,7 +760,7 @@ export function createFlowsRouter(): Router {
       where: { id: req.params.seqId },
       data: { message, delayMinutes, discountType, discountValue },
     });
-    res.redirect(`/admin/flows/${req.params.id}/downsell?tab=${sequence.trigger === "PIX_GENERATED" ? "pix" : "geral"}`);
+    res.redirect(withSuccess(`/admin/flows/${req.params.id}/downsell?tab=${sequence.trigger === "PIX_GENERATED" ? "pix" : "geral"}`, "Sequência salva com sucesso!"));
   });
 
   router.post("/:id/downsell/sequences/:seqId/toggle", async (req, res) => {
@@ -767,7 +768,7 @@ export function createFlowsRouter(): Router {
     if (sequence) {
       await prisma.downsellSequence.update({ where: { id: sequence.id }, data: { active: !sequence.active } });
     }
-    res.redirect(`/admin/flows/${req.params.id}/downsell?tab=${sequence?.trigger === "PIX_GENERATED" ? "pix" : "geral"}`);
+    res.redirect(withSuccess(`/admin/flows/${req.params.id}/downsell?tab=${sequence?.trigger === "PIX_GENERATED" ? "pix" : "geral"}`, "Sequência atualizada com sucesso!"));
   });
 
   router.post("/:id/downsell/sequences/:seqId/duplicate", async (req, res) => {
@@ -796,13 +797,13 @@ export function createFlowsRouter(): Router {
         },
       });
     }
-    res.redirect(`/admin/flows/${req.params.id}/downsell?tab=${original?.trigger === "PIX_GENERATED" ? "pix" : "geral"}`);
+    res.redirect(withSuccess(`/admin/flows/${req.params.id}/downsell?tab=${original?.trigger === "PIX_GENERATED" ? "pix" : "geral"}`, "Sequência duplicada com sucesso!"));
   });
 
   router.post("/:id/downsell/sequences/:seqId/delete", async (req, res) => {
     const sequence = await prisma.downsellSequence.findUnique({ where: { id: req.params.seqId } });
     await prisma.downsellSequence.delete({ where: { id: req.params.seqId } });
-    res.redirect(`/admin/flows/${req.params.id}/downsell?tab=${sequence?.trigger === "PIX_GENERATED" ? "pix" : "geral"}`);
+    res.redirect(withSuccess(`/admin/flows/${req.params.id}/downsell?tab=${sequence?.trigger === "PIX_GENERATED" ? "pix" : "geral"}`, "Sequência excluída com sucesso!"));
   });
 
   router.post("/:id/downsell/sequences/:seqId/media", async (req, res) => {
@@ -819,7 +820,7 @@ export function createFlowsRouter(): Router {
         });
       }
     }
-    res.redirect(`/admin/flows/${req.params.id}/downsell?tab=${sequence?.trigger === "PIX_GENERATED" ? "pix" : "geral"}`);
+    res.redirect(withSuccess(`/admin/flows/${req.params.id}/downsell?tab=${sequence?.trigger === "PIX_GENERATED" ? "pix" : "geral"}`, "Mídia adicionada com sucesso!"));
   });
 
   router.post("/:id/downsell/sequences/:seqId/media/upload", (req, res, next) => {
@@ -862,7 +863,7 @@ export function createFlowsRouter(): Router {
       const message = err instanceof Error ? err.message : "Falha ao enviar o arquivo.";
       return res.redirect(`${redirectUrl}&mediaError=${encodeURIComponent(message)}`);
     }
-    res.redirect(redirectUrl);
+    res.redirect(withSuccess(redirectUrl, "Mídia enviada com sucesso!"));
   });
 
   router.post("/:id/downsell/sequences/:seqId/media/:mediaId/delete", async (req, res) => {
@@ -871,7 +872,7 @@ export function createFlowsRouter(): Router {
       include: { sequence: true },
     });
     if (media) await prisma.downsellSequenceMedia.delete({ where: { id: media.id } });
-    res.redirect(`/admin/flows/${req.params.id}/downsell?tab=${media?.sequence.trigger === "PIX_GENERATED" ? "pix" : "geral"}`);
+    res.redirect(withSuccess(`/admin/flows/${req.params.id}/downsell?tab=${media?.sequence.trigger === "PIX_GENERATED" ? "pix" : "geral"}`, "Mídia removida com sucesso!"));
   });
 
   router.post("/:id/downsell/sequences/:seqId/plans", async (req, res) => {
@@ -888,7 +889,7 @@ export function createFlowsRouter(): Router {
         .create({ data: { sequenceId: seqId, planId, order: nextOrder(last?.order) } })
         .catch(() => {}); // unique[sequenceId,planId] -- ignora se já estava anexado
     }
-    res.redirect(`/admin/flows/${req.params.id}/downsell?tab=${sequence?.trigger === "PIX_GENERATED" ? "pix" : "geral"}`);
+    res.redirect(withSuccess(`/admin/flows/${req.params.id}/downsell?tab=${sequence?.trigger === "PIX_GENERATED" ? "pix" : "geral"}`, "Plano anexado com sucesso!"));
   });
 
   router.post("/:id/downsell/sequences/:seqId/plans/:linkId/delete", async (req, res) => {
@@ -897,12 +898,12 @@ export function createFlowsRouter(): Router {
       include: { sequence: true },
     });
     if (link) await prisma.downsellSequencePlan.delete({ where: { id: link.id } });
-    res.redirect(`/admin/flows/${req.params.id}/downsell?tab=${link?.sequence.trigger === "PIX_GENERATED" ? "pix" : "geral"}`);
+    res.redirect(withSuccess(`/admin/flows/${req.params.id}/downsell?tab=${link?.sequence.trigger === "PIX_GENERATED" ? "pix" : "geral"}`, "Plano removido com sucesso!"));
   });
 
   router.post("/:id/delete", async (req, res) => {
     await prisma.flow.delete({ where: { id: req.params.id } });
-    res.redirect("/admin/flows");
+    res.redirect(withSuccess("/admin/flows", "Fluxo excluído com sucesso!"));
   });
 
   return router;
