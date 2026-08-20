@@ -7,6 +7,7 @@ import { prisma } from "../db/client.js";
 import { config } from "../config.js";
 import { createBotsRouter } from "./botsRoutes.js";
 import { createFlowsRouter } from "./flowsRoutes.js";
+import { createMailingRouter } from "./mailingRoutes.js";
 import { applyDiscount } from "../bot/downsellMessage.js";
 
 // Pool dedicado do connect-pg-simple (ele gerencia sua própria tabela de
@@ -84,6 +85,7 @@ export function createAdminRouter(): Router {
 
   router.use("/bots", createBotsRouter());
   router.use("/flows", createFlowsRouter());
+  router.use("/mailing", createMailingRouter());
 
   router.get("/settings", async (_req, res) => {
     const settings = await prisma.settings.findUnique({ where: { id: "singleton" } });

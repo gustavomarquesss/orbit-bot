@@ -221,13 +221,31 @@ avaliado e considerado dispensável pelo usuário — `banChatMember`/
 `unbanChatMember` são chamadas padrão da Bot API, não lógica própria do
 projeto que precise de validação extra.
 
-**Próximo**: Milestone 3 (WiinPay) segue bloqueado esperando a captura real
-do usuário (ver acima). Milestones 6 (mailing) e 7 (dashboard) não
-dependem de nada pendente e podem ser adiantados. Plano em
+**Milestone 6 (mailing básico) implementado e verificado (2026-08-19)**:
+novo modelo `Broadcast` (`botId`, `segment` ALL/BUYERS/NON_BUYERS,
+`message`, `status` SENDING/DONE/FAILED, `totalRecipients`/`sentCount`/
+`failedCount`). `src/bot/broadcast.ts` (`sendBroadcast`) roda em background
+(disparado sem `await` pela rota — não segura a resposta HTTP), resolve o
+segmento via query direta (`BUYERS`= tem `Order` PAID, `NON_BUYERS` = não
+tem), manda em lotes de 25 com pausa de 1s entre lotes (limite real da Bot
+API é ~30 msg/s), incrementa `sentCount`/`failedCount` por mensagem
+(`Prisma.increment`, atômico). Falha de mensagem individual (bot bloqueado
+pelo usuário etc) não derruba o broadcast inteiro — só conta como falha e
+segue; `status: FAILED` só acontece se o bot nem estiver registrado (nada
+pôde ser tentado). Painel novo em `/admin/mailing` (nível superior, não
+dentro de um Flow — Broadcast é por Bot). Sem agendamento, só "enviar
+agora" (`DRAFT` ficou fora do enum, já que nada no fluxo produz esse
+estado). Verificado com um disparo real (segmento "Todos", 1 lead) —
+painel mostrou "1 enviada / 0 falharam" e o usuário confirmou a mensagem
+chegando no Telegram.
+
+**Próximo**: Milestone 3 (WiinPay) segue bloqueado — usuário vai contatar o
+suporte deles pra conseguir acesso à API/documentação (não é pública).
+Milestone 7 (dashboard) não depende de nada pendente. Plano em
 `C:\Users\gusta\.claude\plans\rippling-rolling-castle.md` já atualizado
 pra refletir o rebuild do Upsell (Downsell/Assinatura seguem documentados
 lá como "desenho original, histórico" — atualizar lá também na próxima
-passada).
+passada, junto com Mailing).
 
 ## Redesign pro modelo Shark Bot (2026-08-19)
 

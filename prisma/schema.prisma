@@ -77,10 +77,11 @@ model Bot {
   createdAt                 DateTime @default(now())
   updatedAt                 DateTime @updatedAt
 
-  commands BotCommand[]
-  flows    FlowBot[]
-  leads    Lead[]
-  orders   Order[]
+  commands   BotCommand[]
+  flows      FlowBot[]
+  leads      Lead[]
+  orders     Order[]
+  broadcasts Broadcast[]
 }
 
 enum BotCommandKind {
@@ -575,6 +576,41 @@ model ScheduledDownsellSend {
 
   @@index([sendAt])
   @@index([leadId])
+}
+
+enum BroadcastSegment {
+  ALL
+  /// Leads com pelo menos 1 Order PAID (qualquer bot/funil).
+  BUYERS
+  /// Leads sem nenhum Order PAID.
+  NON_BUYERS
+}
+
+enum BroadcastStatus {
+  SENDING
+  DONE
+  /// Só usado se a varredura nem conseguir começar (ex: bot não registrado)
+  /// — falha de mensagem individual não derruba o broadcast inteiro, vira
+  /// failedCount.
+  FAILED
+}
+
+/// Disparo de mensagem em massa pra um segmento de Leads de um Bot (Fase 2,
+/// Milestone 6). Sem agendamento — dispara na hora, processado em background
+/// por src/bot/broadcast.ts assim que criado.
+model Broadcast {
+  id              String           @id @default(cuid())
+  botId           String
+  bot             Bot              @relation(fields: [botId], references: [id], onDelete: Cascade)
+  segment         BroadcastSegment
+  message         String           @db.Text
+  status          BroadcastStatus  @default(SENDING)
+  totalRecipients Int              @default(0)
+  sentCount       Int              @default(0)
+  failedCount     Int              @default(0)
+  createdAt       DateTime         @default(now())
+  startedAt       DateTime?
+  finishedAt      DateTime?
 }
 
 /// Log bruto de todo webhook recebido da SyncPay — garante idempotência

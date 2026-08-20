@@ -1,0 +1,70 @@
+<%- include("partials/header", { title: "Mailing", active: "mailing" }) %>
+
+<style>
+  .segment-label { font-size: 0.8rem; padding: 2px 8px; border-radius: 999px; background: var(--surface-2); color: var(--text-muted); }
+  .status-SENDING { color: #f5a623; }
+  .status-DONE { color: #4ade80; }
+  .status-FAILED { color: var(--danger); }
+</style>
+
+<section>
+  <h2>Disparos</h2>
+  <p class="hint">Sem agendamento — envia na hora pro segmento escolhido. Atualize a página pra acompanhar o progresso.</p>
+  <table>
+    <thead>
+      <tr><th>Bot</th><th>Segmento</th><th>Status</th><th>Progresso</th><th>Criado em</th></tr>
+    </thead>
+    <tbody>
+      <% broadcasts.forEach(function(b) { %>
+        <tr>
+          <td><%= b.bot.label %></td>
+          <td><span class="segment-label"><%= b.segment === "ALL" ? "Todos" : b.segment === "BUYERS" ? "Compradores" : "Não-compradores" %></span></td>
+          <td class="status-<%= b.status %>"><%= b.status === "SENDING" ? "Enviando..." : b.status === "DONE" ? "Concluído" : "Falhou" %></td>
+          <td><%= b.sentCount %> enviadas / <%= b.failedCount %> falharam <% if (b.totalRecipients) { %>(de <%= b.totalRecipients %>)<% } %></td>
+          <td><%= b.createdAt.toLocaleString("pt-BR") %></td>
+        </tr>
+      <% }); %>
+      <% if (broadcasts.length === 0) { %><tr><td colspan="5" class="empty">Nenhum disparo ainda.</td></tr><% } %>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Novo disparo</h2>
+  <% if (error) { %><p style="color:var(--danger);"><%= error %></p><% } %>
+  <form method="POST" action="/admin/mailing">
+    <label for="botId">Bot</label>
+    <select id="botId" name="botId" required>
+      <% bots.forEach(function(bot) { %>
+        <option value="<%= bot.id %>"><%= bot.label %></option>
+      <% }); %>
+    </select>
+    <% if (bots.length === 0) { %><div class="hint">Cadastre um bot primeiro em "Bots".</div><% } %>
+
+    <label for="segment">Segmento</label>
+    <select id="segment" name="segment">
+      <option value="ALL">Todos os leads</option>
+      <option value="BUYERS">Só compradores (pelo menos 1 pagamento aprovado)</option>
+      <option value="NON_BUYERS">Só não-compradores</option>
+    </select>
+
+    <label for="message">Mensagem</label>
+    <div class="rte-toolbar">
+      <button type="button" onclick="dgWrapSelection('message','&lt;b&gt;','&lt;/b&gt;')"><b>B</b></button>
+      <button type="button" onclick="dgWrapSelection('message','&lt;i&gt;','&lt;/i&gt;')"><i>I</i></button>
+      <button type="button" onclick="dgWrapSelection('message','&lt;u&gt;','&lt;/u&gt;')"><u>U</u></button>
+    </div>
+    <textarea id="message" name="message" rows="6" required placeholder="Oi {nome}, ..."></textarea>
+    <div class="var-chips">
+      <% ["nome","saudacao","bot.username"].forEach(function(v) { %>
+        <button type="button" onclick="dgInsertAtCursor('message', '{<%= v %>}')">{<%= v %>}</button>
+      <% }); %>
+    </div>
+
+    <div class="actions">
+      <button class="btn" type="submit" onclick="return confirm('Enviar agora pro segmento escolhido? Não dá pra cancelar depois de começar.');">Enviar agora</button>
+    </div>
+  </form>
+</section>
+
+<%- include("partials/footer") %>
