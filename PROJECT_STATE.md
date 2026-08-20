@@ -286,6 +286,38 @@ pra refletir o rebuild do Upsell (Downsell/Assinatura/Mailing/Dashboard
 seguem documentados lá como "desenho original, histórico" — atualizar lá
 também na próxima passada).
 
+## Bug real encontrado e corrigido — servidor inteiro caía por erro isolado (2026-08-20)
+
+Durante a revisão do redesign, o usuário tentou excluir (via painel) o bot
+que já tinha vendas reais registradas. `prisma.bot.delete()` estourou uma
+foreign key constraint (`Order_botId_fkey`) sem tratamento — virou uma
+unhandled promise rejection que **derrubou o processo Node inteiro**
+(desde o Node 15, isso é fatal por padrão). Ou seja: um clique isolado no
+painel tiraria o bot inteiro do ar pra todos os clientes reais, não só o
+painel admin. Corrigido em duas frentes:
+- `src/admin/botsRoutes.ts`: a rota de excluir bot agora trata
+  especificamente o erro de FK (código Prisma `P2003`) e mostra mensagem
+  amigável ("já tem vendas registradas, desative em vez de excluir") em
+  vez de deixar propagar; ordem invertida pra deletar do banco ANTES de
+  mexer no webhook do Telegram (evita ficar com o webhook removido de um
+  bot que continua existindo, se o delete falhasse depois).
+- `src/server.ts`: `process.on("unhandledRejection"/"uncaughtException")`
+  como rede de segurança geral — loga em vez de derrubar o processo. Isso
+  cobre qualquer bug futuro parecido em qualquer rota async: no pior caso
+  aquela requisição específica fica sem resposta (timeout pro usuário que
+  clicou), mas o servidor continua de pé pra todo o resto do tráfego (bot
+  real incluído). **Isso era uma lacuna real de confiabilidade que só foi
+  descoberta porque o usuário estava testando de verdade** — mesma lição
+  de sempre neste projeto (bugs reais só aparecem testando de verdade).
+- Reproduzido e confirmado corrigido: tentativa real de excluir o bot com
+  14 Orders mostrou o erro amigável, servidor continuou respondendo.
+
+**Achado à parte, ainda não resolvido**: no restart do servidor depois do
+crash, o log mostrou `401 Unauthorized` da API do Telegram ao tentar
+registrar o webhook do bot principal — o token pode ter sido revogado/
+regenerado do lado do Telegram. Usuário avisado, precisa checar o
+@BotFather.
+
 ## Redesign visual — Tailwind/DaisyUI + paleta vermelha (2026-08-20)
 
 Fora do escopo da Fase 2 (que fechou no Milestone 7) — pedido separado do
