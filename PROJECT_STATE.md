@@ -365,6 +365,94 @@ via `curl`/network log que a requisição atual retorna 200 `text/css`
 normalmente). **Pendente**: revisão visual do usuário comparando com a
 referência antes de considerar fechado.
 
+## Editor de texto rico + motor de variáveis avançado (2026-08-20)
+
+Pedido separado do usuário, com 4 prints de referência (tela atual do bot
+dele vs. um concorrente): o campo de texto das mensagens hoje é um
+textarea puro, sem paridade com o editor do concorrente (toolbar, modal de
+variáveis, prévia, contador de caracteres). Escopo confirmado com o
+usuário antes de começar — **retrofit só do editor** nos campos já
+existentes (não a feature nova de "Canal" multi-canal), e **lista
+completa de variáveis** mesmo que demore mais (não uma versão simples
+primeiro).
+
+**Motor de variáveis (`src/bot/templating.ts`, 30 testes)**: além das
+variáveis fixas de sempre, adiciona `profile_name`/`telegram_user_id`/
+`random_id`, `greeting` por faixa de horário (Bom dia 5h-11h / Boa tarde
+12h-17h / Boa noite 18h-23h / Boa madrugada 0h-4h), data/hora completos
+(`time`/`time_sec`/`date`/`date_ext`/`day`/`month`/`month_ext`/`year`/
+`weekday`, fuso America/Sao_Paulo via `Intl`), aritmética de data
+(`{time+1}`, `{time+0:15}`, `{date+7}`, `{month+1}`, `{year+1}`),
+`{countdown:S:I:delete}` (30-300s, intervalo mínimo 5s, ambos com clamp
+automático) e `{effect:fire}`/etc (6 efeitos animados reais da Bot API,
+só chat privado, só no envio). Cor de botão via sufixo `{#HEX}` no texto
+do botão (`parseButtonLabel`) — achado pesquisando a Bot API 9.4 (fev/2026):
+só existem 3 cores reais (`primary`=azul, `success`=verde, `danger`=
+vermelho), não hex livre; qualquer outro hex (inclusive o rosa que o
+usuário pediu) é ignorado sem crashar, e a UI avisa isso explicitamente em
+vez de fingir que funciona. **Bug real pego pelos testes antes de
+shippar**: `{time+1}` estava sendo aplicado em MINUTOS em vez de HORAS —
+corrigido.
+
+**Contador regressivo ao vivo**: novo modelo `ScheduledCountdownEdit` +
+`src/bot/countdownScheduler.ts` (poller de 3s, mesmo padrão dos outros
+schedulers) — o bot edita a própria mensagem a cada `intervalSeconds` até
+zerar (fixa "00:00" ou apaga a mensagem, conforme `:delete`). O texto
+final já resolvido (variáveis substituídas) é salvo com um marcador
+interno no lugar do `{countdown:...}` — cada tick só troca o marcador
+pelo tempo restante, sem re-renderizar a mensagem inteira.
+
+**Wireado nos 8 pontos reais de envio** (`src/bot/richSend.ts` centraliza
+`prepareRichText`/`registerCountdownIfNeeded`/`styledCallbackButton`/
+`styledUrlButton`): boas-vindas e PIX gerado (`flows.ts`), Order Bump
+(`flows.ts` + `offerMessage.ts`, que parou de renderizar internamente pra
+não resolver `{effect}`/`{countdown}` cedo demais), PIX aprovado
+(`delivery.ts`), Upsell/Downsell/lembrete de renovação/mailing (os 4
+schedulers). `message_effect_id` e o `style` de botão da Bot API 9.4 não
+existem nos types do telegraf 4.16.3 (a mais recente publicada) — cast
+manual (`as never` nas opções de envio, tipo intersecção pro botão).
+
+**UI (`src/admin/views/partials/`)**: `richEditor.ejs` (toolbar B/I/U/S/
+código/citação + botões "Variáveis"/"Pré-visualizar" + contador de
+caracteres), `richEditorModals.ejs` (um único modal de variáveis por
+página, categorizado — Perfil/Saudação/Data e hora/Localização/Aritmética
+com mini-formulário/Contador regressivo com mini-formulário/Efeitos
+animados/Pagamento/Bot — e um modal de cor de botão com as 3 cores reais
++ aviso explícito do limite da Bot API), `buttonColorInput.ejs` (input de
+texto de botão + atalho 🎨). Retrofit em **todos** os campos de mensagem/
+botão do painel: boas-vindas (texto + CTA + botões de redirect),
+pagamentos (PIX gerado/aprovado/renovação), Order Bump (convite +
+aceitar/recusar), Upsell (texto + botão), Downsell (mensagem), mailing —
+substituindo as toolbars/chips ad-hoc que estavam duplicadas em cada
+tela. Prévia usa uma aproximação client-side de `renderTemplate` (dados de
+exemplo fixos) só pra visualização, sem chamar o servidor.
+
+**Verificado via browser**: as 6 telas carregam sem erro; modal de
+variáveis abre e insere corretamente (testado profile/countdown); prévia
+mostra o texto com countdown resolvido ("01:00...") e variáveis
+substituídas; modal de cor aplica `{#FF0000}` no campo de texto do botão;
+painel de prévia ao vivo de Pagamentos (as duas bolhas lado a lado)
+continua funcionando com a função de renderização compartilhada. **Bug
+pego nessa verificação e corrigido**: os partials `richEditor.ejs`/
+`buttonColorInput.ejs` acessavam a variável `value` sem checar
+`typeof value !== "undefined"` primeiro — quebrava com `ReferenceError`
+em todo campo "adicionar novo" que não passa um valor inicial (ex: texto
+de botão de redirect, aceitar/recusar do Order Bump, mensagem de
+mailing). Não commitado sem esse ajuste.
+
+**Ambiente local**: o Postgres de homologação (`dgbot-homolog-db`, porta
+55432 — ver seção "Ambiente de homologação local" abaixo) precisa estar
+rodando (`docker start dgbot-homolog-db`) antes do `npm run dev`; ele
+tinha ficado parado entre sessões. **Cuidado**: `docker-compose.yml` na
+raiz do repo é o stack de **deploy em produção** (app+db+caddy, porta
+5432/POSTGRES_USER/PASSWORD/DB via `.env`) — não confundir com o Postgres
+standalone de homologação local, são coisas diferentes com nomes
+parecidos.
+
+**Pendente**: teste real no Telegram (não só via painel/browser) do
+countdown ao vivo editando a mensagem, dos efeitos animados, e da cor de
+botão — ainda não confirmado com o bot de verdade nesta sessão.
+
 ## Redesign pro modelo Shark Bot (2026-08-19)
 
 Usuário mostrou 13 telas reais do Shark Bot e confirmou que o painel
