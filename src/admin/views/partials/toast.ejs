@@ -65,11 +65,19 @@
       }
       form.dataset.dgSubmitting = "1";
       var buttons = form.querySelectorAll('button[type="submit"], input[type="submit"]');
-      buttons.forEach(function (btn) {
-        btn.disabled = true;
-        btn.dataset.dgOriginalHtml = btn.innerHTML;
-        btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span> ' + (btn.textContent || "").trim();
-      });
+      // O navegador só lê qual botão foi o "submitter" (pro name/value dele
+      // entrar na query string) DEPOIS que este handler termina — desabilitar
+      // o botão agora mesmo faz o próprio clique que disparou o submit sumir
+      // da URL (campo desabilitado não é enviado). setTimeout(0) empurra a
+      // desabilitação pro próximo tick, depois que o navegador já capturou
+      // os dados — visualmente ainda parece instantâneo.
+      setTimeout(function () {
+        buttons.forEach(function (btn) {
+          btn.disabled = true;
+          btn.dataset.dgOriginalHtml = btn.innerHTML;
+          btn.innerHTML = '<span class="loading loading-spinner loading-xs"></span> ' + (btn.textContent || "").trim();
+        });
+      }, 0);
       // Rede-de-segurança: se a navegação não acontecer (ex: erro de rede),
       // reabilita depois de um tempo em vez de deixar o botão travado pra sempre.
       setTimeout(function () {
