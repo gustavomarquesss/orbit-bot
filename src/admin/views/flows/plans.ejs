@@ -14,7 +14,7 @@
           <td><%= p.name %></td>
           <td><%= formatBRL(p.priceCents) %></td>
           <td><%= p.durationDays ? p.durationDays + " dias" : "Pagamento único" %></td>
-          <td><%= p.deliveryType === "FILE" ? "Arquivo" : "Link" %></td>
+          <td><%= p.deliveryType === "FILE" ? "Arquivo" : p.deliveryType === "CHANNEL" ? "Canal VIP" : "Link" %></td>
           <td><% if (p.active) { %><span class="badge entry">ativo</span><% } else { %><span class="badge inactive">inativo</span><% } %></td>
           <td class="row-actions">
             <a class="btn small secondary" href="/admin/flows/<%= flow.id %>/plans/<%= p.id %>/edit">Editar</a>
@@ -52,9 +52,14 @@
     <div class="hint">Só tem efeito visual em contas com Telegram Business Premium — limitação da própria Bot API, não do painel.</div>
 
     <label for="deliveryType">Tipo de entrega</label>
-    <select id="deliveryType" name="deliveryType" onchange="document.getElementById('file-fields').style.display = this.value === 'FILE' ? 'block' : 'none'; document.getElementById('link-fields').style.display = this.value === 'LINK' ? 'block' : 'none';">
+    <select id="deliveryType" name="deliveryType" onchange="
+      document.getElementById('file-fields').style.display = this.value === 'FILE' ? 'block' : 'none';
+      document.getElementById('link-fields').style.display = this.value === 'LINK' ? 'block' : 'none';
+      document.getElementById('channel-fields').style.display = this.value === 'CHANNEL' ? 'block' : 'none';
+    ">
       <option value="LINK" <%= !editingPlan || editingPlan.deliveryType === "LINK" ? "selected" : "" %>>Link externo</option>
       <option value="FILE" <%= editingPlan && editingPlan.deliveryType === "FILE" ? "selected" : "" %>>Arquivo no canal-cofre</option>
+      <option value="CHANNEL" <%= editingPlan && editingPlan.deliveryType === "CHANNEL" ? "selected" : "" %>>Canal/grupo VIP (assinatura)</option>
     </select>
 
     <div id="file-fields" style="display: <%= editingPlan && editingPlan.deliveryType === 'FILE' ? 'block' : 'none' %>;">
@@ -64,6 +69,11 @@
     <div id="link-fields" style="display: <%= !editingPlan || editingPlan.deliveryType === 'LINK' ? 'block' : 'none' %>;">
       <label for="externalLink">Link a enviar após o pagamento</label>
       <input type="text" id="externalLink" name="externalLink" value="<%= editingPlan && editingPlan.externalLink ? editingPlan.externalLink : "" %>" placeholder="https://..." />
+    </div>
+    <div id="channel-fields" style="display: <%= editingPlan && editingPlan.deliveryType === 'CHANNEL' ? 'block' : 'none' %>;">
+      <label for="subscriptionChannelId">ID do canal/grupo VIP</label>
+      <input type="text" id="subscriptionChannelId" name="subscriptionChannelId" value="<%= editingPlan && editingPlan.subscriptionChannelId ? editingPlan.subscriptionChannelId : "" %>" placeholder="-1001234567890" />
+      <div class="hint">O bot precisa ser admin desse canal/grupo com permissão de convidar e remover membros. Cada compra gera um convite de uso único; se o plano tiver duração, o assinante é removido automaticamente quando expirar (sem renovar).</div>
     </div>
 
     <label for="customDeliveryTarget">Canal/grupo de entrega específico deste plano (opcional)</label>

@@ -169,13 +169,49 @@ não verificado com o bot real** (só dispara no primeiro `/start` de um lead
 novo — precisaria de uma conta nova do Telegram ou simulação via banco pra
 testar sem esperar um lead orgânico novo).
 
+**Milestone 5 (assinatura/renovação) implementado (2026-08-19)**: decisão
+estrutural confirmada com o usuário antes de construir — planos de
+assinatura (`durationDays` preenchido) dão acesso a um **canal/grupo VIP
+privado** do Telegram, não só um arquivo/link direto no DM (que era o único
+modelo que existia até aqui, e não dá pra "revogar" de verdade). Mudanças:
+- `DeliveryType` ganhou o valor `CHANNEL`; `Plan.subscriptionChannelId`
+  guarda o canal/grupo. Entrega (`deliverPlanToLead`) gera um convite de
+  uso único (`createChatInviteLink`, `member_limit: 1`, expira em 1h) e
+  manda pro comprador — precisa do bot ser admin desse canal com permissão
+  de convidar/remover membros.
+- `orderStatus.ts` agora seta `OrderItem.accessExpiresAt = paidAt +
+  durationDays` na transição PAID (não fazia nada antes — o campo existia
+  no schema desde o Milestone 1 mas nunca era escrito).
+- `src/payments/subscriptionScheduler.ts` (novo, poller a cada 1h, mesmo
+  padrão de setInterval dos outros schedulers): `sendRenewalReminders`
+  manda lembrete 2 dias antes de vencer (template configurável em
+  Pagamentos → "Lembrete de renovação", com botão que reaproveita o
+  callback `plan:<id>` já existente — gera um PIX novo pro mesmo plano,
+  compra normal, engatilha Order Bump se tiver); `revokeExpiredAccess` kicka
+  (ban+unban imediato, sem banimento permanente) do canal VIP todo item
+  vencido de plano `CHANNEL`, ou só marca `revokedAt` internamente pra
+  planos FILE/LINK vencidos (não tem o que revogar de verdade — o arquivo/
+  link já foi entregue).
+- Painel: `/admin/flows/:id/plans` ganhou a opção "Canal/grupo VIP
+  (assinatura)" no tipo de entrega + campo do ID do canal; `/admin/flows/
+  :id/payments` ganhou o campo de mensagem de renovação.
+- Testes novos: `subscriptionScheduler.test.ts` (lembrete + revogação,
+  incluindo o guard "só mexe no Telegram se for CHANNEL") e
+  `orderStatus.test.ts` (novo arquivo — não existia teste dedicado pra
+  `applyNormalizedStatus` antes; cobre o cálculo de `accessExpiresAt`).
+  Verificado no painel via browser (toggle de campos por tipo de entrega,
+  round-trip de salvar/recarregar a mensagem de renovação). **Teste real de
+  ponta a ponta (compra de plano CHANNEL, convite chegando, expiração
+  simulada revogando) ainda pendente com o usuário** — precisa de um canal
+  VIP de teste real e do bot promovido a admin nele.
+
 **Próximo**: Milestone 3 (WiinPay) segue bloqueado esperando a captura real
-do usuário (ver acima). Milestone 5 (assinatura/renovação) não depende
-disso e pode ser adiantado enquanto isso, mesmo padrão já usado pro
-Milestone 4. Plano em
+do usuário (ver acima). Milestones 6 (mailing) e 7 (dashboard) não
+dependem de nada pendente e podem ser adiantados. Plano em
 `C:\Users\gusta\.claude\plans\rippling-rolling-castle.md` já atualizado
-pra refletir o rebuild do Upsell (Downsell segue documentado lá como
-"desenho original, histórico" — atualizar lá também na próxima passada).
+pra refletir o rebuild do Upsell (Downsell/Assinatura seguem documentados
+lá como "desenho original, histórico" — atualizar lá também na próxima
+passada).
 
 ## Redesign pro modelo Shark Bot (2026-08-19)
 

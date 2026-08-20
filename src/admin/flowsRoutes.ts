@@ -192,6 +192,7 @@ export function createFlowsRouter(): Router {
     const deliveryType = String(req.body.deliveryType ?? "LINK");
     const fileTelegramId = String(req.body.fileTelegramId ?? "").trim() || null;
     const externalLink = String(req.body.externalLink ?? "").trim() || null;
+    const subscriptionChannelId = String(req.body.subscriptionChannelId ?? "").trim() || null;
     const customDeliveryTarget = String(req.body.customDeliveryTarget ?? "").trim() || null;
     const protectContent = req.body.protectContent === "on";
     const active = req.body.active === "on";
@@ -217,6 +218,7 @@ export function createFlowsRouter(): Router {
         deliveryType: deliveryType as never,
         fileTelegramId: deliveryType === "FILE" ? fileTelegramId : null,
         externalLink: deliveryType === "LINK" ? externalLink : null,
+        subscriptionChannelId: deliveryType === "CHANNEL" ? subscriptionChannelId : null,
         customDeliveryTarget,
         protectContent,
         active,
@@ -236,6 +238,7 @@ export function createFlowsRouter(): Router {
     const deliveryType = String(req.body.deliveryType ?? "LINK");
     const fileTelegramId = String(req.body.fileTelegramId ?? "").trim() || null;
     const externalLink = String(req.body.externalLink ?? "").trim() || null;
+    const subscriptionChannelId = String(req.body.subscriptionChannelId ?? "").trim() || null;
     const customDeliveryTarget = String(req.body.customDeliveryTarget ?? "").trim() || null;
     const protectContent = req.body.protectContent === "on";
     const active = req.body.active === "on";
@@ -256,6 +259,7 @@ export function createFlowsRouter(): Router {
         deliveryType: deliveryType as never,
         fileTelegramId: deliveryType === "FILE" ? fileTelegramId : null,
         externalLink: deliveryType === "LINK" ? externalLink : null,
+        subscriptionChannelId: deliveryType === "CHANNEL" ? subscriptionChannelId : null,
         customDeliveryTarget,
         protectContent,
         active,
@@ -282,13 +286,14 @@ export function createFlowsRouter(): Router {
     const flowId = req.params.id;
     const pixGeneratedMessage = String(req.body.pixGeneratedMessage ?? "").trim() || null;
     const pixApprovedMessage = String(req.body.pixApprovedMessage ?? "").trim() || null;
+    const renewalMessage = String(req.body.renewalMessage ?? "").trim() || null;
     const buttonStyle = String(req.body.buttonStyle ?? "PADRAO");
     const showConfirmationStep = req.body.showConfirmationStep === "on";
 
     await prisma.paymentMessages.upsert({
       where: { flowId },
-      update: { pixGeneratedMessage, pixApprovedMessage, buttonStyle: buttonStyle as never, showConfirmationStep },
-      create: { flowId, pixGeneratedMessage, pixApprovedMessage, buttonStyle: buttonStyle as never, showConfirmationStep },
+      update: { pixGeneratedMessage, pixApprovedMessage, renewalMessage, buttonStyle: buttonStyle as never, showConfirmationStep },
+      create: { flowId, pixGeneratedMessage, pixApprovedMessage, renewalMessage, buttonStyle: buttonStyle as never, showConfirmationStep },
     });
 
     res.redirect(`/admin/flows/${flowId}/payments`);

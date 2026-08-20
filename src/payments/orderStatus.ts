@@ -75,6 +75,22 @@ export async function applyNormalizedStatus(
     // Milestone 4, cobra base + adicionais numa única cobrança).
     for (const item of order.items) {
       const plan = item.plan;
+
+      // Planos com duração são assinatura — marca quando o acesso deste
+      // item expira (base pro lembrete de renovação e pra revogação
+      // automática, src/payments/subscriptionScheduler.ts). Planos sem
+      // duração (pagamento único/vitalício) nunca expiram.
+      if (plan.durationDays != null) {
+        try {
+          await prisma.orderItem.update({
+            where: { id: item.id },
+            data: { accessExpiresAt: new Date(updatedOrder.paidAt!.getTime() + plan.durationDays * 86_400_000) },
+          });
+        } catch (err) {
+          console.error("[order-status] falha ao marcar accessExpiresAt do item", err);
+        }
+      }
+
       const deliveryTarget = plan.customDeliveryTarget ?? plan.flow.welcomeConfig?.defaultDeliveryTarget;
       if (!deliveryTarget && plan.deliveryType === "FILE") {
         console.error(

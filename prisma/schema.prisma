@@ -222,30 +222,38 @@ enum PlanButtonColor {
 enum DeliveryType {
   FILE
   LINK
+  /// Convite de uso único pro canal/grupo VIP em `Plan.subscriptionChannelId`
+  /// — usado por planos de assinatura (Fase 2, Milestone 5). O bot precisa
+  /// ser admin desse canal com permissão de convidar/remover membros.
+  CHANNEL
 }
 
 /// O que é vendido. `durationDays` nulo = pagamento único/vitalício;
 /// preenchido = assinatura com expiração (renovação manual — ver
 /// OrderItem.accessExpiresAt e src/payments/subscriptionScheduler.ts).
 model Plan {
-  id                   String          @id @default(cuid())
-  flowId               String
-  flow                 Flow            @relation(fields: [flowId], references: [id], onDelete: Cascade)
-  name                 String
-  priceCents           Int
-  durationDays         Int?
-  buttonColor          PlanButtonColor @default(PADRAO)
-  deliveryType         DeliveryType
+  id                    String          @id @default(cuid())
+  flowId                String
+  flow                  Flow            @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  name                  String
+  priceCents            Int
+  durationDays          Int?
+  buttonColor           PlanButtonColor @default(PADRAO)
+  deliveryType          DeliveryType
   /// DeliveryType.FILE — message_id (não file_id) da mensagem no canal-cofre.
-  fileTelegramId       String?
-  externalLink         String?
+  fileTelegramId        String?
+  externalLink          String?
+  /// DeliveryType.CHANNEL — canal/grupo VIP pro qual gerar um convite de uso
+  /// único na compra, e do qual remover o assinante quando expirar (ver
+  /// src/payments/subscriptionScheduler.ts).
+  subscriptionChannelId String?
   /// Override do WelcomeConfig.defaultDeliveryTarget só pra este plano.
-  customDeliveryTarget String?
-  protectContent       Boolean         @default(true)
-  active               Boolean         @default(true)
-  order                Int             @default(0)
-  createdAt            DateTime        @default(now())
-  updatedAt            DateTime        @updatedAt
+  customDeliveryTarget  String?
+  protectContent        Boolean         @default(true)
+  active                Boolean         @default(true)
+  order                 Int             @default(0)
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
 
   orderItems            OrderItem[]
   triggerOffers         Offer[]                @relation("OfferTrigger")
@@ -394,6 +402,11 @@ model PaymentMessages {
   pixApprovedMessage   String?
   buttonStyle          PaymentButtonStyle @default(PADRAO)
   showConfirmationStep Boolean            @default(false)
+  /// Lembrete de renovação (Fase 2, Milestone 5) — mandado pelo
+  /// src/payments/subscriptionScheduler.ts a 2 dias do vencimento de um
+  /// OrderItem de assinatura, com botão que gera um PIX novo pro mesmo
+  /// plano. Vazio = usa um texto padrão genérico.
+  renewalMessage       String?
 }
 
 /// Uma cobrança PIX gerada. Cabeçalho — o que foi vendido de fato vive em

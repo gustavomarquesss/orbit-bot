@@ -43,6 +43,15 @@
         </div>
         <div class="hint">Se deixar vazio, nenhuma mensagem extra é enviada — só a entrega do conteúdo já confirma o pagamento.</div>
 
+        <label for="renewalMessage" style="margin-top:22px;">Lembrete de renovação (planos de assinatura, 2 dias antes de vencer)</label>
+        <textarea id="renewalMessage" name="renewalMessage" rows="4"><%= pm.renewalMessage || "" %></textarea>
+        <div class="var-chips">
+          <% ["nome","valor","plano","saudacao","bot.username"].forEach(function(v) { %>
+            <button type="button" onclick="dgInsertAtCursor('renewalMessage', '{<%= v %>}')">{<%= v %>}</button>
+          <% }); %>
+        </div>
+        <div class="hint">Mandado automaticamente com um botão "Renovar agora" que gera um PIX novo pro mesmo plano. Vazio usa um texto padrão.</div>
+
         <label for="buttonStyle" style="margin-top:22px;">Estilo dos botões</label>
         <select id="buttonStyle" name="buttonStyle">
           <option value="PADRAO" <%= pm.buttonStyle === "PADRAO" || !pm.buttonStyle ? "selected" : "" %>>Padrão</option>

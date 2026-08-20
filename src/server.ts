@@ -7,6 +7,7 @@ import { syncpayWebhookRouter } from "./payments/webhook.js";
 import { startReconciliationPolling } from "./payments/reconciliation.js";
 import { startUpsellScheduler } from "./bot/upsellScheduler.js";
 import { startDownsellScheduler } from "./bot/downsellScheduler.js";
+import { startSubscriptionScheduler } from "./payments/subscriptionScheduler.js";
 import { createAdminRouter } from "./admin/routes.js";
 
 // Varredura de pedidos PENDING pra cobrir o caso do postback da SyncPay não
@@ -18,6 +19,10 @@ const RECONCILIATION_INTERVAL_MS = 20_000;
 const UPSELL_SCHEDULER_INTERVAL_MS = 30_000;
 // Varredura de sequências de Downsell agendadas (src/bot/downsellScheduler.ts).
 const DOWNSELL_SCHEDULER_INTERVAL_MS = 30_000;
+// Lembrete de renovação + revogação de assinatura vencida
+// (src/payments/subscriptionScheduler.ts). Prazo é em dias, não precisa de
+// granularidade fina — 1h é conservador o bastante.
+const SUBSCRIPTION_SCHEDULER_INTERVAL_MS = 60 * 60_000;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -46,6 +51,7 @@ async function main() {
   startReconciliationPolling(RECONCILIATION_INTERVAL_MS);
   startUpsellScheduler(UPSELL_SCHEDULER_INTERVAL_MS);
   startDownsellScheduler(DOWNSELL_SCHEDULER_INTERVAL_MS);
+  startSubscriptionScheduler(SUBSCRIPTION_SCHEDULER_INTERVAL_MS);
 
   app.listen(config.PORT, () => {
     console.log(`[server] ouvindo na porta ${config.PORT} (${config.NODE_ENV})`);

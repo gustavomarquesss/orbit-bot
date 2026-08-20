@@ -36,6 +36,24 @@ export async function deliverPlanToLead(params: {
     return;
   }
 
+  if (plan.deliveryType === "CHANNEL") {
+    if (!plan.subscriptionChannelId) {
+      throw new Error(`Plano ${plan.id} é do tipo CHANNEL mas não tem subscriptionChannelId configurado`);
+    }
+    const channelId = Number(plan.subscriptionChannelId);
+    if (!Number.isFinite(channelId)) {
+      throw new Error(`subscriptionChannelId inválido pro plano ${plan.id}: "${plan.subscriptionChannelId}"`);
+    }
+    // Convite de uso único, expira em 1h — evita que o link vaze e seja
+    // reaproveitado por quem não pagou (member_limit garante 1 entrada só).
+    const invite = await telegraf.telegram.createChatInviteLink(channelId, {
+      member_limit: 1,
+      expire_date: Math.floor(Date.now() / 1000) + 3600,
+    });
+    await telegraf.telegram.sendMessage(chatId, `Aqui está seu acesso:\n${invite.invite_link}`);
+    return;
+  }
+
   if (!plan.fileTelegramId) {
     throw new Error(`Plano ${plan.id} é do tipo FILE mas não tem fileTelegramId (message_id) configurado`);
   }
