@@ -31,6 +31,7 @@ async function main() {
 
   app.set("view engine", "ejs");
   app.set("views", join(__dirname, "admin", "views"));
+  app.use(express.static(join(__dirname, "..", "public")));
 
   // Usado pelo Docker healthcheck (docker-compose.yml) — ver ARCHITECTURE.md.
   app.get("/health", (_req, res) => {

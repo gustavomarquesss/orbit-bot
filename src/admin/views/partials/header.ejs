@@ -4,9 +4,19 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>DG Bot — <%= typeof title !== "undefined" ? title : "Admin" %></title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="/css/output.css" />
   <script>
     // Aplica o tema salvo ANTES do primeiro paint, pra nunca piscar o tema
     // errado (script inline síncrono no <head>, não um <script defer/async>).
+    // Os nomes "dark"/"light" também são os temas DaisyUI configurados em
+    // tailwind.config.js (daisyui.themes) — o mesmo atributo data-theme
+    // pilota os dois sistemas ao mesmo tempo.
     (function () {
       var saved = localStorage.getItem("dgbot-theme");
       var theme = saved === "light" || saved === "dark" ? saved : "dark";
@@ -14,6 +24,13 @@
     })();
   </script>
   <style>
+    /*
+     * Variáveis legadas mantidas de propósito: as views de feature (dashboard,
+     * bots, flows, mailing, settings) ainda consomem --accent/--surface/etc. e
+     * as classes .btn/.card/.badge/table abaixo. Este é só o fundamento visual
+     * (DaisyUI/Tailwind) aplicado ao header/nav — não uma reescrita das
+     * páginas de feature.
+     */
     :root {
       --bg: #0f1115;
       --surface: #1a1d24;
@@ -23,9 +40,9 @@
       --text-muted: #8a8f9c;
       --border: #2c303a;
       --border-soft: #22262f;
-      --accent: #e11d48;
-      --accent-hover: #be123c;
-      --accent-soft: #e11d4822;
+      --accent: #22c55e;
+      --accent-hover: #16a34a;
+      --accent-soft: #22c55e22;
       --danger: #f87171;
       --danger-border: #7a2e2e;
       --danger-soft: #7a2e2e33;
@@ -39,68 +56,22 @@
       --text-muted: #6b7280;
       --border: #dfe1e6;
       --border-soft: #e8e9ed;
-      --accent: #e11d48;
-      --accent-hover: #be123c;
-      --accent-soft: #e11d4818;
+      --accent: #16a34a;
+      --accent-hover: #15803d;
+      --accent-soft: #16a34a18;
       --danger: #dc2626;
       --danger-border: #f3aeae;
       --danger-soft: #fde8e8;
     }
     * { box-sizing: border-box; }
     body {
-      font-family: -apple-system, system-ui, sans-serif;
+      font-family: "Inter", -apple-system, system-ui, sans-serif;
       background: var(--bg);
       color: var(--text);
       margin: 0;
       padding: 0 16px 60px;
     }
     .wrap { max-width: 1000px; margin: 0 auto; }
-    header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 20px 0;
-      flex-wrap: wrap;
-      gap: 12px;
-      border-bottom: 1px solid var(--border-soft);
-      margin-bottom: 24px;
-    }
-    header h1 { font-size: 1.1rem; margin: 0; color: var(--text-strong); white-space: nowrap; }
-    nav { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
-    nav a {
-      color: var(--text-muted);
-      text-decoration: none;
-      padding: 6px 12px;
-      border-radius: 8px;
-      font-size: 0.9rem;
-    }
-    nav a:hover { background: var(--surface); color: var(--text-strong); }
-    nav a.active { background: var(--accent-soft); color: var(--accent); }
-    .theme-toggle {
-      background: transparent;
-      border: 1px solid var(--border);
-      color: var(--text-muted);
-      width: 32px;
-      height: 32px;
-      border-radius: 8px;
-      cursor: pointer;
-      font-size: 0.95rem;
-      line-height: 1;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .theme-toggle:hover { color: var(--text-strong); border-color: var(--text-muted); }
-    form.logout { display: inline; }
-    form.logout button {
-      background: transparent;
-      border: 1px solid var(--border);
-      color: var(--text-muted);
-      padding: 6px 12px;
-      border-radius: 8px;
-      cursor: pointer;
-      font-size: 0.9rem;
-    }
     section, .card {
       background: var(--surface);
       border-radius: 12px;
@@ -174,17 +145,37 @@
 </head>
 <body>
   <div class="wrap">
-    <header>
-      <h1>DG Bot Admin</h1>
-      <nav>
-        <a href="/admin" class="<%= active === 'dashboard' ? 'active' : '' %>">Dashboard</a>
-        <a href="/admin/bots" class="<%= active === 'bots' ? 'active' : '' %>">Bots</a>
-        <a href="/admin/flows" class="<%= active === 'flows' ? 'active' : '' %>">Fluxos</a>
-        <a href="/admin/mailing" class="<%= active === 'mailing' ? 'active' : '' %>">Mailing</a>
-        <a href="/admin/settings" class="<%= active === 'settings' ? 'active' : '' %>">Configurações</a>
-        <button type="button" class="theme-toggle" id="theme-toggle" title="Alternar tema" aria-label="Alternar tema">🌓</button>
-        <form class="logout" method="POST" action="/admin/logout">
-          <button type="submit">Sair</button>
+    <header class="navbar flex-wrap gap-3 border-b border-base-300/60 mb-6 px-0 py-5">
+      <div class="flex-1">
+        <h1 class="m-0 text-[1.1rem] font-semibold text-base-content whitespace-nowrap">DG Bot Admin</h1>
+      </div>
+      <nav class="flex flex-wrap items-center gap-1">
+        <%
+          var navItems = [
+            { href: "/admin", key: "dashboard", label: "Dashboard" },
+            { href: "/admin/bots", key: "bots", label: "Bots" },
+            { href: "/admin/flows", key: "flows", label: "Fluxos" },
+            { href: "/admin/mailing", key: "mailing", label: "Mailing" },
+            { href: "/admin/settings", key: "settings", label: "Configurações" },
+          ];
+        %>
+        <% navItems.forEach(function (item) { %>
+          <a
+            href="<%= item.href %>"
+            class="rounded-lg px-3 py-1.5 text-sm no-underline transition-colors <%= active === item.key
+              ? 'bg-primary/15 text-primary font-medium'
+              : 'text-base-content/60 hover:bg-base-200 hover:text-base-content' %>"
+          ><%= item.label %></a>
+        <% }); %>
+        <button
+          type="button"
+          class="btn btn-square btn-ghost btn-sm text-base"
+          id="theme-toggle"
+          title="Alternar tema"
+          aria-label="Alternar tema"
+        >🌓</button>
+        <form method="POST" action="/admin/logout">
+          <button type="submit" class="btn btn-outline btn-sm">Sair</button>
         </form>
       </nav>
     </header>
