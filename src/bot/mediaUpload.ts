@@ -3,6 +3,7 @@ import type { MediaAsset, MediaType } from "@prisma/client";
 import { prisma } from "../db/client.js";
 import { getTelegraf } from "./botManager.js";
 import { probeMp4VideoDimensions } from "./videoProbe.js";
+import { extractVideoThumbnail } from "./videoThumbnail.js";
 
 function mediaTypeFromMime(mimeType: string): MediaType {
   if (mimeType.startsWith("image/")) return "PHOTO";
@@ -33,11 +34,20 @@ async function sendMediaByMime(
       return { mediaType, fileId: sent.photo[sent.photo.length - 1].file_id, messageId: sent.message_id };
     }
     case "VIDEO": {
-      // Sem width/height explícitos, o Telegram não sabe a proporção real
-      // do arquivo e mostra uma miniatura genérica (quadrada) até o vídeo
-      // ser aberto — ver videoProbe.ts.
+      // Sem width/height + thumbnail explícitos, a miniatura automática do
+      // Telegram pode sair errada (quadrada) antes do vídeo ser aberto —
+      // sobretudo em containers não otimizados pra streaming (moov no fim
+      // do arquivo), comuns em exports de editores web. Ver videoProbe.ts
+      // e videoThumbnail.ts.
       const dims = probeMp4VideoDimensions(buffer);
-      const sent = await telegraf.telegram.sendVideo(channelId, source, dims ? { width: dims.width, height: dims.height } : undefined);
+      const thumb = await extractVideoThumbnail(buffer);
+      const extra: { width?: number; height?: number; thumbnail?: { source: Buffer } } = {};
+      if (dims) {
+        extra.width = dims.width;
+        extra.height = dims.height;
+      }
+      if (thumb) extra.thumbnail = { source: thumb };
+      const sent = await telegraf.telegram.sendVideo(channelId, source, Object.keys(extra).length ? extra : undefined);
       return { mediaType, fileId: sent.video.file_id, messageId: sent.message_id };
     }
     case "AUDIO": {
