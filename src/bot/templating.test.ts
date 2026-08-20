@@ -4,6 +4,9 @@ import {
   extractCountdownDirectives,
   extractMessageEffectId,
   parseButtonLabel,
+  prepareCountdownMarker,
+  formatCountdownValue,
+  COUNTDOWN_MARKER,
 } from "./templating.js";
 
 const lead = {
@@ -157,6 +160,33 @@ describe("extractMessageEffectId", () => {
 
   it("retorna undefined se não há efeito no texto", () => {
     expect(extractMessageEffectId("mensagem normal")).toBeUndefined();
+  });
+});
+
+describe("prepareCountdownMarker / formatCountdownValue", () => {
+  it("troca só o primeiro {countdown:...} pelo marcador, preservando o resto do template RAW intacto", () => {
+    const prepared = prepareCountdownMarker(`Oi {nome}! Expira em {countdown:120:10}. Depois disso, {countdown:60} não é usado.`);
+    expect(prepared).not.toBeNull();
+    expect(prepared!.markerTemplate).toBe(
+      `Oi {nome}! Expira em ${COUNTDOWN_MARKER}. Depois disso, {countdown:60} não é usado.`
+    );
+    expect(prepared!.directive).toEqual({ raw: "{countdown:120:10}", totalSeconds: 120, intervalSeconds: 10, deleteOnZero: false });
+  });
+
+  it("retorna null se não há countdown no texto", () => {
+    expect(prepareCountdownMarker("sem contador aqui")).toBeNull();
+  });
+
+  it("o marcador sobrevive ao renderTemplate normal (não bate no regex de placeholder)", () => {
+    const prepared = prepareCountdownMarker("{countdown:60}")!;
+    const rendered = renderTemplate(prepared.markerTemplate, { lead, bot });
+    expect(rendered).toBe(COUNTDOWN_MARKER);
+  });
+
+  it("formatCountdownValue formata MM:SS e nunca fica negativo", () => {
+    expect(formatCountdownValue(90)).toBe("01:30");
+    expect(formatCountdownValue(5)).toBe("00:05");
+    expect(formatCountdownValue(-10)).toBe("00:00");
   });
 });
 

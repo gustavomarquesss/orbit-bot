@@ -613,6 +613,27 @@ model Broadcast {
   finishedAt      DateTime?
 }
 
+/// Contador regressivo ao vivo (`{countdown:S:I:delete}` no editor de texto,
+/// 2026-08-20) — o bot edita a mensagem sozinho a cada `intervalSeconds` até
+/// zerar. `markerTemplate` é o texto já renderizado (variáveis resolvidas)
+/// com o contador trocado por um marcador interno — cada tick só substitui
+/// o marcador pelo tempo restante, não re-renderiza o resto da mensagem.
+model ScheduledCountdownEdit {
+  id              String    @id @default(cuid())
+  botId           String
+  chatId          BigInt
+  messageId       Int
+  markerTemplate  String    @db.Text
+  totalSeconds    Int
+  intervalSeconds Int
+  deleteOnZero    Boolean
+  startedAt       DateTime  @default(now())
+  nextTickAt      DateTime
+  finishedAt      DateTime?
+
+  @@index([nextTickAt])
+}
+
 /// Log bruto de todo webhook recebido da SyncPay — garante idempotência
 /// (webhook duplicado não gera reprocessamento) e serve de trilha de auditoria.
 model WebhookEvent {
