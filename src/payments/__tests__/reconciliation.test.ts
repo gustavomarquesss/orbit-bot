@@ -18,11 +18,15 @@ vi.mock("../syncpay.js", async () => {
   };
 });
 
-vi.mock("../../bot/delivery.js", () => ({
-  deliverPlanToLead: vi.fn(),
-  notifyAdminOfSale: vi.fn(),
-  notifyLeadOfApproval: vi.fn(),
-}));
+vi.mock("../../bot/delivery.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../bot/delivery.js")>();
+  return {
+    ...actual,
+    deliverPlanToLead: vi.fn(),
+    notifyAdminOfSale: vi.fn(),
+    notifyLeadOfApproval: vi.fn(),
+  };
+});
 
 vi.mock("../../bot/upsellScheduler.js", () => ({
   scheduleUpsellSequence: vi.fn(),
@@ -43,8 +47,9 @@ const plan = {
   id: "plan-1",
   name: "Plano X",
   deliveryType: "LINK",
+  externalLink: "https://x",
   customDeliveryTarget: null,
-  flow: { welcomeConfig: { defaultDeliveryTarget: "-100999" }, paymentMessages: null },
+  flow: { delivery: { deliveryTarget: "-100999" }, paymentMessages: null },
 };
 
 function orderFixture(overrides: Partial<Record<string, unknown>> = {}) {

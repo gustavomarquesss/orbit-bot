@@ -2,7 +2,7 @@ import { Router } from "express";
 import multer from "multer";
 import { prisma } from "../db/client.js";
 import { nextOrder } from "../bot/util.js";
-import { uploadMediaToLibrary } from "../bot/mediaUpload.js";
+import { uploadMediaToLibrary, uploadDeliverableFile } from "../bot/mediaUpload.js";
 
 // 50MB é o limite real de upload da Bot API do Telegram (sendPhoto/sendVideo/
 // etc) — usar o mesmo aqui em vez de um número arbitrário menor, que cortava
@@ -62,11 +62,12 @@ export function createFlowsRouter(): Router {
         welcomeConfig: { include: { media: { orderBy: { order: "asc" } }, redirectButtons: { orderBy: { order: "asc" } } } },
         paymentMessages: true,
         plans: { orderBy: { order: "asc" } },
+        delivery: true,
       },
     });
   }
 
-  /** Mídia já capturada (ver src/bot/mediaCapture.ts) pelos bots vinculados
+  /** Mídia já enviada via upload (ver src/bot/mediaUpload.ts) pelos bots vinculados
    * a este Flow — alimenta o seletor "Escolher da biblioteca" nos forms de
    * mídia de Boas-vindas/Downsell, poupando colar file_id à mão. */
   async function loadMediaAssetsForFlow(flow: { bots: { botId: string }[] }) {
@@ -127,12 +128,11 @@ export function createFlowsRouter(): Router {
     const ctaLabel = String(req.body.ctaLabel ?? "").trim() || null;
     const miniAppEnabled = req.body.miniAppEnabled === "on";
     const miniAppUrl = String(req.body.miniAppUrl ?? "").trim() || null;
-    const defaultDeliveryTarget = String(req.body.defaultDeliveryTarget ?? "").trim() || null;
 
     await prisma.welcomeConfig.upsert({
       where: { flowId },
-      update: { text, secondaryMessageEnabled, ctaButtonEnabled, ctaLabel, miniAppEnabled, miniAppUrl, defaultDeliveryTarget },
-      create: { flowId, text, secondaryMessageEnabled, ctaButtonEnabled, ctaLabel, miniAppEnabled, miniAppUrl, defaultDeliveryTarget },
+      update: { text, secondaryMessageEnabled, ctaButtonEnabled, ctaLabel, miniAppEnabled, miniAppUrl },
+      create: { flowId, text, secondaryMessageEnabled, ctaButtonEnabled, ctaLabel, miniAppEnabled, miniAppUrl },
     });
 
     res.redirect(`/admin/flows/${flowId}/welcome`);
@@ -230,14 +230,15 @@ export function createFlowsRouter(): Router {
   router.get("/:id/plans", async (req, res) => {
     const flow = await loadFlow(req.params.id);
     if (!flow) return res.status(404).send("Fluxo não encontrado.");
-    res.render("flows/plans", { flow, editingPlan: null, error: null });
+    res.render("flows/plans", { flow, editingPlan: null, error: null, fileError: null });
   });
 
   router.get("/:id/plans/:planId/edit", async (req, res) => {
     const flow = await loadFlow(req.params.id);
     if (!flow) return res.status(404).send("Fluxo não encontrado.");
     const editingPlan = flow.plans.find((p) => p.id === req.params.planId) ?? null;
-    res.render("flows/plans", { flow, editingPlan, error: null });
+    const fileError = typeof req.query.fileError === "string" ? req.query.fileError : null;
+    res.render("flows/plans", { flow, editingPlan, error: null, fileError });
   });
 
   function parsePriceToCents(input: string): number | null {
@@ -247,14 +248,19 @@ export function createFlowsRouter(): Router {
     return Math.round(value * 100);
   }
 
+  /** "" (ou ausente) = usar padrão do fluxo (Plan.deliveryType nulo) — ver
+   * FlowDelivery/resolveEffectiveDelivery em src/bot/delivery.ts. */
+  function parseDeliveryType(raw: unknown): "FILE" | "LINK" | "CHANNEL" | null {
+    return raw === "FILE" || raw === "LINK" || raw === "CHANNEL" ? raw : null;
+  }
+
   router.post("/:id/plans", async (req, res) => {
     const flowId = req.params.id;
     const name = String(req.body.name ?? "").trim();
     const priceCents = parsePriceToCents(String(req.body.price ?? ""));
     const durationDays = String(req.body.durationDays ?? "").trim();
     const buttonColor = String(req.body.buttonColor ?? "PADRAO");
-    const deliveryType = String(req.body.deliveryType ?? "LINK");
-    const fileTelegramId = String(req.body.fileTelegramId ?? "").trim() || null;
+    const deliveryType = parseDeliveryType(req.body.deliveryType);
     const externalLink = String(req.body.externalLink ?? "").trim() || null;
     const subscriptionChannelId = String(req.body.subscriptionChannelId ?? "").trim() || null;
     const customDeliveryTarget = String(req.body.customDeliveryTarget ?? "").trim() || null;
@@ -267,11 +273,14 @@ export function createFlowsRouter(): Router {
         flow,
         editingPlan: null,
         error: "Nome e preço (maior que zero) são obrigatórios.",
+        fileError: null,
       });
     }
 
     const last = await prisma.plan.findFirst({ where: { flowId }, orderBy: { order: "desc" }, select: { order: true } });
 
+    // fileTelegramId NÃO entra aqui — é preenchido só via upload direto
+    // (POST /:id/plans/:planId/file/upload), depois que o plano já existe.
     await prisma.plan.create({
       data: {
         flowId,
@@ -279,11 +288,10 @@ export function createFlowsRouter(): Router {
         priceCents,
         durationDays: durationDays ? Number(durationDays) : null,
         buttonColor: buttonColor as never,
-        deliveryType: deliveryType as never,
-        fileTelegramId: deliveryType === "FILE" ? fileTelegramId : null,
+        deliveryType: deliveryType ?? undefined,
         externalLink: deliveryType === "LINK" ? externalLink : null,
         subscriptionChannelId: deliveryType === "CHANNEL" ? subscriptionChannelId : null,
-        customDeliveryTarget,
+        customDeliveryTarget: deliveryType ? customDeliveryTarget : null,
         protectContent,
         active,
         order: nextOrder(last?.order),
@@ -299,8 +307,7 @@ export function createFlowsRouter(): Router {
     const priceCents = parsePriceToCents(String(req.body.price ?? ""));
     const durationDays = String(req.body.durationDays ?? "").trim();
     const buttonColor = String(req.body.buttonColor ?? "PADRAO");
-    const deliveryType = String(req.body.deliveryType ?? "LINK");
-    const fileTelegramId = String(req.body.fileTelegramId ?? "").trim() || null;
+    const deliveryType = parseDeliveryType(req.body.deliveryType);
     const externalLink = String(req.body.externalLink ?? "").trim() || null;
     const subscriptionChannelId = String(req.body.subscriptionChannelId ?? "").trim() || null;
     const customDeliveryTarget = String(req.body.customDeliveryTarget ?? "").trim() || null;
@@ -310,9 +317,12 @@ export function createFlowsRouter(): Router {
     if (!name || priceCents === null) {
       const flow = await loadFlow(flowId);
       const editingPlan = flow?.plans.find((p) => p.id === req.params.planId) ?? null;
-      return res.status(400).render("flows/plans", { flow, editingPlan, error: "Nome e preço (maior que zero) são obrigatórios." });
+      return res.status(400).render("flows/plans", { flow, editingPlan, error: "Nome e preço (maior que zero) são obrigatórios.", fileError: null });
     }
 
+    // fileTelegramId propositalmente fora do "data" — trocar de tipo de
+    // entrega ou salvar o resto do plano não pode apagar um arquivo já
+    // enviado via upload; só a rota de upload mexe nesse campo.
     await prisma.plan.update({
       where: { id: req.params.planId },
       data: {
@@ -320,11 +330,10 @@ export function createFlowsRouter(): Router {
         priceCents,
         durationDays: durationDays ? Number(durationDays) : null,
         buttonColor: buttonColor as never,
-        deliveryType: deliveryType as never,
-        fileTelegramId: deliveryType === "FILE" ? fileTelegramId : null,
+        deliveryType,
         externalLink: deliveryType === "LINK" ? externalLink : null,
         subscriptionChannelId: deliveryType === "CHANNEL" ? subscriptionChannelId : null,
-        customDeliveryTarget,
+        customDeliveryTarget: deliveryType ? customDeliveryTarget : null,
         protectContent,
         active,
       },
@@ -333,9 +342,125 @@ export function createFlowsRouter(): Router {
     res.redirect(`/admin/flows/${flowId}/plans`);
   });
 
+  router.post("/:id/plans/:planId/file/upload", (req, res, next) => {
+    mediaUpload.single("file")(req, res, (err) => {
+      if (!err) return next();
+      console.error(`[flows] falha no upload de arquivo do plano (plano ${req.params.planId})`, err);
+      res.redirect(`/admin/flows/${req.params.id}/plans/${req.params.planId}/edit?fileError=${encodeURIComponent(multerErrorMessage(err))}`);
+    });
+  }, async (req, res) => {
+    const flowId = req.params.id;
+    const planId = req.params.planId;
+    const editUrl = `/admin/flows/${flowId}/plans/${planId}/edit`;
+    const plan = await prisma.plan.findUnique({
+      where: { id: planId },
+      include: { flow: { include: { bots: true, delivery: true } } },
+    });
+    if (!plan) return res.status(404).send("Plano não encontrado.");
+    if (!req.file) return res.redirect(editUrl);
+
+    const botId = plan.flow.bots[0]?.botId;
+    if (!botId) {
+      return res.redirect(`${editUrl}?fileError=${encodeURIComponent("Vincule um bot a este fluxo (aba Bots) antes de enviar o arquivo.")}`);
+    }
+    const channelId = plan.customDeliveryTarget ?? plan.flow.delivery?.deliveryTarget;
+    if (!channelId) {
+      return res.redirect(`${editUrl}?fileError=${encodeURIComponent('Configure um canal de entrega (deste plano ou a Entrega Padrão do fluxo) antes de enviar o arquivo.')}`);
+    }
+
+    try {
+      const { messageId } = await uploadDeliverableFile({
+        botId,
+        channelId,
+        buffer: req.file.buffer,
+        mimeType: req.file.mimetype,
+        filename: req.file.originalname,
+      });
+      await prisma.plan.update({ where: { id: planId }, data: { fileTelegramId: String(messageId) } });
+    } catch (err) {
+      console.error(`[flows] falha ao subir arquivo do plano ${planId}`, err);
+      const message = err instanceof Error ? err.message : "Falha ao enviar o arquivo.";
+      return res.redirect(`${editUrl}?fileError=${encodeURIComponent(message)}`);
+    }
+    res.redirect(editUrl);
+  });
+
   router.post("/:id/plans/:planId/delete", async (req, res) => {
     await prisma.plan.delete({ where: { id: req.params.planId } });
     res.redirect(`/admin/flows/${req.params.id}/plans`);
+  });
+
+  // --- Entrega Padrão (Fallback) ---
+  // Usada por todo Plano com deliveryType nulo ("usar padrão do fluxo") —
+  // ver resolveEffectiveDelivery em src/bot/delivery.ts. Renomeado de
+  // "canal-cofre" a pedido do usuário, 2026-08-20, espelhando a referência
+  // ApexVips/SharkBot.
+
+  router.get("/:id/delivery", async (req, res) => {
+    const flow = await loadFlow(req.params.id);
+    if (!flow) return res.status(404).send("Fluxo não encontrado.");
+    const deliveryError = typeof req.query.deliveryError === "string" ? req.query.deliveryError : null;
+    res.render("flows/delivery", { flow, deliveryError });
+  });
+
+  router.post("/:id/delivery", async (req, res) => {
+    const flowId = req.params.id;
+    const deliveryType = req.body.deliveryType === "LINK" ? "LINK" : "FILE";
+    const deliveryTarget = String(req.body.deliveryTarget ?? "").trim() || null;
+    const externalLink = String(req.body.externalLink ?? "").trim() || null;
+
+    // fileTelegramId propositalmente fora do "data" — mesmo motivo do Plano:
+    // só a rota de upload mexe nesse campo.
+    await prisma.flowDelivery.upsert({
+      where: { flowId },
+      update: { deliveryType, deliveryTarget, externalLink },
+      create: { flowId, deliveryType, deliveryTarget, externalLink },
+    });
+
+    res.redirect(`/admin/flows/${flowId}/delivery`);
+  });
+
+  router.post("/:id/delivery/file/upload", (req, res, next) => {
+    mediaUpload.single("file")(req, res, (err) => {
+      if (!err) return next();
+      console.error(`[flows] falha no upload da Entrega Padrão (flow ${req.params.id})`, err);
+      res.redirect(`/admin/flows/${req.params.id}/delivery?deliveryError=${encodeURIComponent(multerErrorMessage(err))}`);
+    });
+  }, async (req, res) => {
+    const flowId = req.params.id;
+    const editUrl = `/admin/flows/${flowId}/delivery`;
+    const flow = await prisma.flow.findUnique({ where: { id: flowId }, include: { bots: true, delivery: true } });
+    if (!flow) return res.status(404).send("Fluxo não encontrado.");
+    if (!req.file) return res.redirect(editUrl);
+
+    const botId = flow.bots[0]?.botId;
+    if (!botId) {
+      return res.redirect(`${editUrl}?deliveryError=${encodeURIComponent("Vincule um bot a este fluxo (aba Bots) antes de enviar o arquivo.")}`);
+    }
+    const channelId = flow.delivery?.deliveryTarget;
+    if (!channelId) {
+      return res.redirect(`${editUrl}?deliveryError=${encodeURIComponent('Preencha o "Destino da Entrega" e salve antes de enviar o arquivo.')}`);
+    }
+
+    try {
+      const { messageId } = await uploadDeliverableFile({
+        botId,
+        channelId,
+        buffer: req.file.buffer,
+        mimeType: req.file.mimetype,
+        filename: req.file.originalname,
+      });
+      await prisma.flowDelivery.upsert({
+        where: { flowId },
+        update: { fileTelegramId: String(messageId) },
+        create: { flowId, deliveryType: "FILE", deliveryTarget: channelId, fileTelegramId: String(messageId) },
+      });
+    } catch (err) {
+      console.error(`[flows] falha ao subir arquivo da Entrega Padrão (flow ${flowId})`, err);
+      const message = err instanceof Error ? err.message : "Falha ao enviar o arquivo.";
+      return res.redirect(`${editUrl}?deliveryError=${encodeURIComponent(message)}`);
+    }
+    res.redirect(editUrl);
   });
 
   // --- Pagamentos ---

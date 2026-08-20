@@ -1,3 +1,4 @@
+import type { Telegraf } from "telegraf";
 import type { MediaAsset, MediaType } from "@prisma/client";
 import { prisma } from "../db/client.js";
 import { getTelegraf } from "./botManager.js";
@@ -7,6 +8,42 @@ function mediaTypeFromMime(mimeType: string): MediaType {
   if (mimeType.startsWith("video/")) return "VIDEO";
   if (mimeType.startsWith("audio/")) return "AUDIO";
   return "DOCUMENT";
+}
+
+/** Manda o arquivo pro canal certo conforme o mimetype, e devolve tanto o
+ * file_id (só válido pra ESTE bot — reuso via sendPhoto/etc) quanto o
+ * message_id (usado por `copyMessage`, que funciona pra qualquer bot com
+ * acesso ao canal de origem — ver src/bot/delivery.ts). Compartilhado entre
+ * `uploadMediaToLibrary` (biblioteca de mídia reutilizável) e
+ * `uploadDeliverableFile` (arquivo entregue ao comprador). */
+async function sendMediaByMime(
+  telegraf: Telegraf,
+  channelId: number,
+  buffer: Buffer,
+  mimeType: string,
+  filename: string
+): Promise<{ mediaType: MediaType; fileId: string; messageId: number }> {
+  const mediaType = mediaTypeFromMime(mimeType);
+  const source = { source: buffer, filename };
+
+  switch (mediaType) {
+    case "PHOTO": {
+      const sent = await telegraf.telegram.sendPhoto(channelId, source);
+      return { mediaType, fileId: sent.photo[sent.photo.length - 1].file_id, messageId: sent.message_id };
+    }
+    case "VIDEO": {
+      const sent = await telegraf.telegram.sendVideo(channelId, source);
+      return { mediaType, fileId: sent.video.file_id, messageId: sent.message_id };
+    }
+    case "AUDIO": {
+      const sent = await telegraf.telegram.sendAudio(channelId, source);
+      return { mediaType, fileId: sent.audio.file_id, messageId: sent.message_id };
+    }
+    default: {
+      const sent = await telegraf.telegram.sendDocument(channelId, source);
+      return { mediaType, fileId: sent.document.file_id, messageId: sent.message_id };
+    }
+  }
 }
 
 /**
@@ -38,34 +75,38 @@ export async function uploadMediaToLibrary(params: {
     throw new Error(`Canal configurado em Configurações é inválido: "${settings.salesChannelId}".`);
   }
 
-  const mediaType = mediaTypeFromMime(mimeType);
-  const source = { source: buffer, filename };
-
-  let fileId: string;
-  switch (mediaType) {
-    case "PHOTO": {
-      const sent = await telegraf.telegram.sendPhoto(channelId, source);
-      fileId = sent.photo[sent.photo.length - 1].file_id;
-      break;
-    }
-    case "VIDEO": {
-      const sent = await telegraf.telegram.sendVideo(channelId, source);
-      fileId = sent.video.file_id;
-      break;
-    }
-    case "AUDIO": {
-      const sent = await telegraf.telegram.sendAudio(channelId, source);
-      fileId = sent.audio.file_id;
-      break;
-    }
-    default: {
-      const sent = await telegraf.telegram.sendDocument(channelId, source);
-      fileId = sent.document.file_id;
-      break;
-    }
-  }
+  const { mediaType, fileId } = await sendMediaByMime(telegraf, channelId, buffer, mimeType, filename);
 
   return prisma.mediaAsset.create({
     data: { botId, mediaType, fileId, label: filename },
   });
+}
+
+/**
+ * Sobe o conteúdo que o comprador recebe (Entrega Padrão do Flow ou entrega
+ * própria de um Plano) direto pro canal-cofre configurado, sem precisar
+ * digitar message_id à mão — pedido do usuário, 2026-08-20, espelhando a
+ * referência ApexVips/SharkBot (lá também não existe esse campo manual).
+ * Diferente de `uploadMediaToLibrary`: não cria `MediaAsset` (não é mídia
+ * reutilizável, é o produto pago em si) e devolve o `message_id`, que é o
+ * que `deliverPlanToLead`/`copyMessage` de fato precisam.
+ */
+export async function uploadDeliverableFile(params: {
+  botId: string;
+  channelId: string;
+  buffer: Buffer;
+  mimeType: string;
+  filename: string;
+}): Promise<{ messageId: number }> {
+  const { botId, channelId, buffer, mimeType, filename } = params;
+  const telegraf = getTelegraf(botId);
+  if (!telegraf) throw new Error("Bot offline — não é possível enviar o arquivo agora.");
+
+  const chatId = Number(channelId);
+  if (!Number.isFinite(chatId)) {
+    throw new Error(`Canal de entrega inválido: "${channelId}". Configure o "Destino da Entrega" antes de enviar o arquivo.`);
+  }
+
+  const { messageId } = await sendMediaByMime(telegraf, chatId, buffer, mimeType, filename);
+  return { messageId };
 }

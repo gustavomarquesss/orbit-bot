@@ -16,7 +16,7 @@
               <td><%= p.name %></td>
               <td><%= formatBRL(p.priceCents) %></td>
               <td><%= p.durationDays ? p.durationDays + " dias" : "Pagamento único" %></td>
-              <td><%= p.deliveryType === "FILE" ? "Arquivo" : p.deliveryType === "CHANNEL" ? "Canal VIP" : "Link" %></td>
+              <td><%= !p.deliveryType ? "Padrão do fluxo" : p.deliveryType === "FILE" ? "Arquivo" : p.deliveryType === "CHANNEL" ? "Canal VIP" : "Link" %></td>
               <td><% if (p.active) { %><span class="badge badge-success badge-sm">ativo</span><% } else { %><span class="badge badge-ghost badge-sm">inativo</span><% } %></td>
               <td class="flex gap-1.5">
                 <a class="btn btn-xs btn-outline" href="/admin/flows/<%= flow.id %>/plans/<%= p.id %>/edit">Editar</a>
@@ -37,6 +37,7 @@
   <div class="card-body">
     <h3 class="font-semibold mb-2"><%= isEdit ? "Editar plano" : "Novo plano" %></h3>
     <% if (error) { %><div class="alert alert-error text-sm mb-3"><%= error %></div><% } %>
+    <% if (typeof fileError !== "undefined" && fileError) { %><div class="alert alert-error text-sm mb-3"><%= fileError %></div><% } %>
     <form method="POST" action="<%= isEdit ? `/admin/flows/${flow.id}/plans/${editingPlan.id}` : `/admin/flows/${flow.id}/plans` %>" class="flex flex-col gap-4">
       <label class="form-control">
         <div class="label"><span class="label-text">Nome</span></div>
@@ -67,23 +68,37 @@
       <label class="form-control">
         <div class="label"><span class="label-text">Tipo de entrega</span></div>
         <select id="deliveryType" name="deliveryType" class="select select-bordered w-full" onchange="
+          document.getElementById('default-fields-note').style.display = this.value === '' ? 'block' : 'none';
           document.getElementById('file-fields').style.display = this.value === 'FILE' ? 'block' : 'none';
           document.getElementById('link-fields').style.display = this.value === 'LINK' ? 'block' : 'none';
           document.getElementById('channel-fields').style.display = this.value === 'CHANNEL' ? 'block' : 'none';
+          document.getElementById('custom-target-field').style.display = this.value === '' ? 'none' : 'block';
         ">
-          <option value="LINK" <%= !editingPlan || editingPlan.deliveryType === "LINK" ? "selected" : "" %>>Link externo</option>
-          <option value="FILE" <%= editingPlan && editingPlan.deliveryType === "FILE" ? "selected" : "" %>>Arquivo no canal-cofre</option>
+          <option value="" <%= !editingPlan || !editingPlan.deliveryType ? "selected" : "" %>>Usar padrão do fluxo</option>
+          <option value="LINK" <%= editingPlan && editingPlan.deliveryType === "LINK" ? "selected" : "" %>>Link externo</option>
+          <option value="FILE" <%= editingPlan && editingPlan.deliveryType === "FILE" ? "selected" : "" %>>Arquivo</option>
           <option value="CHANNEL" <%= editingPlan && editingPlan.deliveryType === "CHANNEL" ? "selected" : "" %>>Canal/grupo VIP (assinatura)</option>
         </select>
       </label>
 
+      <p id="default-fields-note" class="text-sm text-base-content/60 -mt-2" style="display: <%= !editingPlan || !editingPlan.deliveryType ? "block" : "none" %>;">
+        Este plano vai usar a <a class="link" href="/admin/flows/<%= flow.id %>/delivery">Entrega Padrão do fluxo</a>.
+      </p>
+
       <div id="file-fields" style="display: <%= editingPlan && editingPlan.deliveryType === 'FILE' ? 'block' : 'none' %>;">
-        <label class="form-control">
-          <div class="label"><span class="label-text">Número da mensagem (message_id) no canal-cofre</span></div>
-          <input type="text" name="fileTelegramId" value="<%= editingPlan && editingPlan.fileTelegramId ? editingPlan.fileTelegramId : "" %>" placeholder="482" class="input input-bordered w-full" />
-        </label>
+        <div class="label px-0"><span class="label-text">Arquivo entregue</span></div>
+        <% if (editingPlan && editingPlan.fileTelegramId) { %>
+          <p class="text-sm text-success mb-2">✓ Arquivo enviado (mensagem <%= editingPlan.fileTelegramId %>).</p>
+        <% } else { %>
+          <p class="text-sm text-base-content/50 mb-2">Nenhum arquivo próprio enviado ainda.</p>
+        <% } %>
+        <% if (isEdit) { %>
+          <%- include("../partials/mediaUploadWidget", { id: "planFile", uploadUrl: `/admin/flows/${flow.id}/plans/${editingPlan.id}/file/upload` }) %>
+        <% } else { %>
+          <p class="text-sm text-base-content/50">Salve o plano primeiro (com "Arquivo" selecionado) — depois edite pra enviar o arquivo.</p>
+        <% } %>
       </div>
-      <div id="link-fields" style="display: <%= !editingPlan || editingPlan.deliveryType === 'LINK' ? 'block' : 'none' %>;">
+      <div id="link-fields" style="display: <%= editingPlan && editingPlan.deliveryType === 'LINK' ? 'block' : 'none' %>;">
         <label class="form-control">
           <div class="label"><span class="label-text">Link a enviar após o pagamento</span></div>
           <input type="text" name="externalLink" value="<%= editingPlan && editingPlan.externalLink ? editingPlan.externalLink : "" %>" placeholder="https://..." class="input input-bordered w-full" />
@@ -97,10 +112,12 @@
         </label>
       </div>
 
-      <label class="form-control">
-        <div class="label"><span class="label-text">Canal/grupo de entrega específico deste plano (opcional)</span></div>
-        <input type="text" name="customDeliveryTarget" value="<%= editingPlan && editingPlan.customDeliveryTarget ? editingPlan.customDeliveryTarget : "" %>" placeholder="deixe vazio pra usar o padrão do funil" class="input input-bordered w-full" />
-      </label>
+      <div id="custom-target-field" style="display: <%= editingPlan && editingPlan.deliveryType ? "block" : "none" %>;">
+        <label class="form-control">
+          <div class="label"><span class="label-text">Canal/grupo de entrega específico deste plano (opcional)</span></div>
+          <input type="text" name="customDeliveryTarget" value="<%= editingPlan && editingPlan.customDeliveryTarget ? editingPlan.customDeliveryTarget : "" %>" placeholder="deixe vazio pra usar a Entrega Padrão do fluxo" class="input input-bordered w-full" />
+        </label>
+      </div>
 
       <label class="label cursor-pointer justify-start gap-3 px-0">
         <input type="checkbox" name="protectContent" <%= !editingPlan || editingPlan.protectContent ? "checked" : "" %> class="checkbox checkbox-primary checkbox-sm" />

@@ -17,7 +17,7 @@ vi.mock("./botManager.js", () => ({
 
 import { prisma } from "../db/client.js";
 import { getTelegraf } from "./botManager.js";
-import { uploadMediaToLibrary } from "./mediaUpload.js";
+import { uploadMediaToLibrary, uploadDeliverableFile } from "./mediaUpload.js";
 
 describe("uploadMediaToLibrary", () => {
   beforeEach(() => {
@@ -78,5 +78,39 @@ describe("uploadMediaToLibrary", () => {
       uploadMediaToLibrary({ botId: "bot-1", buffer: Buffer.from("x"), mimeType: "image/png", filename: "foto.png" })
     ).rejects.toThrow(/configure o canal/i);
     expect(sendPhoto).not.toHaveBeenCalled();
+  });
+});
+
+describe("uploadDeliverableFile", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("sobe o arquivo pro canal-cofre informado e devolve o message_id (não o file_id)", async () => {
+    sendDocument.mockResolvedValue({ document: { file_id: "d1" }, message_id: 482 });
+
+    const result = await uploadDeliverableFile({
+      botId: "bot-1",
+      channelId: "-1004465630850",
+      buffer: Buffer.from("x"),
+      mimeType: "application/pdf",
+      filename: "curso.pdf",
+    });
+
+    expect(sendDocument).toHaveBeenCalledWith(-1004465630850, { source: expect.any(Buffer), filename: "curso.pdf" });
+    expect(result).toEqual({ messageId: 482 });
+    expect(prisma.mediaAsset.create).not.toHaveBeenCalled();
+  });
+
+  it("lança erro claro se o bot não está registrado/online", async () => {
+    vi.mocked(getTelegraf).mockReturnValueOnce(undefined);
+    await expect(
+      uploadDeliverableFile({ botId: "bot-1", channelId: "-100123", buffer: Buffer.from("x"), mimeType: "application/pdf", filename: "x.pdf" })
+    ).rejects.toThrow(/offline/i);
+  });
+
+  it("lança erro claro se o canal de entrega configurado é inválido", async () => {
+    await expect(
+      uploadDeliverableFile({ botId: "bot-1", channelId: "não-é-um-id", buffer: Buffer.from("x"), mimeType: "application/pdf", filename: "x.pdf" })
+    ).rejects.toThrow(/canal de entrega inválido/i);
+    expect(sendDocument).not.toHaveBeenCalled();
   });
 });

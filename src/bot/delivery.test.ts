@@ -14,7 +14,7 @@ vi.mock("./botManager.js", () => ({
 }));
 
 import { prisma } from "../db/client.js";
-import { notifyAdminOfSale } from "./delivery.js";
+import { notifyAdminOfSale, resolveEffectiveDelivery } from "./delivery.js";
 
 const botRow = { id: "bot1", telegramUsername: "meu_bot" };
 const lead = {
@@ -124,5 +124,41 @@ describe("notifyAdminOfSale", () => {
 
     const message: string = sendMessage.mock.calls[0][1];
     expect(message).toContain("📅 Duração: 30 dias");
+  });
+});
+
+const basePlanFields = { id: "plan-1", protectContent: true };
+
+describe("resolveEffectiveDelivery", () => {
+  it("plano com deliveryType próprio usa os campos dele, ignorando o padrão do fluxo", () => {
+    const plan = { ...basePlanFields, deliveryType: "LINK" as const, fileTelegramId: null, externalLink: "https://x.com", subscriptionChannelId: null, customDeliveryTarget: null };
+    const flowDelivery = { id: "fd-1", flowId: "flow-1", deliveryType: "FILE" as const, deliveryTarget: "-100999", fileTelegramId: "50", externalLink: null };
+
+    expect(resolveEffectiveDelivery(plan, flowDelivery)).toEqual({
+      plan: { id: "plan-1", deliveryType: "LINK", fileTelegramId: null, externalLink: "https://x.com", subscriptionChannelId: null, protectContent: true },
+      deliveryTarget: "-100999", // herda do fluxo já que o plano não tem customDeliveryTarget
+    });
+  });
+
+  it("customDeliveryTarget do plano sobrepõe o padrão do fluxo", () => {
+    const plan = { ...basePlanFields, deliveryType: "FILE" as const, fileTelegramId: "10", externalLink: null, subscriptionChannelId: null, customDeliveryTarget: "-100777" };
+    const flowDelivery = { id: "fd-1", flowId: "flow-1", deliveryType: "FILE" as const, deliveryTarget: "-100999", fileTelegramId: "50", externalLink: null };
+
+    expect(resolveEffectiveDelivery(plan, flowDelivery)?.deliveryTarget).toBe("-100777");
+  });
+
+  it("deliveryType nulo ('usar padrão') herda tipo/arquivo/link inteiros do FlowDelivery", () => {
+    const plan = { ...basePlanFields, deliveryType: null, fileTelegramId: null, externalLink: null, subscriptionChannelId: null, customDeliveryTarget: null };
+    const flowDelivery = { id: "fd-1", flowId: "flow-1", deliveryType: "FILE" as const, deliveryTarget: "-100999", fileTelegramId: "50", externalLink: null };
+
+    expect(resolveEffectiveDelivery(plan, flowDelivery)).toEqual({
+      plan: { id: "plan-1", deliveryType: "FILE", fileTelegramId: "50", externalLink: null, subscriptionChannelId: null, protectContent: true },
+      deliveryTarget: "-100999",
+    });
+  });
+
+  it("deliveryType nulo sem FlowDelivery configurado retorna null (nada a entregar)", () => {
+    const plan = { ...basePlanFields, deliveryType: null, fileTelegramId: null, externalLink: null, subscriptionChannelId: null, customDeliveryTarget: null };
+    expect(resolveEffectiveDelivery(plan, null)).toBeNull();
   });
 });

@@ -1,12 +1,67 @@
-import type { Order, OrderItem, OrderItemKind, Plan, Lead } from "@prisma/client";
+import type { Order, OrderItem, OrderItemKind, Plan, FlowDelivery, DeliveryType, Lead } from "@prisma/client";
 import { getTelegraf } from "./botManager.js";
 import { prisma } from "../db/client.js";
 import { formatBRL, formatConversionDuration } from "./format.js";
 import { prepareRichText, registerCountdownIfNeeded } from "./richSend.js";
 import { config } from "../config.js";
 
+/** Só os campos que `deliverPlanToLead` de fato usa — deixa explícito que
+ * pode vir tanto de um `Plan` com entrega própria quanto do `FlowDelivery`
+ * do funil (quando `Plan.deliveryType` é nulo, "usar padrão"). */
+export interface DeliveryPlanLike {
+  id: string;
+  deliveryType: DeliveryType;
+  fileTelegramId: string | null;
+  externalLink: string | null;
+  subscriptionChannelId: string | null;
+  protectContent: boolean;
+}
+
+export interface ResolvedDelivery {
+  plan: DeliveryPlanLike;
+  deliveryTarget: string | null;
+}
+
 /**
- * `Plan.fileTelegramId` guarda o `message_id` (como string) da mensagem já
+ * Resolve o que efetivamente entregar: se o Plano tem `deliveryType`
+ * próprio, usa os campos dele (com `customDeliveryTarget` sobrepondo o
+ * padrão do funil, se houver). Se `deliveryType` é nulo ("usar padrão"),
+ * herda tipo/arquivo/link inteiros do `FlowDelivery` do funil — `null` se
+ * o funil também não tiver Entrega Padrão configurada (nada a entregar).
+ */
+export function resolveEffectiveDelivery(
+  plan: Pick<Plan, "id" | "deliveryType" | "fileTelegramId" | "externalLink" | "subscriptionChannelId" | "customDeliveryTarget" | "protectContent">,
+  flowDelivery: FlowDelivery | null
+): ResolvedDelivery | null {
+  if (plan.deliveryType) {
+    return {
+      plan: {
+        id: plan.id,
+        deliveryType: plan.deliveryType,
+        fileTelegramId: plan.fileTelegramId,
+        externalLink: plan.externalLink,
+        subscriptionChannelId: plan.subscriptionChannelId,
+        protectContent: plan.protectContent,
+      },
+      deliveryTarget: plan.customDeliveryTarget ?? flowDelivery?.deliveryTarget ?? null,
+    };
+  }
+  if (!flowDelivery) return null;
+  return {
+    plan: {
+      id: plan.id,
+      deliveryType: flowDelivery.deliveryType,
+      fileTelegramId: flowDelivery.fileTelegramId,
+      externalLink: flowDelivery.externalLink,
+      subscriptionChannelId: null,
+      protectContent: plan.protectContent,
+    },
+    deliveryTarget: flowDelivery.deliveryTarget,
+  };
+}
+
+/**
+ * `fileTelegramId` guarda o `message_id` (como string) da mensagem já
  * postada no canal-cofre — não um `file_id`. A entrega usa
  * `telegram.copyMessage(destino, canalCofre, message_id)`, que exige um
  * `message_id` dentro do canal de origem; não existe uma chamada da Bot API
@@ -16,9 +71,9 @@ import { config } from "../config.js";
 export async function deliverPlanToLead(params: {
   botId: string;
   leadTelegramId: bigint;
-  plan: Plan;
+  plan: DeliveryPlanLike;
   /** Canal/grupo-cofre de onde copiar a mensagem — resolvido pelo chamador
-   * a partir de `Plan.customDeliveryTarget` ou `WelcomeConfig.defaultDeliveryTarget`. */
+   * via `resolveEffectiveDelivery`. */
   deliveryTarget: string;
 }): Promise<void> {
   const { botId, leadTelegramId, plan, deliveryTarget } = params;

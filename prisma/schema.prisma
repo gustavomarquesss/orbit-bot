@@ -175,6 +175,7 @@ model Flow {
   plans           Plan[]
   upsellSequence  UpsellSequence?
   downsellConfig  DownsellConfig?
+  delivery        FlowDelivery?
 }
 
 /// "Bots Vinculados" de um Flow — quais bots executam este funil.
@@ -202,12 +203,35 @@ model WelcomeConfig {
   ctaLabel                String?
   miniAppEnabled          Boolean @default(false)
   miniAppUrl              String?
-  /// Canal/grupo padrão de entrega de conteúdo pra este funil — substitui
-  /// o antigo TELEGRAM_VAULT_CHANNEL_ID global do .env.
-  defaultDeliveryTarget   String?
 
   media           WelcomeMedia[]
   redirectButtons RedirectButton[]
+}
+
+/// "Entrega Padrão (Fallback)" do Flow — usada por todo Plan cujo
+/// `deliveryType` está `null` ("usar padrão"), em vez de cada plano
+/// precisar configurar o próprio arquivo/link. Substitui o antigo
+/// `WelcomeConfig.defaultDeliveryTarget` (2026-08-20, pedido do usuário
+/// espelhando a referência ApexVips/SharkBot — lá esse campo é uma seção
+/// própria, não uma sub-opção de Boas-vindas). Só FILE/LINK por enquanto —
+/// CHANNEL (assinatura) continua exigindo configuração por Plano, e os
+/// tipos extras da referência (Chamada de Vídeo/Grupo Temporário/Apenas
+/// Upsell) ficam pra uma fase futura, combinado com o usuário.
+model FlowDelivery {
+  id     String @id @default(cuid())
+  flowId String @unique
+  flow   Flow   @relation(fields: [flowId], references: [id], onDelete: Cascade)
+
+  deliveryType   DeliveryType @default(FILE)
+  /// Canal onde o arquivo/mensagem-fonte vive — usado quando deliveryType = FILE.
+  /// Continua sendo colado manualmente (descoberta automática de canais
+  /// ficou pra depois, combinado com o usuário).
+  deliveryTarget String?
+  /// message_id (não file_id) no deliveryTarget — preenchido via upload
+  /// direto (src/bot/deliverableUpload.ts), nunca digitado à mão.
+  fileTelegramId String?
+  /// Usado quando deliveryType = LINK.
+  externalLink   String?
 }
 
 enum MediaType {
@@ -268,15 +292,20 @@ model Plan {
   priceCents            Int
   durationDays          Int?
   buttonColor           PlanButtonColor @default(PADRAO)
-  deliveryType          DeliveryType
-  /// DeliveryType.FILE — message_id (não file_id) da mensagem no canal-cofre.
+  /// Nulo = "usar padrão do fluxo" (herda tipo/arquivo/link inteiros de
+  /// `Flow.delivery` na hora da entrega — ver src/payments/orderStatus.ts).
+  /// Preenchido = este plano tem entrega própria, ignora o padrão do fluxo.
+  deliveryType          DeliveryType?
+  /// DeliveryType.FILE — message_id (não file_id) da mensagem no canal-cofre,
+  /// preenchido via upload direto (nunca digitado à mão).
   fileTelegramId        String?
   externalLink          String?
   /// DeliveryType.CHANNEL — canal/grupo VIP pro qual gerar um convite de uso
   /// único na compra, e do qual remover o assinante quando expirar (ver
   /// src/payments/subscriptionScheduler.ts).
   subscriptionChannelId String?
-  /// Override do WelcomeConfig.defaultDeliveryTarget só pra este plano.
+  /// Override do Flow.delivery.deliveryTarget só pra este plano (só faz
+  /// sentido quando deliveryType não é nulo).
   customDeliveryTarget  String?
   protectContent        Boolean         @default(true)
   active                Boolean         @default(true)

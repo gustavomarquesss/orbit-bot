@@ -7,11 +7,15 @@ vi.mock("../db/client.js", () => ({
   },
 }));
 
-vi.mock("../bot/delivery.js", () => ({
-  deliverPlanToLead: vi.fn(),
-  notifyAdminOfSale: vi.fn(),
-  notifyLeadOfApproval: vi.fn(),
-}));
+vi.mock("../bot/delivery.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../bot/delivery.js")>();
+  return {
+    ...actual,
+    deliverPlanToLead: vi.fn(),
+    notifyAdminOfSale: vi.fn(),
+    notifyLeadOfApproval: vi.fn(),
+  };
+});
 
 vi.mock("../bot/upsellScheduler.js", () => ({
   scheduleUpsellSequence: vi.fn(),

@@ -1,6 +1,6 @@
 import type { OrderStatus, Prisma } from "@prisma/client";
 import { prisma } from "../db/client.js";
-import { deliverPlanToLead, notifyAdminOfSale, notifyLeadOfApproval } from "../bot/delivery.js";
+import { deliverPlanToLead, notifyAdminOfSale, notifyLeadOfApproval, resolveEffectiveDelivery } from "../bot/delivery.js";
 import { scheduleUpsellSequence } from "../bot/upsellScheduler.js";
 import { cancelPendingDownsellsForLead } from "../bot/downsellScheduler.js";
 import type { NormalizedChargeStatus } from "./syncpay.js";
@@ -8,7 +8,7 @@ import type { NormalizedChargeStatus } from "./syncpay.js";
 export const ORDER_INCLUDE = {
   lead: true,
   items: {
-    include: { plan: { include: { flow: { include: { welcomeConfig: true, paymentMessages: true } } } } },
+    include: { plan: { include: { flow: { include: { welcomeConfig: true, paymentMessages: true, delivery: true } } } } },
   },
 } satisfies Prisma.OrderInclude;
 
@@ -91,8 +91,12 @@ export async function applyNormalizedStatus(
         }
       }
 
-      const deliveryTarget = plan.customDeliveryTarget ?? plan.flow.welcomeConfig?.defaultDeliveryTarget;
-      if (!deliveryTarget && plan.deliveryType === "FILE") {
+      const resolved = resolveEffectiveDelivery(plan, plan.flow.delivery);
+      if (!resolved) {
+        console.error(
+          `[order-status] plano ${plan.id} está configurado como "usar padrão do fluxo", mas o fluxo ${plan.flowId} não tem Entrega Padrão configurada`
+        );
+      } else if (!resolved.deliveryTarget && resolved.plan.deliveryType === "FILE") {
         console.error(
           `[order-status] plano ${plan.id} é do tipo FILE mas não tem canal de entrega configurado (nem custom nem padrão do funil)`
         );
@@ -101,8 +105,8 @@ export async function applyNormalizedStatus(
           await deliverPlanToLead({
             botId: order.botId,
             leadTelegramId: order.lead.telegramId,
-            plan,
-            deliveryTarget: deliveryTarget ?? "",
+            plan: resolved.plan,
+            deliveryTarget: resolved.deliveryTarget ?? "",
           });
         } catch (err) {
           console.error("[order-status] falha ao entregar plano", err);

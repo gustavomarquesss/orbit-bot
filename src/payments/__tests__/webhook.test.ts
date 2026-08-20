@@ -15,11 +15,15 @@ vi.mock("../../db/client.js", () => ({
   },
 }));
 
-vi.mock("../../bot/delivery.js", () => ({
-  deliverPlanToLead: vi.fn(),
-  notifyAdminOfSale: vi.fn(),
-  notifyLeadOfApproval: vi.fn(),
-}));
+vi.mock("../../bot/delivery.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../bot/delivery.js")>();
+  return {
+    ...actual,
+    deliverPlanToLead: vi.fn(),
+    notifyAdminOfSale: vi.fn(),
+    notifyLeadOfApproval: vi.fn(),
+  };
+});
 
 vi.mock("../../bot/upsellScheduler.js", () => ({
   scheduleUpsellSequence: vi.fn(),
@@ -160,7 +164,7 @@ describe("handleSyncpayWebhook", () => {
     const res = mockRes();
 
     const lead = { id: "lead-1", telegramId: 123n };
-    const plan = { id: "plan-1", name: "Plano X", deliveryType: "LINK", customDeliveryTarget: null, flow: { welcomeConfig: { defaultDeliveryTarget: "-100999" } } };
+    const plan = { id: "plan-1", name: "Plano X", deliveryType: "LINK", externalLink: "https://x", customDeliveryTarget: null, flow: { delivery: { deliveryTarget: "-100999" } } };
 
     vi.mocked(prisma.webhookEvent.findUnique).mockResolvedValue(null);
     vi.mocked(prisma.webhookEvent.create).mockResolvedValue({
@@ -196,7 +200,12 @@ describe("handleSyncpayWebhook", () => {
     );
     expect(deliverPlanToLead).toHaveBeenCalledTimes(1);
     expect(deliverPlanToLead).toHaveBeenCalledWith(
-      expect.objectContaining({ botId: "bot1", leadTelegramId: 123n, plan, deliveryTarget: "-100999" })
+      expect.objectContaining({
+        botId: "bot1",
+        leadTelegramId: 123n,
+        plan: expect.objectContaining({ id: "plan-1", deliveryType: "LINK", externalLink: "https://x" }),
+        deliveryTarget: "-100999",
+      })
     );
     expect(notifyAdminOfSale).toHaveBeenCalledTimes(1);
     expect(notifyLeadOfApproval).toHaveBeenCalledTimes(1);
@@ -227,7 +236,7 @@ describe("handleSyncpayWebhook", () => {
     const res = mockRes();
 
     const lead = { id: "lead-1", telegramId: 123n };
-    const plan = { id: "plan-1", name: "Plano X", deliveryType: "LINK", customDeliveryTarget: null, flow: { welcomeConfig: { defaultDeliveryTarget: "-100999" } } };
+    const plan = { id: "plan-1", name: "Plano X", deliveryType: "LINK", externalLink: "https://x", customDeliveryTarget: null, flow: { delivery: { deliveryTarget: "-100999" } } };
 
     vi.mocked(prisma.webhookEvent.findUnique).mockResolvedValue(null);
     vi.mocked(prisma.webhookEvent.create).mockResolvedValue({ id: "we-real", processedAt: null } as never);
@@ -271,7 +280,7 @@ describe("handleSyncpayWebhook", () => {
     const res = mockRes();
 
     const lead = { id: "lead-1", telegramId: 123n };
-    const plan = { id: "plan-1", name: "Plano X", deliveryType: "LINK", customDeliveryTarget: null, flow: { welcomeConfig: { defaultDeliveryTarget: "-100999" } } };
+    const plan = { id: "plan-1", name: "Plano X", deliveryType: "LINK", externalLink: "https://x", customDeliveryTarget: null, flow: { delivery: { deliveryTarget: "-100999" } } };
 
     vi.mocked(prisma.webhookEvent.findUnique).mockResolvedValue(null);
     vi.mocked(prisma.webhookEvent.create).mockResolvedValue({
@@ -332,7 +341,7 @@ describe("handleSyncpayWebhook", () => {
     const res = mockRes();
 
     const lead = { id: "lead-1", telegramId: 123n };
-    const plan = { id: "plan-1", name: "Plano X", deliveryType: "LINK", customDeliveryTarget: null, flow: { welcomeConfig: { defaultDeliveryTarget: "-100999" } } };
+    const plan = { id: "plan-1", name: "Plano X", deliveryType: "LINK", externalLink: "https://x", customDeliveryTarget: null, flow: { delivery: { deliveryTarget: "-100999" } } };
 
     vi.mocked(prisma.webhookEvent.findUnique).mockResolvedValue(null);
     vi.mocked(prisma.webhookEvent.create).mockResolvedValue({
