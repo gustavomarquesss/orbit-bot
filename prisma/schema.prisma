@@ -817,6 +817,15 @@ model ScheduledCountdownEdit {
   @@index([nextTickAt])
 }
 
+/// Uma nota do "Diário de Mudanças" da página Estatísticas — anotação livre
+/// do operador (ex: "mudei o preço do plano X") pra correlacionar com o
+/// resultado depois. Sem autor/categoria: painel de operador único.
+model DashboardNote {
+  id        String   @id @default(cuid())
+  text      String   @db.Text
+  createdAt DateTime @default(now())
+}
+
 /// Log bruto de todo webhook recebido da SyncPay — garante idempotência
 /// (webhook duplicado não gera reprocessamento) e serve de trilha de auditoria.
 model WebhookEvent {

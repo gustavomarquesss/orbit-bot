@@ -1,130 +1,147 @@
 <%- include("partials/header", { title: "Dashboard", active: "dashboard" }) %>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 
-<form method="GET" action="/admin" id="filters-form" class="flex flex-wrap gap-3 mb-6">
+<form method="GET" action="/admin" id="filters-form" class="flex flex-wrap items-center justify-between gap-3 mb-6">
   <select name="botId" class="select select-bordered select-sm w-auto min-w-[160px]" onchange="document.getElementById('filters-form').submit()">
     <option value="">Todos os bots</option>
     <% bots.forEach(function(bot) { %>
       <option value="<%= bot.id %>" <%= selectedBotId === bot.id ? "selected" : "" %>><%= bot.label %></option>
     <% }); %>
   </select>
-  <select name="period" class="select select-bordered select-sm w-auto min-w-[160px]" onchange="document.getElementById('filters-form').submit()">
-    <option value="hoje" <%= selectedPeriod === "hoje" ? "selected" : "" %>>Hoje</option>
-    <option value="ontem" <%= selectedPeriod === "ontem" ? "selected" : "" %>>Ontem</option>
-    <option value="7d" <%= selectedPeriod === "7d" ? "selected" : "" %>>Últimos 7 dias</option>
-    <option value="30d" <%= selectedPeriod === "30d" ? "selected" : "" %>>Últimos 30 dias</option>
-    <option value="total" <%= selectedPeriod === "total" ? "selected" : "" %>>Total</option>
-  </select>
+
+  <div class="join">
+    <% [["hoje","Hoje"],["ontem","Ontem"],["7d","7 dias"],["30d","30 dias"],["total","Total"]].forEach(function(p) { %>
+      <button
+        type="submit"
+        name="period"
+        value="<%= p[0] %>"
+        class="join-item btn btn-sm <%= selectedPeriod === p[0] ? "btn-primary" : "btn-outline" %>"
+      ><%= p[1] %></button>
+    <% }); %>
+  </div>
 </form>
 
-<div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-6">
-  <div class="card bg-base-200 border border-base-300 p-4">
-    <div class="text-xs text-base-content/50 mb-1">Receita aprovada</div>
-    <div class="text-2xl font-bold text-success"><%= formatBRL(revenueCents) %></div>
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+  <div class="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <div class="card bg-base-200 border border-base-300 p-4">
+      <div class="text-xs text-base-content/50 mb-1">Vendas Aprovadas</div>
+      <div class="text-2xl font-bold text-success mb-2"><%= formatBRL(revenueCents) %></div>
+      <progress class="progress progress-success w-full" value="<%= paymentConversionRate %>" max="100"></progress>
+      <div class="text-xs text-base-content/40 text-right mt-1"><%= paymentConversionRate.toFixed(0) %>% Aprov.</div>
+    </div>
+    <div class="card bg-base-200 border border-base-300 p-4 flex flex-row items-center gap-4">
+      <div class="radial-progress text-primary shrink-0" style="--value:<%= paymentConversionRate %>; --size:4.5rem; --thickness: 5px;" role="progressbar">
+        <span class="text-xs font-semibold"><%= paymentConversionRate.toFixed(1) %>%</span>
+      </div>
+      <div>
+        <div class="text-xs text-base-content/50 mb-1">Taxa de Conversão</div>
+        <div class="text-xs text-base-content/40"><%= createdCounts.PAID %> pagos de <%= createdCounts.PENDING + createdCounts.PAID + createdCounts.REFUSED + createdCounts.EXPIRED %> PIX</div>
+      </div>
+    </div>
+    <div class="card bg-base-200 border border-base-300 p-4">
+      <div class="text-xs text-base-content/50 mb-1">Total Starts</div>
+      <div class="text-2xl font-bold"><%= startsCount %></div>
+      <div class="text-xs text-base-content/40 mt-1">Leads iniciaram conversa</div>
+    </div>
+    <div class="card bg-base-200 border border-base-300 p-4">
+      <div class="text-xs text-base-content/50 mb-1">Ticket Médio</div>
+      <div class="text-2xl font-bold"><%= formatBRL(avgTicketCents) %></div>
+      <div class="text-xs text-base-content/40 mt-1">Vendas: <span class="font-semibold text-base-content/70"><%= formatBRL(revenueCents) %></span></div>
+    </div>
   </div>
-  <div class="card bg-base-200 border border-base-300 p-4">
-    <div class="text-xs text-base-content/50 mb-1">Vendas aprovadas</div>
-    <div class="text-2xl font-bold text-success"><%= approvedCount %></div>
-  </div>
-  <div class="card bg-base-200 border border-base-300 p-4">
-    <div class="text-xs text-base-content/50 mb-1">Ticket médio</div>
-    <div class="text-2xl font-bold"><%= formatBRL(avgTicketCents) %></div>
-  </div>
-  <div class="card bg-base-200 border border-base-300 p-4">
-    <div class="text-xs text-base-content/50 mb-1">Tempo médio até pagar</div>
-    <div class="text-2xl font-bold"><%= avgTimeLabel %></div>
-  </div>
-  <div class="card bg-base-200 border border-base-300 p-4">
-    <div class="text-xs text-base-content/50 mb-1">Starts (leads novos)</div>
-    <div class="text-2xl font-bold"><%= startsCount %></div>
-  </div>
-  <div class="card bg-base-200 border border-base-300 p-4">
-    <div class="text-xs text-base-content/50 mb-1">Conversão de usuário</div>
-    <div class="text-2xl font-bold"><%= userConversionRate.toFixed(1) %>%</div>
-    <div class="text-xs text-base-content/40">compradores / leads novos</div>
-  </div>
-  <div class="card bg-base-200 border border-base-300 p-4">
-    <div class="text-xs text-base-content/50 mb-1">Conversão de pagamento</div>
-    <div class="text-2xl font-bold"><%= paymentConversionRate.toFixed(1) %>%</div>
-    <div class="text-xs text-base-content/40">pagos / PIX gerados</div>
-  </div>
-  <div class="card bg-base-200 border border-base-300 p-4">
-    <div class="text-xs text-base-content/50 mb-1">PIX pendentes (no período)</div>
-    <div class="text-2xl font-bold text-warning"><%= createdCounts.PENDING %></div>
-  </div>
-  <div class="card bg-base-200 border border-base-300 p-4">
-    <div class="text-xs text-base-content/50 mb-1">Recusados/expirados (no período)</div>
-    <div class="text-2xl font-bold text-error"><%= createdCounts.REFUSED + createdCounts.EXPIRED %></div>
-  </div>
-</div>
 
-<div class="card bg-base-200 border border-base-300 shadow-sm mb-6">
-  <div class="card-body">
-    <h3 class="font-semibold mb-3">Cobranças por dia</h3>
-    <canvas id="dailyChart" class="max-h-[220px]"></canvas>
-  </div>
-</div>
-
-<div class="card bg-base-200 border border-base-300 shadow-sm mb-6">
-  <div class="card-body">
-    <h3 class="font-semibold mb-2">Ranking por Código de Venda <span class="text-base-content/40 font-normal text-sm">(top 5, receita do período)</span></h3>
-    <div class="overflow-x-auto">
-      <table class="table">
-        <thead><tr><th>Código</th><th>Origem</th><th>Vendas</th><th>Receita</th></tr></thead>
-        <tbody>
-          <% originRanking.forEach(function(o) { %>
-            <tr>
-              <td><code class="text-xs bg-base-300/60 px-1.5 py-0.5 rounded"><%= o.param %></code></td>
-              <td><%= o.label %></td>
-              <td><%= o.count %></td>
-              <td><%= formatBRL(o.revenueCents) %></td>
-            </tr>
-          <% }); %>
-          <% if (originRanking.length === 0) { %>
-            <tr><td colspan="4" class="text-base-content/50 py-4">Nenhuma venda aprovada no período.</td></tr>
-          <% } %>
-        </tbody>
-      </table>
+  <div class="card bg-base-200 border border-base-300 shadow-sm">
+    <div class="card-body">
+      <h3 class="font-semibold text-sm">Seu Desempenho</h3>
+      <p class="text-xs text-base-content/40 -mt-2 mb-2">Últimos 7 dias</p>
+      <canvas id="performanceChart" class="max-h-[180px]"></canvas>
     </div>
   </div>
 </div>
 
-<div class="card bg-base-200 border border-base-300 shadow-sm">
-  <div class="card-body">
-    <h3 class="font-semibold mb-1">Log de atividade</h3>
-    <p class="text-sm text-base-content/60 mb-3">Últimos eventos, de todos os bots (ou só do bot filtrado acima) — não é limitado pelo período escolhido, é sempre o mais recente.</p>
-    <div class="flex flex-col divide-y divide-base-300">
-      <% activityLog.forEach(function(ev) { %>
-        <div class="flex items-center justify-between gap-3 py-2.5 text-sm">
-          <span class="flex items-center gap-2 min-w-0">
-            <span class="shrink-0"><%- icon(ev.kind === "lead" ? "user-plus" : ev.kind === "pix" ? "credit-card" : "check-circle", "w-4 h-4") %></span>
-            <span class="truncate"><%= ev.label %></span>
-          </span>
-          <span class="flex items-center gap-3 shrink-0">
-            <span class="text-base-content/50 hidden sm:inline"><%= ev.sub %></span>
-            <span class="text-base-content/40 text-xs whitespace-nowrap"><%= new Date(ev.at).toLocaleString("pt-BR") %></span>
-          </span>
-        </div>
-      <% }); %>
-      <% if (activityLog.length === 0) { %><p class="text-base-content/50 py-4">Nenhuma atividade ainda.</p><% } %>
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+  <div class="card bg-base-200 border border-base-300 shadow-sm">
+    <div class="card-body">
+      <h3 class="font-semibold mb-1">Log de Atividades</h3>
+      <p class="text-xs text-base-content/40 mb-2">Tempo real</p>
+      <div class="flex flex-col divide-y divide-base-300 max-h-[360px] overflow-y-auto">
+        <% activityLog.forEach(function(ev) { %>
+          <div class="flex items-center justify-between gap-3 py-2.5 text-sm">
+            <span class="flex items-center gap-2 min-w-0">
+              <span class="shrink-0"><%- icon(ev.kind === "lead" ? "user-plus" : ev.kind === "pix" ? "credit-card" : "check-circle", "w-4 h-4") %></span>
+              <span class="truncate"><%= ev.label %></span>
+            </span>
+            <span class="text-base-content/40 text-xs whitespace-nowrap shrink-0"><%= new Date(ev.at).toLocaleString("pt-BR") %></span>
+          </div>
+        <% }); %>
+        <% if (activityLog.length === 0) { %><p class="text-base-content/50 py-4 text-sm">Nenhuma atividade ainda.</p><% } %>
+      </div>
+    </div>
+  </div>
+
+  <div class="card bg-base-200 border border-base-300 shadow-sm">
+    <div class="card-body">
+      <h3 class="font-semibold mb-1">Ranking por Código de Venda</h3>
+      <p class="text-xs text-base-content/40 mb-2">Top 5, receita do período</p>
+      <div class="overflow-x-auto">
+        <table class="table table-sm">
+          <thead><tr><th>Código</th><th>Vendas</th><th>Receita</th></tr></thead>
+          <tbody>
+            <% originRanking.forEach(function(o) { %>
+              <tr>
+                <td><code class="text-xs bg-base-300/60 px-1.5 py-0.5 rounded"><%= o.param %></code></td>
+                <td><%= o.count %></td>
+                <td><%= formatBRL(o.revenueCents) %></td>
+              </tr>
+            <% }); %>
+            <% if (originRanking.length === 0) { %>
+              <tr><td colspan="3" class="text-base-content/50 py-4">Nenhuma venda aprovada no período.</td></tr>
+            <% } %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="card bg-base-200 border border-base-300 shadow-sm">
+    <div class="card-body">
+      <h3 class="font-semibold mb-1">Ranking de Bots</h3>
+      <p class="text-xs text-base-content/40 mb-2">Qual bot mais vendeu no período</p>
+      <div class="flex flex-col divide-y divide-base-300">
+        <% botRanking.forEach(function(b, i) { %>
+          <div class="flex items-center justify-between gap-3 py-2.5 text-sm">
+            <span class="flex items-center gap-2 min-w-0">
+              <span class="badge badge-sm <%= i === 0 ? "badge-primary" : "badge-ghost" %>">#<%= i + 1 %></span>
+              <span class="truncate"><%= b.label %></span>
+            </span>
+            <span class="flex items-center gap-3 shrink-0 text-xs text-base-content/50">
+              <span><%= b.count %> vendas</span>
+              <span class="font-semibold text-success"><%= formatBRL(b.revenueCents) %></span>
+            </span>
+          </div>
+        <% }); %>
+        <% if (botRanking.length === 0) { %><p class="text-base-content/50 py-4 text-sm">Nenhuma venda aprovada no período.</p><% } %>
+      </div>
     </div>
   </div>
 </div>
 
 <script>
-  const dailyOrders = <%- JSON.stringify(dailyOrders) %>;
+  const performanceDays = <%- JSON.stringify(performanceLast7Days) %>;
   const isDark = document.documentElement.getAttribute("data-theme") !== "light";
   const accentColor = isDark ? "#FF6B6B" : "#E11D33";
   const mutedColor = isDark ? "#A1A1AA" : "#71717A";
-  new Chart(document.getElementById("dailyChart"), {
-    type: "bar",
+  new Chart(document.getElementById("performanceChart"), {
+    type: "line",
     data: {
-      labels: dailyOrders.map(d => new Date(d.day).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })),
+      labels: performanceDays.map(d => new Date(d.day).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", timeZone: "UTC" })),
       datasets: [{
-        label: "Cobranças",
-        data: dailyOrders.map(d => d.count),
-        backgroundColor: accentColor,
-        borderRadius: 4,
+        label: "Receita",
+        data: performanceDays.map(d => d.revenueCents / 100),
+        borderColor: accentColor,
+        backgroundColor: accentColor + "33",
+        fill: true,
+        tension: 0.3,
       }],
     },
     options: {
@@ -132,7 +149,7 @@
       plugins: { legend: { display: false } },
       scales: {
         x: { grid: { display: false }, ticks: { color: mutedColor } },
-        y: { beginAtZero: true, ticks: { color: mutedColor, precision: 0 } },
+        y: { beginAtZero: true, ticks: { color: mutedColor, callback: (v) => "R$" + v } },
       },
     },
   });

@@ -9,8 +9,10 @@ import { config } from "../config.js";
 import { createBotsRouter } from "./botsRoutes.js";
 import { createFlowsRouter } from "./flowsRoutes.js";
 import { createMailingRouter } from "./mailingRoutes.js";
+import { createStatsRouter } from "./statsRoutes.js";
 import { applyDiscount } from "../bot/downsellMessage.js";
 import { withSuccess } from "./toastUtil.js";
+import { formatBRL, formatSecondsDuration, resolvePeriodRange, startOfDayBR } from "./metricsUtil.js";
 
 // Pool dedicado do connect-pg-simple (ele gerencia sua própria tabela de
 // sessões, "session", criada automaticamente com createTableIfMissing).
@@ -36,58 +38,6 @@ function passwordMatches(input: string): boolean {
 function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (req.session.isAdmin) return next();
   res.redirect("/admin/login");
-}
-
-function formatBRL(cents: number): string {
-  return (cents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-}
-
-function formatSecondsDuration(totalSeconds: number | null): string {
-  if (totalSeconds == null) return "—";
-  const s = Math.max(0, Math.round(totalSeconds));
-  const days = Math.floor(s / 86400);
-  const hours = Math.floor((s % 86400) / 3600);
-  const minutes = Math.floor((s % 3600) / 60);
-  if (days > 0) return `${days}d ${hours}h`;
-  if (hours > 0) return `${hours}h ${minutes}m`;
-  return `${minutes}m`;
-}
-
-// Brasil não observa horário de verão desde 2019 — deslocamento fixo é
-// suficiente pra calcular o início do dia local sem precisar de lib de
-// timezone nova. Só afeta os cortes "hoje"/"ontem" do dashboard.
-const BR_OFFSET_MS = 3 * 60 * 60 * 1000;
-
-function startOfDayBR(date: Date): Date {
-  const shifted = new Date(date.getTime() - BR_OFFSET_MS);
-  shifted.setUTCHours(0, 0, 0, 0);
-  return new Date(shifted.getTime() + BR_OFFSET_MS);
-}
-
-/**
- * Resolve o período do dashboard em um intervalo de datas. `start`/`end`
- * limitam as métricas (`end: null` = até agora); `chartStart` limita só o
- * gráfico de cobranças por dia — em "total" as métricas continuam
- * all-time, mas o gráfico é limitado aos últimos 90 dias (um gráfico com
- * um bar por dia desde o início do projeto não seria legível nem útil).
- */
-function resolvePeriodRange(period: string): { start: Date; end: Date | null; chartStart: Date } {
-  const todayStart = startOfDayBR(new Date());
-  const daysAgo = (n: number) => new Date(todayStart.getTime() - n * 86_400_000);
-
-  switch (period) {
-    case "hoje":
-      return { start: todayStart, end: null, chartStart: todayStart };
-    case "ontem":
-      return { start: daysAgo(1), end: todayStart, chartStart: daysAgo(1) };
-    case "30d":
-      return { start: daysAgo(29), end: null, chartStart: daysAgo(29) };
-    case "total":
-      return { start: new Date(0), end: null, chartStart: daysAgo(89) };
-    case "7d":
-    default:
-      return { start: daysAgo(6), end: null, chartStart: daysAgo(6) };
-  }
 }
 
 export function createAdminRouter(): Router {
@@ -136,6 +86,7 @@ export function createAdminRouter(): Router {
   router.use("/bots", createBotsRouter());
   router.use("/flows", createFlowsRouter());
   router.use("/mailing", createMailingRouter());
+  router.use("/stats", createStatsRouter());
 
   router.get("/settings", async (_req, res) => {
     const settings = await prisma.settings.findUnique({ where: { id: "singleton" } });
@@ -162,7 +113,7 @@ export function createAdminRouter(): Router {
 
     const botId = typeof req.query.botId === "string" && req.query.botId ? req.query.botId : null;
     const period = typeof req.query.period === "string" ? req.query.period : "7d";
-    const { start, end, chartStart } = resolvePeriodRange(period);
+    const { start, end } = resolvePeriodRange(period);
 
     const botFilter = botId ? { botId } : {};
     // "Vendas aprovadas"/ticket médio/tempo médio/ranking são todos sobre
@@ -184,10 +135,11 @@ export function createAdminRouter(): Router {
       avgTicketAgg,
       avgTimeRows,
       originGroups,
+      botGroups,
       recentLeads,
       recentOrdersCreated,
       recentOrdersPaid,
-      dailyOrdersRaw,
+      last7DaysRevenueRaw,
     ] = await Promise.all([
       prisma.order.aggregate({ where: paidWhere, _sum: { amountCents: true }, _count: { _all: true } }),
       prisma.order.groupBy({ by: ["status"], where: createdWhere, _count: { _all: true } }),
@@ -203,6 +155,14 @@ export function createAdminRouter(): Router {
       `),
       prisma.order.groupBy({
         by: ["originId"],
+        where: paidWhere,
+        _sum: { amountCents: true },
+        _count: { _all: true },
+        orderBy: { _sum: { amountCents: "desc" } },
+        take: 5,
+      }),
+      prisma.order.groupBy({
+        by: ["botId"],
         where: paidWhere,
         _sum: { amountCents: true },
         _count: { _all: true },
@@ -227,10 +187,15 @@ export function createAdminRouter(): Router {
         take: 20,
         include: { lead: true, items: { include: { plan: true } } },
       }),
-      prisma.$queryRaw<Array<{ day: Date; count: bigint }>>(Prisma.sql`
-        SELECT date_trunc('day', "createdAt") AS day, COUNT(*) AS count
+      // "Seu Desempenho" do dashboard é sempre os últimos 7 dias fixos,
+      // igual ao print de referência — não segue o seletor de período.
+      // `date_trunc` trunca em UTC puro; o shift -3h/+3h faz o corte de dia
+      // bater com o calendário BR (mesma ideia de `startOfDayBR`), senão o
+      // último dia do gráfico fica sempre 1 dia atrasado pro fuso local.
+      prisma.$queryRaw<Array<{ day: Date; revenue: bigint | null }>>(Prisma.sql`
+        SELECT date_trunc('day', "paidAt" - interval '3 hours') + interval '3 hours' AS day, SUM("amountCents") AS revenue
         FROM "Order"
-        WHERE "createdAt" >= ${chartStart}
+        WHERE status = 'PAID' AND "paidAt" >= ${new Date(startOfDayBR(new Date()).getTime() - 6 * 86_400_000)}
         ${botId ? Prisma.sql`AND "botId" = ${botId}` : Prisma.empty}
         GROUP BY day
         ORDER BY day ASC
@@ -252,6 +217,25 @@ export function createAdminRouter(): Router {
       revenueCents: g._sum.amountCents ?? 0,
       count: g._count._all,
     }));
+
+    const botById = new Map(bots.map((b) => [b.id, b]));
+    const botRanking = botGroups.map((g) => ({
+      label: botById.get(g.botId)?.label ?? g.botId,
+      revenueCents: g._sum.amountCents ?? 0,
+      count: g._count._all,
+    }));
+
+    // A query trunca o dia em horário BR (ver comentário acima) — as chaves
+    // aqui usam a mesma âncora (`startOfDayBR`) pra bater exatamente com o
+    // que ela devolve.
+    const last7DaysRevenueByDay = new Map(
+      last7DaysRevenueRaw.map((r) => [new Date(r.day).toISOString(), Number(r.revenue ?? 0)])
+    );
+    const todayBR = startOfDayBR(new Date());
+    const performanceLast7Days = Array.from({ length: 7 }, (_, i) => {
+      const day = new Date(todayBR.getTime() - (6 - i) * 86_400_000);
+      return { day, revenueCents: last7DaysRevenueByDay.get(day.toISOString()) ?? 0 };
+    });
 
     interface ActivityEvent {
       at: Date;
@@ -297,8 +281,9 @@ export function createAdminRouter(): Router {
       paymentConversionRate,
       createdCounts,
       originRanking,
+      botRanking,
+      performanceLast7Days,
       activityLog: events.slice(0, 20),
-      dailyOrders: dailyOrdersRaw.map((r) => ({ day: r.day, count: Number(r.count) })),
     });
   });
 

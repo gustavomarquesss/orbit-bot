@@ -1,0 +1,300 @@
+<%- include("partials/header", { title: "Estatísticas", active: "stats" }) %>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+
+<form method="GET" action="/admin/stats" id="filters-form" class="flex flex-wrap items-center justify-between gap-3 mb-6">
+  <select name="botId" class="select select-bordered select-sm w-auto min-w-[160px]" onchange="document.getElementById('filters-form').submit()">
+    <option value="">Todos os bots</option>
+    <% bots.forEach(function(bot) { %>
+      <option value="<%= bot.id %>" <%= selectedBotId === bot.id ? "selected" : "" %>><%= bot.label %></option>
+    <% }); %>
+  </select>
+
+  <div class="join">
+    <% [["hoje","Hoje"],["ontem","Ontem"],["7d","7 dias"],["30d","30 dias"],["total","Total"]].forEach(function(p) { %>
+      <button
+        type="submit"
+        name="period"
+        value="<%= p[0] %>"
+        class="join-item btn btn-sm <%= selectedPeriod === p[0] ? "btn-primary" : "btn-outline" %>"
+      ><%= p[1] %></button>
+    <% }); %>
+  </div>
+</form>
+
+<!-- Vendas por tempo -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+  <div class="card bg-base-200 border border-base-300 shadow-sm">
+    <div class="card-body">
+      <h3 class="font-semibold text-sm mb-2">Vendas por Hora</h3>
+      <canvas id="hourChart" class="max-h-[200px]"></canvas>
+      <p class="text-xs text-base-content/50 mt-2">Melhor horário: <span class="font-semibold text-base-content"><%= bestHour.hour %>h</span> (<%= bestHour.count %> vendas)</p>
+    </div>
+  </div>
+  <div class="card bg-base-200 border border-base-300 shadow-sm">
+    <div class="card-body">
+      <h3 class="font-semibold text-sm mb-2">Vendas por Dia da Semana</h3>
+      <canvas id="weekdayChart" class="max-h-[200px]"></canvas>
+    </div>
+  </div>
+</div>
+
+<div class="card bg-base-200 border border-base-300 shadow-sm mb-6">
+  <div class="card-body">
+    <h3 class="font-semibold text-sm mb-2">Top 7 Dias <span class="text-base-content/40 font-normal">(por receita, últimos 90 dias)</span></h3>
+    <div class="overflow-x-auto">
+      <table class="table table-sm">
+        <thead><tr><th>Dia</th><th>Receita</th></tr></thead>
+        <tbody>
+          <% top7Days.forEach(function(d) { %>
+            <tr><td><%= new Date(d.day).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", timeZone: "UTC" }) %></td><td><%= formatBRL(d.revenueCents) %></td></tr>
+          <% }); %>
+          <% if (top7Days.length === 0) { %><tr><td colspan="2" class="text-base-content/50 py-4">Nenhum dia com venda ainda.</td></tr><% } %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Rankings de produto -->
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+  <div class="card bg-base-200 border border-base-300 shadow-sm">
+    <div class="card-body">
+      <h3 class="font-semibold text-sm mb-2">Top 5 Bots</h3>
+      <div class="flex flex-col divide-y divide-base-300">
+        <% topBots.forEach(function(b) { %>
+          <div class="flex items-center justify-between py-2 text-xs">
+            <span class="truncate"><%= b.label %></span>
+            <span class="font-semibold text-success shrink-0"><%= formatBRL(b.revenueCents) %></span>
+          </div>
+        <% }); %>
+        <% if (topBots.length === 0) { %><p class="text-base-content/50 text-sm py-2">Nenhum bot disponível</p><% } %>
+      </div>
+    </div>
+  </div>
+  <div class="card bg-base-200 border border-base-300 shadow-sm">
+    <div class="card-body">
+      <h3 class="font-semibold text-sm mb-2">Top 5 Fluxos</h3>
+      <div class="flex flex-col divide-y divide-base-300">
+        <% topFlows.forEach(function(f) { %>
+          <div class="flex items-center justify-between py-2 text-xs">
+            <span class="truncate"><%= f.label %></span>
+            <span class="font-semibold text-success shrink-0"><%= formatBRL(f.revenueCents) %></span>
+          </div>
+        <% }); %>
+        <% if (topFlows.length === 0) { %><p class="text-base-content/50 text-sm py-2">Nenhum fluxo disponível</p><% } %>
+      </div>
+    </div>
+  </div>
+  <div class="card bg-base-200 border border-base-300 shadow-sm">
+    <div class="card-body">
+      <h3 class="font-semibold text-sm mb-2">Top 5 Planos</h3>
+      <div class="flex flex-col divide-y divide-base-300">
+        <% topPlans.forEach(function(p) { %>
+          <div class="flex items-center justify-between py-2 text-xs">
+            <span class="truncate"><%= p.label %> <% if (p.isPack) { %><span class="badge badge-xs badge-ghost">pack</span><% } %></span>
+            <span class="font-semibold text-success shrink-0"><%= formatBRL(p.revenueCents) %></span>
+          </div>
+        <% }); %>
+        <% if (topPlans.length === 0) { %><p class="text-base-content/50 text-sm py-2">Nenhum plano disponível</p><% } %>
+      </div>
+    </div>
+  </div>
+  <div class="card bg-base-200 border border-base-300 shadow-sm">
+    <div class="card-body">
+      <h3 class="font-semibold text-sm mb-2">Top 5 Tickets</h3>
+      <div class="flex flex-col divide-y divide-base-300">
+        <% topTickets.forEach(function(t) { %>
+          <div class="flex items-center justify-between py-2 text-xs gap-2">
+            <span class="truncate"><%= t.leadLabel %> — <%= t.planNames %></span>
+            <span class="font-semibold text-success shrink-0"><%= formatBRL(t.amountCents) %></span>
+          </div>
+        <% }); %>
+        <% if (topTickets.length === 0) { %><p class="text-base-content/50 text-sm py-2">Nenhum ticket disponível</p><% } %>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Funil + taxas -->
+<div class="card bg-base-200 border border-base-300 shadow-sm mb-6">
+  <div class="card-body">
+    <h3 class="font-semibold text-sm mb-4">Funil de Conversão <span class="text-base-content/40 font-normal">jornada do usuário até a compra</span></h3>
+    <p class="text-xs text-base-content/40 -mt-3 mb-3">"PIX Gerado" pode passar de 100% do "Start": inclui cobranças de leads de dias anteriores que só geraram PIX dentro deste período.</p>
+    <div class="flex flex-col gap-2">
+      <% [["Start", funnel.starts, 100], ["PIX Gerado", funnel.pixGenerated, funnel.starts ? (funnel.pixGenerated/funnel.starts)*100 : 0], ["Pago", funnel.paid, funnel.starts ? (funnel.paid/funnel.starts)*100 : 0]].forEach(function(stage) { %>
+        <div class="flex items-center gap-3">
+          <span class="text-xs w-20 shrink-0 text-base-content/60"><%= stage[0] %></span>
+          <div class="flex-1 bg-base-300 rounded h-6 overflow-hidden">
+            <div class="bg-primary h-full flex items-center px-2 text-xs font-semibold text-primary-content" style="width: <%= Math.min(Math.max(stage[2], stage[1] > 0 ? 4 : 0), 100) %>%"><%= stage[1] %></div>
+          </div>
+          <span class="text-xs w-14 text-right shrink-0 text-base-content/60"><%= stage[2].toFixed(0) %>%</span>
+        </div>
+      <% }); %>
+    </div>
+    <div class="grid grid-cols-3 gap-3 mt-4 pt-3 border-t border-base-300 text-center">
+      <div><div class="text-xs text-base-content/40">Start → PIX</div><div class="font-semibold text-primary"><%= funnel.startToPix.toFixed(0) %>%</div></div>
+      <div><div class="text-xs text-base-content/40">PIX → Pago</div><div class="font-semibold text-primary"><%= funnel.pixToPaid.toFixed(0) %>%</div></div>
+      <div><div class="text-xs text-base-content/40">Start → Pago</div><div class="font-semibold text-primary"><%= funnel.startToPaid.toFixed(0) %>%</div></div>
+    </div>
+  </div>
+</div>
+
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+  <% [
+    ["Taxa Upsell", upsellRate, "vendas"],
+    ["Taxa Downsell", downsellRate, "recusas"],
+    ["Taxa OrderBump", orderBumpRate, "checkouts"],
+    ["Taxa Recuperação", recoveryRate, "pendentes"],
+  ].forEach(function(item) { %>
+    <div class="card bg-base-200 border border-base-300 p-4">
+      <div class="text-xs text-base-content/50 mb-1"><%= item[0] %></div>
+      <div class="text-2xl font-bold"><%= item[1].rate.toFixed(1) %>%</div>
+      <div class="text-xs text-base-content/40 mt-1"><%= item[1].converted %> de <%= item[1].total %> <%= item[2] %></div>
+    </div>
+  <% }); %>
+</div>
+
+<!-- Métricas de assinatura -->
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+  <div class="card bg-base-200 border border-base-300 p-4">
+    <div class="text-xs text-base-content/50 mb-1">LTV Médio</div>
+    <div class="text-2xl font-bold text-success"><%= formatBRL(ltvAvgCents) %></div>
+    <div class="text-xs text-base-content/40 mt-1">Gasto médio por cliente (período)</div>
+  </div>
+  <div class="card bg-base-200 border border-base-300 p-4">
+    <div class="text-xs text-base-content/50 mb-1">Vendas por Usuário</div>
+    <div class="text-2xl font-bold"><%= salesPerUser.toFixed(1) %>x</div>
+    <div class="text-xs text-base-content/40 mt-1">Compras por cliente (período)</div>
+  </div>
+  <div class="card bg-base-200 border border-base-300 p-4">
+    <div class="text-xs text-base-content/50 mb-1">Tempo Médio Retorno</div>
+    <div class="text-2xl font-bold text-warning"><%= avgReturnDays == null ? "—" : avgReturnDays.toFixed(1) %></div>
+    <div class="text-xs text-base-content/40 mt-1">Dias entre compras (todos os tempos)</div>
+  </div>
+  <div class="card bg-base-200 border border-base-300 p-4">
+    <div class="text-xs text-base-content/50 mb-1">Taxa Recorrência</div>
+    <div class="text-2xl font-bold"><%= recurrenceRate.toFixed(1) %>%</div>
+    <div class="text-xs text-base-content/40 mt-1">de compradores do período (2+ pedidos)</div>
+  </div>
+</div>
+
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+  <div class="card bg-base-200 border border-base-300 p-4">
+    <div class="text-xs text-base-content/50 mb-1">Taxa Upgrade</div>
+    <div class="text-2xl font-bold"><%= upgradeRate.toFixed(1) %>%</div>
+    <div class="text-xs text-base-content/40 mt-1">de compradores do período aceitaram upsell</div>
+  </div>
+  <div class="card bg-base-200 border border-base-300 p-4">
+    <div class="text-xs text-base-content/50 mb-1">Taxa Retenção</div>
+    <div class="text-2xl font-bold text-success"><%= retentionRate.toFixed(1) %>%</div>
+    <div class="text-xs text-base-content/40 mt-1">VIPs ativos agora, de todos os assinantes</div>
+  </div>
+  <div class="card bg-base-200 border border-base-300 p-4">
+    <div class="text-xs text-base-content/50 mb-1">Taxa Abandono</div>
+    <div class="text-2xl font-bold text-error"><%= churnRate.toFixed(1) %>%</div>
+    <div class="text-xs text-base-content/40 mt-1">ex-VIPs agora, de todos os assinantes</div>
+  </div>
+  <div class="card bg-base-200 border border-base-300 shadow-sm">
+    <div class="card-body py-3">
+      <h3 class="text-xs text-base-content/50 mb-1">Contadores de Usuários</h3>
+      <div class="flex flex-col divide-y divide-base-300 text-xs">
+        <div class="flex justify-between py-1.5"><span>Total Compradores</span><span class="font-semibold"><%= userCounters.totalBuyers %></span></div>
+        <div class="flex justify-between py-1.5"><span>Recorrentes</span><span class="font-semibold"><%= userCounters.recurring %></span></div>
+        <div class="flex justify-between py-1.5"><span>VIPs Ativos</span><span class="font-semibold"><%= userCounters.activeVips %></span></div>
+        <div class="flex justify-between py-1.5"><span>Upsellers</span><span class="font-semibold"><%= userCounters.upsellers %></span></div>
+        <div class="flex justify-between py-1.5"><span>Downsellers</span><span class="font-semibold"><%= userCounters.downsellers %></span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Fontes de tráfego -->
+<div class="card bg-base-200 border border-base-300 shadow-sm mb-6">
+  <div class="card-body">
+    <h3 class="font-semibold text-sm mb-1">Fontes de Tráfego</h3>
+    <p class="text-xs text-base-content/40 mb-2">Top 10 por Código de Venda — a mesma origem cadastrada nos seus links</p>
+    <div class="overflow-x-auto">
+      <table class="table table-sm">
+        <thead><tr><th>Código</th><th>Origem</th><th>Vendas</th><th>Receita</th></tr></thead>
+        <tbody>
+          <% trafficSources.forEach(function(o) { %>
+            <tr>
+              <td><code class="text-xs bg-base-300/60 px-1.5 py-0.5 rounded"><%= o.param %></code></td>
+              <td><%= o.label %></td>
+              <td><%= o.count %></td>
+              <td><%= formatBRL(o.revenueCents) %></td>
+            </tr>
+          <% }); %>
+          <% if (trafficSources.length === 0) { %><tr><td colspan="4" class="text-base-content/50 py-4">Nenhuma venda aprovada no período.</td></tr><% } %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Diário de Mudanças -->
+<div class="card bg-base-200 border border-base-300 shadow-sm">
+  <div class="card-body">
+    <h3 class="font-semibold text-sm mb-1">Diário de Mudanças</h3>
+    <p class="text-xs text-base-content/40 mb-3">Anote alterações e correlacione com resultados</p>
+    <form method="POST" action="/admin/stats/notes" class="flex gap-2 mb-4">
+      <input type="text" name="text" placeholder="Ex: aumentei o preço do plano VIP pra R$29,90" class="input input-bordered input-sm flex-1" required />
+      <button class="btn btn-primary btn-sm" type="submit">Adicionar nota</button>
+    </form>
+    <div class="flex flex-col divide-y divide-base-300">
+      <% notes.forEach(function(n) { %>
+        <div class="flex items-center justify-between gap-3 py-2.5 text-sm">
+          <span class="min-w-0"><%= n.text %></span>
+          <span class="flex items-center gap-3 shrink-0">
+            <span class="text-base-content/40 text-xs whitespace-nowrap"><%= new Date(n.createdAt).toLocaleString("pt-BR") %></span>
+            <form method="POST" action="/admin/stats/notes/<%= n.id %>/delete" onsubmit="return confirm('Remover esta nota?');">
+              <button class="btn btn-ghost btn-xs text-error" type="submit">Remover</button>
+            </form>
+          </span>
+        </div>
+      <% }); %>
+      <% if (notes.length === 0) { %><p class="text-base-content/50 py-4 text-sm">Nenhuma nota ainda. Adicione anotações pra acompanhar mudanças!</p><% } %>
+    </div>
+  </div>
+</div>
+
+<script>
+  const salesByHour = <%- JSON.stringify(salesByHour) %>;
+  const salesByWeekday = <%- JSON.stringify(salesByWeekday) %>;
+  const isDark = document.documentElement.getAttribute("data-theme") !== "light";
+  const accentColor = isDark ? "#FF6B6B" : "#E11D33";
+  const mutedColor = isDark ? "#A1A1AA" : "#71717A";
+
+  new Chart(document.getElementById("hourChart"), {
+    type: "line",
+    data: {
+      labels: salesByHour.map(h => h.hour + "h"),
+      datasets: [{ label: "Vendas", data: salesByHour.map(h => h.count), borderColor: accentColor, backgroundColor: accentColor + "33", fill: true, tension: 0.3 }],
+    },
+    options: {
+      animation: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: mutedColor, maxTicksLimit: 12 } },
+        y: { beginAtZero: true, ticks: { color: mutedColor, precision: 0 } },
+      },
+    },
+  });
+
+  new Chart(document.getElementById("weekdayChart"), {
+    type: "bar",
+    data: {
+      labels: salesByWeekday.map(d => d.label),
+      datasets: [{ label: "Vendas", data: salesByWeekday.map(d => d.count), backgroundColor: accentColor, borderRadius: 4 }],
+    },
+    options: {
+      animation: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: mutedColor } },
+        y: { beginAtZero: true, ticks: { color: mutedColor, precision: 0 } },
+      },
+    },
+  });
+</script>
+<%- include("partials/footer", { active: "stats" }) %>
