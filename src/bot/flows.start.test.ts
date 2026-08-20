@@ -59,7 +59,7 @@ describe("/start — CTA desligado cai direto nos planos", () => {
     vi.mocked(prisma.bot.findUniqueOrThrow).mockResolvedValue({ id: "bot-1", displayName: "Bot", telegramUsername: "meubot" } as never);
   });
 
-  it("sem CTA e com planos, manda a lista de planos logo após as boas-vindas", async () => {
+  it("sem CTA e com planos, os botões de plano já saem na própria mensagem de boas-vindas (sem mensagem 'Escolha um plano:' à parte)", async () => {
     vi.mocked(prisma.flowBot.findFirst).mockResolvedValue({
       flow: {
         id: "flow-1",
@@ -73,8 +73,13 @@ describe("/start — CTA desligado cai direto nos planos", () => {
 
     await trigger(ctx);
 
-    expect(ctx.reply).toHaveBeenCalledTimes(2);
-    expect(ctx.reply).toHaveBeenNthCalledWith(2, "Escolha um plano:", expect.objectContaining({ reply_markup: expect.anything() }));
+    expect(ctx.reply).toHaveBeenCalledTimes(1);
+    const [, opts] = ctx.reply.mock.calls[0];
+    const buttons = opts.reply_markup.inline_keyboard.flat();
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0].callback_data).toBe("plan:plan-1");
+    expect(buttons[0].text).toContain("Mensal");
+    expect(buttons[0].text).toContain("29,90");
   });
 
   it("com CTA ligado, NÃO manda a lista de planos automaticamente (espera o clique)", async () => {

@@ -32,11 +32,18 @@ async function getFlowForBot(botId: string) {
   return flowBot?.flow ?? null;
 }
 
-function buildWelcomeKeyboard(welcome: WelcomeWithRelations, hasPlans: boolean) {
+function buildWelcomeKeyboard(welcome: WelcomeWithRelations, plans: Plan[]) {
   const rows: InlineKeyboardButton[][] = [];
+  const hasPlans = plans.length > 0;
 
   if (welcome.ctaButtonEnabled && hasPlans) {
     rows.push([styledCallbackButton(welcome.ctaLabel || "Ver planos", CTA_CALLBACK)]);
+  } else if (hasPlans) {
+    // Sem CTA, os botões de plano já vão direto na própria mensagem de
+    // boas-vindas — evita mandar uma segunda mensagem só com o texto
+    // "Escolha um plano:" pra repetir os mesmos botões (pedido do usuário,
+    // 2026-08-20).
+    rows.push(...buildPlansKeyboard(plans).reply_markup.inline_keyboard);
   }
   for (const rb of welcome.redirectButtons) {
     rows.push([styledUrlButton(rb.label, rb.url)]);
@@ -53,10 +60,10 @@ async function renderWelcome(
   botRow: Bot,
   lead: Lead,
   welcome: WelcomeWithRelations,
-  hasPlans: boolean
+  plans: Plan[]
 ): Promise<void> {
   const prepared = prepareRichText(welcome.text, { lead, bot: botRow });
-  const keyboard = buildWelcomeKeyboard(welcome, hasPlans);
+  const keyboard = buildWelcomeKeyboard(welcome, plans);
   const replyMarkup = keyboard?.reply_markup;
   const media = welcome.media.slice(0, 3);
   // Legenda na própria mídia só quando faz sentido (1 mídia só, sem pedir
@@ -338,14 +345,10 @@ export function registerFlowHandlers(bot: Telegraf, botId: string): void {
     }
 
     const botRow = await prisma.bot.findUniqueOrThrow({ where: { id: botId } });
-    await renderWelcome(ctx, botRow, result.lead, flow.welcomeConfig, flow.plans.length > 0);
-
-    // Sem CTA, não faz sentido deixar o lead sem próximo passo — cai direto
-    // na lista de planos (mesma mensagem que o botão CTA mostraria), em vez
-    // de esperar um clique que não existe.
-    if (!flow.welcomeConfig.ctaButtonEnabled && flow.plans.length > 0) {
-      await ctx.reply("Escolha um plano:", { reply_markup: buildPlansKeyboard(flow.plans).reply_markup });
-    }
+    // Sem CTA, os botões de plano já saem direto na própria mensagem de
+    // boas-vindas (ver buildWelcomeKeyboard) — não precisa de um passo à
+    // parte pro lead ver os planos.
+    await renderWelcome(ctx, botRow, result.lead, flow.welcomeConfig, flow.plans);
   });
 
   bot.action(CTA_CALLBACK, async (ctx) => {
