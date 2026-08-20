@@ -3,7 +3,7 @@ import type { InlineKeyboardButton } from "telegraf/types";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../db/client.js";
 import { getTelegraf } from "./botManager.js";
-import { renderTemplate } from "./templating.js";
+import { prepareRichText, registerCountdownIfNeeded, styledCallbackButton, styledUrlButton } from "./richSend.js";
 import { PLAN_CALLBACK_PREFIX } from "./flows.js";
 
 /**
@@ -40,9 +40,9 @@ function buildUpsellKeyboard(buttons: { text: string; type: "BUY_PLAN" | "OPEN_L
   const rows: InlineKeyboardButton[][] = [];
   for (const button of buttons) {
     if (button.type === "OPEN_LINK" && button.url) {
-      rows.push([Markup.button.url(button.text, button.url)]);
+      rows.push([styledUrlButton(button.text, button.url)]);
     } else if (button.type === "BUY_PLAN" && button.targetPlanId) {
-      rows.push([Markup.button.callback(button.text, `${PLAN_CALLBACK_PREFIX}${button.targetPlanId}`)]);
+      rows.push([styledCallbackButton(button.text, `${PLAN_CALLBACK_PREFIX}${button.targetPlanId}`)]);
     }
   }
   return rows.length > 0 ? Markup.inlineKeyboard(rows) : undefined;
@@ -68,12 +68,15 @@ export async function processScheduledUpsells(): Promise<void> {
       const telegraf = getTelegraf(send.botId);
       if (telegraf) {
         const botRow = await prisma.bot.findUniqueOrThrow({ where: { id: send.botId } });
-        const text = send.message.text ? renderTemplate(send.message.text, { lead: send.lead, bot: botRow }) : "";
+        const prepared = prepareRichText(send.message.text, { lead: send.lead, bot: botRow });
         const keyboard = buildUpsellKeyboard(send.message.buttons);
-        await telegraf.telegram.sendMessage(Number(send.lead.telegramId), text || "​", {
+        const chatId = Number(send.lead.telegramId);
+        const sent = await telegraf.telegram.sendMessage(chatId, prepared.text || "​", {
           parse_mode: "HTML",
           reply_markup: keyboard?.reply_markup,
-        });
+          message_effect_id: prepared.effectId,
+        } as never);
+        await registerCountdownIfNeeded(prepared, { botId: send.botId, chatId, messageId: sent.message_id });
       }
     } catch (err) {
       console.error(`[upsell-scheduler] falha ao enviar ${send.id}`, err);

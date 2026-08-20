@@ -1,7 +1,7 @@
 import type { BroadcastSegment } from "@prisma/client";
 import { prisma } from "../db/client.js";
 import { getTelegraf } from "./botManager.js";
-import { renderTemplate } from "./templating.js";
+import { prepareRichText, registerCountdownIfNeeded } from "./richSend.js";
 
 // Lote de mensagens entre pausas — o limite real da Bot API é ~30 msg/s
 // (chats diferentes); 25 por segundo fica com folga sem exigir controle fino.
@@ -54,8 +54,13 @@ export async function sendBroadcast(broadcastId: string): Promise<void> {
     await Promise.all(
       batch.map(async (lead) => {
         try {
-          const text = renderTemplate(broadcast.message, { lead, bot: botRow });
-          await telegraf.telegram.sendMessage(Number(lead.telegramId), text, { parse_mode: "HTML" });
+          const prepared = prepareRichText(broadcast.message, { lead, bot: botRow });
+          const chatId = Number(lead.telegramId);
+          const sent = await telegraf.telegram.sendMessage(chatId, prepared.text, {
+            parse_mode: "HTML",
+            message_effect_id: prepared.effectId,
+          } as never);
+          await registerCountdownIfNeeded(prepared, { botId: broadcast.botId, chatId, messageId: sent.message_id });
           await prisma.broadcast.update({ where: { id: broadcastId }, data: { sentCount: { increment: 1 } } });
         } catch (err) {
           console.error(`[broadcast] falha ao mandar pra lead ${lead.id}`, err);

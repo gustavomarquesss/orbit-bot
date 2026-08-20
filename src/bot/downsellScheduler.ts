@@ -4,7 +4,7 @@ import type { InlineKeyboardButton } from "telegraf/types";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../db/client.js";
 import { getTelegraf } from "./botManager.js";
-import { renderTemplate } from "./templating.js";
+import { prepareRichText, registerCountdownIfNeeded, styledCallbackButton } from "./richSend.js";
 import { formatBRL } from "./format.js";
 import { applyDiscount, buildDownsellBuyCallbackData } from "./downsellMessage.js";
 
@@ -100,7 +100,7 @@ function buildDownsellKeyboard(seq: DueSend["sequence"]) {
   const rows: InlineKeyboardButton[][] = seq.plans.map((link) => {
     const discounted = applyDiscount(link.plan.priceCents, seq.discountType, seq.discountValue);
     return [
-      Markup.button.callback(
+      styledCallbackButton(
         `${link.plan.name} — ${formatBRL(discounted)}`,
         buildDownsellBuyCallbackData(seq.id, link.planId)
       ),
@@ -173,13 +173,15 @@ export async function processScheduledDownsells(): Promise<void> {
       if (telegraf && send.sequence.active && send.sequence.config.active) {
         const botRow = await prisma.bot.findUniqueOrThrow({ where: { id: send.botId } });
         const chatId = Number(send.lead.telegramId);
-        const text = renderTemplate(send.sequence.message, { lead: send.lead, bot: botRow });
+        const prepared = prepareRichText(send.sequence.message, { lead: send.lead, bot: botRow });
         const keyboard = buildDownsellKeyboard(send.sequence);
         await sendSequenceMedia(telegraf, chatId, send.sequence.media);
-        await telegraf.telegram.sendMessage(chatId, text || "​", {
+        const sent = await telegraf.telegram.sendMessage(chatId, prepared.text || "​", {
           parse_mode: "HTML",
           reply_markup: keyboard?.reply_markup,
-        });
+          message_effect_id: prepared.effectId,
+        } as never);
+        await registerCountdownIfNeeded(prepared, { botId: send.botId, chatId, messageId: sent.message_id });
       }
     } catch (err) {
       console.error(`[downsell-scheduler] falha ao enviar ${send.id}`, err);

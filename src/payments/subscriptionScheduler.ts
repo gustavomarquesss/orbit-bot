@@ -2,7 +2,7 @@ import { Markup } from "telegraf";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../db/client.js";
 import { getTelegraf } from "../bot/botManager.js";
-import { renderTemplate } from "../bot/templating.js";
+import { prepareRichText, registerCountdownIfNeeded, styledCallbackButton } from "../bot/richSend.js";
 import { formatBRL } from "../bot/format.js";
 import { PLAN_CALLBACK_PREFIX } from "../bot/flows.js";
 
@@ -40,20 +40,23 @@ export async function sendRenewalReminders(): Promise<void> {
       if (telegraf) {
         const botRow = await prisma.bot.findUniqueOrThrow({ where: { id: item.order.botId } });
         const template = item.plan.flow.paymentMessages?.renewalMessage;
-        const text = template
-          ? renderTemplate(template, {
+        const prepared = template
+          ? prepareRichText(template, {
               lead: item.order.lead,
               bot: botRow,
               extra: { valor: formatBRL(item.plan.priceCents), plano: item.plan.name },
             })
-          : `Seu acesso a "${item.plan.name}" está prestes a expirar. Renove agora para não perder o acesso!`;
+          : { text: `Seu acesso a "${item.plan.name}" está prestes a expirar. Renove agora para não perder o acesso!` };
         const keyboard = Markup.inlineKeyboard([
-          [Markup.button.callback("Renovar agora", `${PLAN_CALLBACK_PREFIX}${item.planId}`)],
+          [styledCallbackButton("Renovar agora", `${PLAN_CALLBACK_PREFIX}${item.planId}`)],
         ]);
-        await telegraf.telegram.sendMessage(Number(item.order.lead.telegramId), text, {
+        const chatId = Number(item.order.lead.telegramId);
+        const sent = await telegraf.telegram.sendMessage(chatId, prepared.text, {
           parse_mode: "HTML",
           reply_markup: keyboard.reply_markup,
-        });
+          message_effect_id: prepared.effectId,
+        } as never);
+        await registerCountdownIfNeeded(prepared, { botId: item.order.botId, chatId, messageId: sent.message_id });
       }
     } catch (err) {
       console.error(`[subscription-scheduler] falha ao mandar lembrete de renovação (item ${item.id})`, err);

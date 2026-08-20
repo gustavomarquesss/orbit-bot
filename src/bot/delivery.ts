@@ -2,7 +2,7 @@ import type { Order, OrderItem, OrderItemKind, Plan, Lead } from "@prisma/client
 import { getTelegraf } from "./botManager.js";
 import { prisma } from "../db/client.js";
 import { formatBRL, formatConversionDuration } from "./format.js";
-import { renderTemplate } from "./templating.js";
+import { prepareRichText, registerCountdownIfNeeded } from "./richSend.js";
 import { config } from "../config.js";
 
 /**
@@ -162,11 +162,16 @@ export async function notifyLeadOfApproval(params: {
     throw new Error(`notifyLeadOfApproval: bot ${botId} não está registrado/ativo`);
   }
   const botRow = await prisma.bot.findUniqueOrThrow({ where: { id: botId } });
-  const text = renderTemplate(pixApprovedMessage, {
+  const prepared = prepareRichText(pixApprovedMessage, {
     lead,
     bot: botRow,
     extra: { valor: formatBRL(order.amountCents), plano: plan.name },
   });
 
-  await telegraf.telegram.sendMessage(Number(leadTelegramId), text, { parse_mode: "HTML" });
+  const chatId = Number(leadTelegramId);
+  const sent = await telegraf.telegram.sendMessage(chatId, prepared.text, {
+    parse_mode: "HTML",
+    message_effect_id: prepared.effectId,
+  } as never);
+  await registerCountdownIfNeeded(prepared, { botId, chatId, messageId: sent.message_id });
 }

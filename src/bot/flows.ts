@@ -4,8 +4,8 @@ import type { Lead, Offer, Plan, WelcomeConfig, WelcomeMedia, RedirectButton, Bo
 import { prisma } from "../db/client.js";
 import { createOrderAndCharge, type OrderItemInput } from "../payments/orders.js";
 import { resolveOriginAndUpsertLead, touchLead } from "./deepLink.js";
-import { renderTemplate } from "./templating.js";
-import { buildOfferText, defaultAcceptLabel, defaultDeclineLabel } from "./offerMessage.js";
+import { prepareRichText, registerCountdownIfNeeded, styledCallbackButton, styledUrlButton, type PreparedText } from "./richSend.js";
+import { offerRawTemplate, offerExtraVars, defaultAcceptLabel, defaultDeclineLabel } from "./offerMessage.js";
 import { applyDiscount, parseDownsellBuyCallback, DOWNSELL_BUY_PREFIX } from "./downsellMessage.js";
 import { scheduleGeneralDownsell, scheduleDownsellForOrder } from "./downsellScheduler.js";
 
@@ -36,10 +36,10 @@ function buildWelcomeKeyboard(welcome: WelcomeWithRelations, hasPlans: boolean) 
   const rows: InlineKeyboardButton[][] = [];
 
   if (welcome.ctaButtonEnabled && hasPlans) {
-    rows.push([Markup.button.callback(welcome.ctaLabel || "Ver planos", CTA_CALLBACK)]);
+    rows.push([styledCallbackButton(welcome.ctaLabel || "Ver planos", CTA_CALLBACK)]);
   }
   for (const rb of welcome.redirectButtons) {
-    rows.push([Markup.button.url(rb.label, rb.url)]);
+    rows.push([styledUrlButton(rb.label, rb.url)]);
   }
   if (welcome.miniAppEnabled && welcome.miniAppUrl) {
     rows.push([Markup.button.url("Abrir", welcome.miniAppUrl)]);
@@ -55,7 +55,7 @@ async function renderWelcome(
   welcome: WelcomeWithRelations,
   hasPlans: boolean
 ): Promise<void> {
-  const text = welcome.text ? renderTemplate(welcome.text, { lead, bot: botRow }) : "";
+  const prepared = prepareRichText(welcome.text, { lead, bot: botRow });
   const keyboard = buildWelcomeKeyboard(welcome, hasPlans);
   const replyMarkup = keyboard?.reply_markup;
   const media = welcome.media.slice(0, 3);
@@ -69,23 +69,34 @@ async function renderWelcome(
     if (media.length === 1) {
       const m = media[0];
       const opts = useCaption
-        ? { caption: text || undefined, parse_mode: "HTML" as const, reply_markup: replyMarkup }
+        ? ({
+            caption: prepared.text || undefined,
+            parse_mode: "HTML" as const,
+            reply_markup: replyMarkup,
+            message_effect_id: prepared.effectId,
+          } as never)
         : {};
+      let sent;
       switch (m.mediaType) {
         case "PHOTO":
-          await ctx.replyWithPhoto(m.fileId, opts);
+          sent = await ctx.replyWithPhoto(m.fileId, opts);
           break;
         case "VIDEO":
-          await ctx.replyWithVideo(m.fileId, opts);
+          sent = await ctx.replyWithVideo(m.fileId, opts);
           break;
         case "AUDIO":
-          await ctx.replyWithAudio(m.fileId, opts);
+          sent = await ctx.replyWithAudio(m.fileId, opts);
           break;
         case "DOCUMENT":
-          await ctx.replyWithDocument(m.fileId, opts);
+          sent = await ctx.replyWithDocument(m.fileId, opts);
           break;
       }
-      if (useCaption) return;
+      if (useCaption) {
+        if (sent && ctx.chat) {
+          await registerCountdownIfNeeded(prepared, { botId: botRow.id, chatId: ctx.chat.id, messageId: sent.message_id });
+        }
+        return;
+      }
     } else if (media.length > 1) {
       await ctx.replyWithMediaGroup(
         media.map((m) => ({
@@ -98,7 +109,13 @@ async function renderWelcome(
     console.error("[flows] falha ao enviar mídia de boas-vindas, seguindo com o texto", err);
   }
 
-  await ctx.reply(text || "​", { parse_mode: "HTML", reply_markup: replyMarkup });
+  const sentText = await ctx.reply(
+    prepared.text || "​",
+    { parse_mode: "HTML", reply_markup: replyMarkup, message_effect_id: prepared.effectId } as never
+  );
+  if (ctx.chat) {
+    await registerCountdownIfNeeded(prepared, { botId: botRow.id, chatId: ctx.chat.id, messageId: sentText.message_id });
+  }
 }
 
 function buildPlansKeyboard(plans: Plan[]) {
@@ -156,15 +173,14 @@ async function handleBuyItems(ctx: Context, botId: string, lead: Lead, items: Or
 
     const botRow = await prisma.bot.findUniqueOrThrow({ where: { id: botId } });
     const template = plan?.flow.paymentMessages?.pixGeneratedMessage;
-    const introText = template
-      ? renderTemplate(template, {
-          lead,
-          bot: botRow,
-          extra: { valor: formatBRL(order.amountCents), plano: plan?.name ?? "" },
-        })
-      : "Pagamento gerado! Copie o código PIX abaixo e cole no app do seu banco:";
+    const prepared: PreparedText = template
+      ? prepareRichText(template, { lead, bot: botRow, extra: { valor: formatBRL(order.amountCents), plano: plan?.name ?? "" } })
+      : { text: "Pagamento gerado! Copie o código PIX abaixo e cole no app do seu banco:" };
 
-    await ctx.reply(introText, { parse_mode: "HTML" });
+    const sentIntro = await ctx.reply(prepared.text, { parse_mode: "HTML", message_effect_id: prepared.effectId } as never);
+    if (ctx.chat) {
+      await registerCountdownIfNeeded(prepared, { botId, chatId: ctx.chat.id, messageId: sentIntro.message_id });
+    }
     // O código copia-e-cola sempre vai numa mensagem própria, sem depender
     // do texto customizado mencionar {qr_code}/etc — se o admin esquecer de
     // incluir alguma referência, o comprador ainda assim recebe o código.
@@ -206,8 +222,8 @@ function buildBumpStepKeyboard(offer: Offer, planId: string, bitmask: number, in
   const acceptLabel = offer.acceptLabel || defaultAcceptLabel(offer.kind);
   const declineLabel = offer.declineLabel || defaultDeclineLabel();
   return Markup.inlineKeyboard([
-    [Markup.button.callback(acceptLabel, `${BUMP_ACCEPT_PREFIX}${planId}:${bitmask}:${index}`)],
-    [Markup.button.callback(declineLabel, `${BUMP_DECLINE_PREFIX}${planId}:${bitmask}:${index}`)],
+    [styledCallbackButton(acceptLabel, `${BUMP_ACCEPT_PREFIX}${planId}:${bitmask}:${index}`)],
+    [styledCallbackButton(declineLabel, `${BUMP_DECLINE_PREFIX}${planId}:${bitmask}:${index}`)],
   ]);
 }
 
@@ -264,11 +280,19 @@ async function advanceOrderBumpFlow(
 
   const offer = bumpOffers[index];
   const botRow = await prisma.bot.findUniqueOrThrow({ where: { id: botId } });
-  const text = buildOfferText(offer, offer.offeredPlan, lead, botRow);
-  await ctx.reply(text, {
+  const prepared = prepareRichText(offerRawTemplate(offer, offer.offeredPlan), {
+    lead,
+    bot: botRow,
+    extra: offerExtraVars(offer.offeredPlan),
+  });
+  const sent = await ctx.reply(prepared.text, {
     parse_mode: "HTML",
     reply_markup: buildBumpStepKeyboard(offer, planId, bitmask, index).reply_markup,
-  });
+    message_effect_id: prepared.effectId,
+  } as never);
+  if (ctx.chat) {
+    await registerCountdownIfNeeded(prepared, { botId, chatId: ctx.chat.id, messageId: sent.message_id });
+  }
 }
 
 /**
