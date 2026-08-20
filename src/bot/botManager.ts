@@ -54,6 +54,15 @@ async function startInstance(botRow: BotRow): Promise<void> {
     );
   }
 
+  try {
+    // Sem isso o Telegram não exibe o botão "Menu" fixo ao lado do campo de
+    // texto (fica só o autocomplete ao digitar "/") — precisa ser setado
+    // explicitamente, não é o comportamento padrão mesmo com comandos registrados.
+    await telegraf.telegram.setChatMenuButton({ menuButton: { type: "commands" } });
+  } catch (err) {
+    console.error(`[bot:${botRow.id}] falha ao configurar o botão de menu`, err);
+  }
+
   registry.set(botRow.id, telegraf);
 }
 
