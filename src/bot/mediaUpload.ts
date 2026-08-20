@@ -2,6 +2,7 @@ import type { Telegraf } from "telegraf";
 import type { MediaAsset, MediaType } from "@prisma/client";
 import { prisma } from "../db/client.js";
 import { getTelegraf } from "./botManager.js";
+import { probeMp4VideoDimensions } from "./videoProbe.js";
 
 function mediaTypeFromMime(mimeType: string): MediaType {
   if (mimeType.startsWith("image/")) return "PHOTO";
@@ -32,7 +33,11 @@ async function sendMediaByMime(
       return { mediaType, fileId: sent.photo[sent.photo.length - 1].file_id, messageId: sent.message_id };
     }
     case "VIDEO": {
-      const sent = await telegraf.telegram.sendVideo(channelId, source);
+      // Sem width/height explícitos, o Telegram não sabe a proporção real
+      // do arquivo e mostra uma miniatura genérica (quadrada) até o vídeo
+      // ser aberto — ver videoProbe.ts.
+      const dims = probeMp4VideoDimensions(buffer);
+      const sent = await telegraf.telegram.sendVideo(channelId, source, dims ? { width: dims.width, height: dims.height } : undefined);
       return { mediaType, fileId: sent.video.file_id, messageId: sent.message_id };
     }
     case "AUDIO": {
