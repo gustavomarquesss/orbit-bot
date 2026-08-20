@@ -13,6 +13,9 @@ node_modules/
 dist/
 *.tsbuildinfo
 
+# tailwind output (gerado por "npm run build:css" / "npm run dev")
+public/css/output.css
+
 # logs
 npm-debug.log*
 *.log

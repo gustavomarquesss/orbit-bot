@@ -8,8 +8,11 @@
     "node": ">=20"
   },
   "scripts": {
-    "dev": "tsx watch src/server.ts",
-    "build": "tsc -p tsconfig.json",
+    "dev": "concurrently -k -n server,css -c blue,green \"npm:dev:server\" \"npm:dev:css\"",
+    "dev:server": "tsx watch src/server.ts",
+    "dev:css": "tailwindcss -i src/public/css/input.css -o public/css/output.css --watch",
+    "build": "tsc -p tsconfig.json && npm run build:css",
+    "build:css": "tailwindcss -i src/public/css/input.css -o public/css/output.css --minify",
     "start": "node dist/server.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
@@ -37,7 +40,12 @@
     "@types/node": "^20.14.15",
     "@types/pg": "^8.23.1",
     "@types/qrcode": "^1.5.6",
+    "autoprefixer": "^10.5.4",
+    "concurrently": "^9.2.4",
+    "daisyui": "^4.12.24",
+    "postcss": "^8.5.26",
     "prisma": "^6.1.0",
+    "tailwindcss": "^3.4.17",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3",
     "vitest": "^2.1.4"
