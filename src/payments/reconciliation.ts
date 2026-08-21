@@ -1,7 +1,35 @@
+import type { OrderStatus } from "@prisma/client";
 import { prisma } from "../db/client.js";
 import { getTransactionStatus, normalizeChargeStatus } from "./syncpay.js";
 import { applyNormalizedStatus, findOrderByChargeId } from "./orderStatus.js";
 import { resolveSyncPayCredentialsForBot, type SyncPayCredentials } from "./syncpayCredentials.js";
+
+/**
+ * Checa o status de UM Order agora, fora do ciclo do polling (botão
+ * "Verificar Status" da mensagem de PIX gerado — src/bot/flows.ts). Reusa a
+ * mesma lógica de transição/entrega de `pollPendingOrders` — se o Order já
+ * não está PENDING (webhook/polling já resolveu antes do clique), só
+ * retorna o status atual sem chamar a SyncPay de novo. `null` = Order não
+ * encontrado.
+ */
+export async function checkOrderStatusNow(orderId: string): Promise<OrderStatus | null> {
+  const orderRow = await prisma.order.findUnique({
+    where: { id: orderId },
+    select: { syncpayChargeId: true, botId: true, status: true },
+  });
+  if (!orderRow) return null;
+  if (orderRow.status !== "PENDING") return orderRow.status;
+
+  const credentials = await resolveSyncPayCredentialsForBot(orderRow.botId);
+  const rawStatus = await getTransactionStatus(orderRow.syncpayChargeId, credentials);
+  const normalized = normalizeChargeStatus(rawStatus);
+  if (normalized === "PENDING" || normalized === "UNKNOWN") return "PENDING";
+
+  const order = await findOrderByChargeId(orderRow.syncpayChargeId);
+  if (!order) return null;
+  const updated = await applyNormalizedStatus(order, normalized);
+  return updated?.status ?? order.status;
+}
 
 /**
  * Rede de segurança pro caso do postback da SyncPay não chegar (visto no

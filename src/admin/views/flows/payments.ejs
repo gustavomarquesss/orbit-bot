@@ -2,80 +2,330 @@
 <%- include("../partials/header", { title: flow.name + " — Pagamentos", active: "flows" }) %>
 <%- include("./partials/nav", { flow, section: "payments" }) %>
 
-<div class="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-5 items-start">
-  <div class="card bg-base-200 border border-base-300 shadow-sm">
-    <div class="card-body">
-      <h3 class="font-semibold mb-2">Pagamento gerado</h3>
-      <form method="POST" action="/admin/flows/<%= flow.id %>/payments" id="payments-form" class="flex flex-col gap-1">
-        <div class="label"><span class="label-text">Mensagem enviada junto com o código PIX</span></div>
-        <%- include("../partials/richEditor", {
-          id: "pixGeneratedMessage",
-          name: "pixGeneratedMessage",
-          value: pm.pixGeneratedMessage,
-          rows: 5,
-          hint: "O código PIX copia-e-cola sempre vai numa mensagem própria logo depois desta, garantido — mesmo que você não referencie {valor}/etc aqui."
-        }) %>
+<% if (mediaError) { %><div class="alert alert-error text-sm mb-4"><%= mediaError %></div><% } %>
 
-        <div class="label mt-4"><span class="label-text">Mensagem quando o pagamento é aprovado</span></div>
-        <%- include("../partials/richEditor", {
-          id: "pixApprovedMessage",
-          name: "pixApprovedMessage",
-          value: pm.pixApprovedMessage,
-          rows: 4,
-          hint: "Se deixar vazio, nenhuma mensagem extra é enviada — só a entrega do conteúdo já confirma o pagamento."
-        }) %>
+<div role="tablist" class="tabs tabs-boxed w-fit mb-4">
+  <a role="tab" href="/admin/flows/<%= flow.id %>/payments?tab=gerado" class="tab <%= activeTab === 'gerado' ? 'tab-active' : '' %>">Pagamento Gerado</a>
+  <a role="tab" href="/admin/flows/<%= flow.id %>/payments?tab=aprovado" class="tab <%= activeTab === 'aprovado' ? 'tab-active' : '' %>">Pagamento Aprovado</a>
+</div>
 
-        <div class="label mt-4"><span class="label-text">Lembrete de renovação (planos de assinatura, 2 dias antes de vencer)</span></div>
-        <%- include("../partials/richEditor", {
-          id: "renewalMessage",
-          name: "renewalMessage",
-          value: pm.renewalMessage,
-          rows: 4,
-          hint: "Mandado automaticamente com um botão \"Renovar agora\" que gera um PIX novo pro mesmo plano. Vazio usa um texto padrão."
-        }) %>
+<div class="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-5 items-start">
+  <div class="flex flex-col gap-5">
+    <% if (activeTab === "gerado") { %>
 
-        <label class="form-control mt-4 max-w-xs">
-          <div class="label"><span class="label-text">Estilo dos botões</span></div>
-          <select id="buttonStyle" name="buttonStyle" class="select select-bordered w-full">
-            <option value="PADRAO" <%= pm.buttonStyle === "PADRAO" || !pm.buttonStyle ? "selected" : "" %>>Padrão</option>
-            <option value="COMPACTO" <%= pm.buttonStyle === "COMPACTO" ? "selected" : "" %>>Compacto</option>
-          </select>
-        </label>
+      <div class="card bg-base-200 border border-base-300 shadow-sm">
+        <div class="card-body">
+          <h3 class="font-semibold mb-2 flex items-center gap-2"><%- icon("document", "w-4 h-4") %> Texto do PIX</h3>
 
-        <label class="label cursor-pointer justify-start gap-3 px-0 mt-2">
-          <input type="checkbox" name="showConfirmationStep" <%= pm.showConfirmationStep ? "checked" : "" %> class="checkbox checkbox-primary checkbox-sm" />
-          <span class="label-text">Mostrar tela de confirmação antes de gerar o PIX</span>
-        </label>
+          <div class="text-xs uppercase tracking-wider text-base-content/40 mb-1">Mídias (até 3)</div>
+          <div class="overflow-x-auto mb-2">
+            <table class="table table-sm">
+              <tbody>
+                <% (pm.generatedMedia || []).forEach(function(m) { %>
+                  <tr>
+                    <td><%= m.mediaType %></td>
+                    <td class="text-base-content/50"><%= m.fileId.slice(0, 24) %>…</td>
+                    <td>
+                      <form method="POST" action="/admin/flows/<%= flow.id %>/payments/generated/media/<%= m.id %>/delete" class="inline">
+                        <button class="btn btn-xs btn-error btn-outline" type="submit">Remover</button>
+                      </form>
+                    </td>
+                  </tr>
+                <% }); %>
+              </tbody>
+            </table>
+          </div>
+          <% if ((pm.generatedMedia || []).length < 3) { %>
+            <div class="flex flex-col gap-2 mt-1 mb-4">
+              <%- include("../partials/mediaUploadWidget", { id: "pmGen", uploadUrl: "/admin/flows/" + flow.id + "/payments/generated/media/upload" }) %>
+              <%- include("../partials/mediaPicker", { mediaAssets, mediaTypeTargetId: "pmGenMediaType", fileIdTargetId: "pmGenFileId", autoSubmitFormId: "pmGenMediaPickerForm" }) %>
+              <form id="pmGenMediaPickerForm" method="POST" action="/admin/flows/<%= flow.id %>/payments/generated/media" class="hidden">
+                <select id="pmGenMediaType" name="mediaType"><option value="PHOTO">PHOTO</option><option value="VIDEO">VIDEO</option><option value="AUDIO">AUDIO</option><option value="DOCUMENT">DOCUMENT</option></select>
+                <input id="pmGenFileId" type="text" name="fileId" />
+              </form>
+            </div>
+          <% } %>
 
-        <div class="mt-3"><button class="btn btn-primary" type="submit">Salvar mensagens</button></div>
-      </form>
-    </div>
+          <form method="POST" action="/admin/flows/<%= flow.id %>/payments/generated" id="payments-generated-form" class="flex flex-col gap-1">
+            <div class="label"><span class="label-text">Mensagem enviada junto com o código PIX</span></div>
+            <%- include("../partials/richEditor", {
+              id: "pixGeneratedMessage",
+              name: "pixGeneratedMessage",
+              value: pm.pixGeneratedMessage,
+              rows: 5,
+              hint: "O código PIX copia-e-cola sempre vai pro comprador, mesmo que você não referencie {qr_code}/etc aqui."
+            }) %>
+
+            <div class="divider my-2"></div>
+            <h3 class="font-semibold mb-1 flex items-center gap-2"><%- icon("credit-card", "w-4 h-4") %> Botões & CTA</h3>
+
+            <label class="label cursor-pointer justify-start gap-3 px-0">
+              <input type="checkbox" name="showButtonsIntroMessage" id="showButtonsIntroMessage" <%= pm.showButtonsIntroMessage !== false ? "checked" : "" %> class="checkbox checkbox-primary checkbox-sm" onchange="document.getElementById('buttonsIntroMessageWrap').classList.toggle('hidden', !this.checked)" />
+              <span class="label-text">Mensagem antes dos botões</span>
+            </label>
+            <div id="buttonsIntroMessageWrap" class="<%= pm.showButtonsIntroMessage === false ? 'hidden' : '' %> mb-2">
+              <input type="text" name="buttonsIntroMessage" value="<%= pm.buttonsIntroMessage || '' %>" placeholder="Após efetuar o pagamento, clique no botão abaixo 👇" class="input input-bordered input-sm w-full" />
+            </div>
+
+            <label class="label cursor-pointer justify-start gap-3 px-0">
+              <input type="checkbox" name="pixCodeInSameMessage" <%= pm.pixCodeInSameMessage ? "checked" : "" %> class="checkbox checkbox-primary checkbox-sm" />
+              <div class="flex flex-col">
+                <span class="label-text">Código PIX na mesma mensagem</span>
+                <span class="text-xs text-base-content/50">Desligado: PIX será enviado em mensagem separada.</span>
+              </div>
+            </label>
+
+            <label class="label cursor-pointer justify-start gap-3 px-0 mt-1">
+              <input type="checkbox" name="showPixCodeIntroMessage" id="showPixCodeIntroMessage" <%= pm.showPixCodeIntroMessage !== false ? "checked" : "" %> class="checkbox checkbox-primary checkbox-sm" onchange="document.getElementById('pixCodeIntroMessageWrap').classList.toggle('hidden', !this.checked)" />
+              <span class="label-text">Mensagem antes do código PIX</span>
+            </label>
+            <div id="pixCodeIntroMessageWrap" class="<%= pm.showPixCodeIntroMessage === false ? 'hidden' : '' %> mb-3">
+              <input type="text" name="pixCodeIntroMessage" value="<%= pm.pixCodeIntroMessage || '' %>" placeholder="Copie o código abaixo:" class="input input-bordered input-sm w-full" />
+            </div>
+
+            <div class="flex flex-col gap-2 mb-3">
+              <label class="flex items-center justify-between gap-3 rounded-lg border border-base-300 px-3 py-2 cursor-pointer">
+                <span class="flex items-center gap-2 text-sm font-medium">✅ Verificar Status</span>
+                <input type="checkbox" name="showCheckStatusButton" <%= pm.showCheckStatusButton !== false ? "checked" : "" %> class="toggle toggle-primary toggle-sm" />
+              </label>
+              <p class="text-xs text-base-content/50 -mt-1">Checa o pagamento na hora e libera o acesso se já tiver caído.</p>
+              <label class="flex items-center justify-between gap-3 rounded-lg border border-base-300 px-3 py-2 cursor-pointer">
+                <span class="flex items-center gap-2 text-sm font-medium">📋 Copiar Código</span>
+                <input type="checkbox" name="showCopyCodeButton" <%= pm.showCopyCodeButton !== false ? "checked" : "" %> class="toggle toggle-primary toggle-sm" />
+              </label>
+              <p class="text-xs text-base-content/50 -mt-1">Mostra o código num alerta — o texto do código já vem formatado pra copiar tocando.</p>
+            </div>
+
+            <label class="form-control max-w-xs mb-3">
+              <div class="label"><span class="label-text">Estilo dos botões</span></div>
+              <select name="buttonStyle" class="select select-bordered w-full">
+                <option value="PADRAO" <%= pm.buttonStyle === "PADRAO" || !pm.buttonStyle ? "selected" : "" %>>Padrão (um por linha)</option>
+                <option value="COMPACTO" <%= pm.buttonStyle === "COMPACTO" ? "selected" : "" %>>Compacto (lado a lado)</option>
+              </select>
+            </label>
+
+            <label class="label cursor-pointer justify-start gap-3 px-0">
+              <input type="checkbox" name="showConfirmationStep" <%= pm.showConfirmationStep ? "checked" : "" %> class="checkbox checkbox-primary checkbox-sm" />
+              <div class="flex flex-col">
+                <span class="label-text">Confirmação do Plano</span>
+                <span class="text-xs text-base-content/50">Mostra detalhes antes de gerar o PIX — ainda não implementado no bot.</span>
+              </div>
+            </label>
+
+            <div class="divider my-2"></div>
+            <h3 class="font-semibold mb-1 flex items-center gap-2"><%- icon("user-plus", "w-4 h-4") %> Prova Social</h3>
+            <label class="label cursor-pointer justify-start gap-3 px-0">
+              <input type="checkbox" name="showSocialProof" <%= pm.showSocialProof ? "checked" : "" %> class="checkbox checkbox-primary checkbox-sm" />
+              <span class="label-text">Mensagem aleatória após PIX gerado</span>
+            </label>
+            <label class="form-control max-w-[160px] mb-3">
+              <div class="label py-0.5"><span class="label-text text-xs">Troca a cada (segundos)</span></div>
+              <input type="number" name="socialProofIntervalSeconds" min="2" max="60" value="<%= pm.socialProofIntervalSeconds || 3 %>" class="input input-bordered input-sm w-full" />
+            </label>
+
+            <div class="divider my-2"></div>
+            <h3 class="font-semibold mb-1 flex items-center gap-2"><%- icon("tag", "w-4 h-4") %> Configurações do PIX</h3>
+            <label class="form-control max-w-sm">
+              <div class="label"><span class="label-text">Exibição do QR Code</span></div>
+              <select name="qrCodeDisplay" class="select select-bordered select-sm w-full">
+                <option value="IMAGE" <%= pm.qrCodeDisplay === "HIDDEN" ? "" : "selected" %>>Na mensagem (imagem enviada junto)</option>
+                <option value="HIDDEN" <%= pm.qrCodeDisplay === "HIDDEN" ? "selected" : "" %>>Oculto (não enviar)</option>
+              </select>
+            </label>
+            <label class="form-control max-w-sm mb-3">
+              <div class="label"><span class="label-text">Formato do Código PIX</span></div>
+              <select name="pixCodeFormat" class="select select-bordered select-sm w-full">
+                <option value="CODE" <%= pm.pixCodeFormat === "PLAIN" ? "" : "selected" %>>`Código` (monoespaçado — copiável ao tocar)</option>
+                <option value="PLAIN" <%= pm.pixCodeFormat === "PLAIN" ? "selected" : "" %>>Texto simples</option>
+              </select>
+            </label>
+
+            <div class="mt-3"><button class="btn btn-primary btn-sm" type="submit">Salvar Pagamento Gerado</button></div>
+          </form>
+        </div>
+      </div>
+
+      <div class="card bg-base-200 border border-base-300 shadow-sm">
+        <div class="card-body">
+          <h3 class="font-semibold mb-1 flex items-center gap-2"><%- icon("user-plus", "w-4 h-4") %> Mensagens de Prova Social</h3>
+          <div class="text-xs uppercase tracking-wider text-base-content/40 mb-1">Mensagens (até 20)</div>
+          <div class="flex flex-col gap-1.5 mb-3">
+            <% (pm.socialProofMessages || []).forEach(function(m) { %>
+              <div class="flex items-center justify-between gap-2 rounded-lg bg-base-100 border border-base-300 px-3 py-1.5">
+                <span class="text-sm"><%= m.text %></span>
+                <form method="POST" action="/admin/flows/<%= flow.id %>/payments/social-proof/<%= m.id %>/delete" class="inline">
+                  <button class="btn btn-xs btn-error btn-outline" type="submit">Remover</button>
+                </form>
+              </div>
+            <% }); %>
+            <% if ((pm.socialProofMessages || []).length === 0) { %>
+              <p class="text-xs text-base-content/50">Nenhuma mensagem cadastrada ainda.</p>
+            <% } %>
+          </div>
+          <form method="POST" action="/admin/flows/<%= flow.id %>/payments/social-proof" class="flex gap-2">
+            <input type="text" name="text" placeholder="🎉 João comprou agora!" class="input input-bordered input-sm flex-1" required />
+            <button class="btn btn-sm btn-outline" type="submit">Adicionar</button>
+          </form>
+        </div>
+      </div>
+
+    <% } else { %>
+
+      <div class="card bg-base-200 border border-base-300 shadow-sm">
+        <div class="card-body">
+          <h3 class="font-semibold mb-2 flex items-center gap-2"><%- icon("check-circle", "w-4 h-4") %> Mensagem de Aprovação</h3>
+
+          <div class="text-xs uppercase tracking-wider text-base-content/40 mb-1">Mídias (até 3)</div>
+          <div class="overflow-x-auto mb-2">
+            <table class="table table-sm">
+              <tbody>
+                <% (pm.approvedMedia || []).forEach(function(m) { %>
+                  <tr>
+                    <td><%= m.mediaType %></td>
+                    <td class="text-base-content/50"><%= m.fileId.slice(0, 24) %>…</td>
+                    <td>
+                      <form method="POST" action="/admin/flows/<%= flow.id %>/payments/approved/media/<%= m.id %>/delete" class="inline">
+                        <button class="btn btn-xs btn-error btn-outline" type="submit">Remover</button>
+                      </form>
+                    </td>
+                  </tr>
+                <% }); %>
+              </tbody>
+            </table>
+          </div>
+          <% if ((pm.approvedMedia || []).length < 3) { %>
+            <div class="flex flex-col gap-2 mt-1 mb-4">
+              <%- include("../partials/mediaUploadWidget", { id: "pmAppr", uploadUrl: "/admin/flows/" + flow.id + "/payments/approved/media/upload" }) %>
+              <%- include("../partials/mediaPicker", { mediaAssets, mediaTypeTargetId: "pmApprMediaType", fileIdTargetId: "pmApprFileId", autoSubmitFormId: "pmApprMediaPickerForm" }) %>
+              <form id="pmApprMediaPickerForm" method="POST" action="/admin/flows/<%= flow.id %>/payments/approved/media" class="hidden">
+                <select id="pmApprMediaType" name="mediaType"><option value="PHOTO">PHOTO</option><option value="VIDEO">VIDEO</option><option value="AUDIO">AUDIO</option><option value="DOCUMENT">DOCUMENT</option></select>
+                <input id="pmApprFileId" type="text" name="fileId" />
+              </form>
+            </div>
+          <% } %>
+
+          <form method="POST" action="/admin/flows/<%= flow.id %>/payments/approved" id="payments-approved-form" class="flex flex-col gap-1">
+            <div class="label"><span class="label-text">Mensagem quando o pagamento é aprovado</span></div>
+            <%- include("../partials/richEditor", {
+              id: "pixApprovedMessage",
+              name: "pixApprovedMessage",
+              value: pm.pixApprovedMessage,
+              rows: 4,
+              hint: "Se deixar vazio, nenhuma mensagem extra é enviada — só a entrega do conteúdo já confirma o pagamento."
+            }) %>
+
+            <div class="divider my-2"></div>
+            <h3 class="font-semibold mb-1 flex items-center gap-2"><%- icon("credit-card", "w-4 h-4") %> Botão de Acesso</h3>
+            <label class="flex items-center justify-between gap-3 rounded-lg border border-base-300 px-3 py-2 cursor-pointer max-w-xs mb-1">
+              <span class="flex items-center gap-2 text-sm font-medium">🔓 Acessar Conteúdo</span>
+              <input type="checkbox" name="showAccessButton" <%= pm.showAccessButton !== false ? "checked" : "" %> class="toggle toggle-primary toggle-sm" />
+            </label>
+            <p class="text-xs text-base-content/50 mb-3">Reenvia a entrega (arquivo/link/convite) se o comprador clicar — útil se ele perder o acesso original.</p>
+
+            <div class="divider my-2"></div>
+            <div class="label"><span class="label-text">Lembrete de renovação (planos de assinatura, 2 dias antes de vencer)</span></div>
+            <%- include("../partials/richEditor", {
+              id: "renewalMessage",
+              name: "renewalMessage",
+              value: pm.renewalMessage,
+              rows: 4,
+              hint: "Mandado automaticamente com um botão \"Renovar agora\" que gera um PIX novo pro mesmo plano. Vazio usa um texto padrão."
+            }) %>
+
+            <div class="mt-3"><button class="btn btn-primary btn-sm" type="submit">Salvar Pagamento Aprovado</button></div>
+          </form>
+        </div>
+      </div>
+
+    <% } %>
   </div>
 
-  <div class="rounded-2xl p-4" style="background:#0e1621;">
-    <div class="text-[10px] uppercase tracking-wider mb-1" style="color:#7d8b99;">Preview (dados de exemplo)</div>
-    <div class="rounded-xl rounded-bl-sm px-3 py-2 text-sm leading-snug mb-2 whitespace-pre-wrap" style="background:#182533;color:#e9edf1;" id="preview-generated">Pagamento gerado! Copie o código PIX abaixo e cole no app do seu banco:</div>
-    <div class="rounded-xl rounded-bl-sm px-3 py-2 text-sm leading-snug mb-2" style="background:#182533;color:#8ab4f8;">00020126850014br.gov.bcb.pix...</div>
-    <div class="text-[10px] uppercase tracking-wider mb-1" style="color:#7d8b99;">Ao aprovar</div>
-    <div class="rounded-xl rounded-bl-sm px-3 py-2 text-sm leading-snug whitespace-pre-wrap" style="background:#182533;color:#e9edf1;" id="preview-approved">(nenhuma mensagem extra configurada)</div>
+  <div class="rounded-2xl p-4 sticky top-4" style="background:#0e1621;">
+    <div class="text-[10px] uppercase tracking-wider mb-2" style="color:#7d8b99;">Preview (dados de exemplo)</div>
+    <div id="preview-bubbles" class="flex flex-col gap-2"></div>
   </div>
 </div>
 
 <script>
-  // Painel de prévia ao vivo (as duas bolhas) reaproveita dgFakeRenderGlobal
-  // de partials/richEditorModals.ejs — mesma aproximação usada no botão
-  // "Pré-visualizar" de cada campo, só que atualizado a cada tecla aqui.
-  function dgUpdatePreview() {
-    const gen = document.getElementById("pixGeneratedMessage").value || "Pagamento gerado! Copie o código PIX abaixo e cole no app do seu banco:";
-    const appr = document.getElementById("pixApprovedMessage").value;
-    document.getElementById("preview-generated").innerHTML = dgFakeRenderGlobal(gen);
-    document.getElementById("preview-approved").innerHTML = appr ? dgFakeRenderGlobal(appr) : "(nenhuma mensagem extra configurada)";
+  function dgBubble(text, opts) {
+    opts = opts || {};
+    var el = document.createElement("div");
+    el.className = "rounded-xl rounded-bl-sm px-3 py-2 text-sm leading-snug whitespace-pre-wrap";
+    el.style.background = opts.code ? "#0e1621" : "#182533";
+    el.style.color = opts.code ? "#8ab4f8" : "#e9edf1";
+    if (opts.code) { el.style.fontFamily = "monospace"; el.style.border = "1px solid #223042"; }
+    el.innerHTML = text;
+    return el;
   }
-  document.getElementById("pixGeneratedMessage").addEventListener("input", dgUpdatePreview);
-  document.getElementById("pixApprovedMessage").addEventListener("input", dgUpdatePreview);
-  document.addEventListener("DOMContentLoaded", dgUpdatePreview);
+  function dgButtonRow(labels) {
+    var wrap = document.createElement("div");
+    wrap.className = "flex flex-col gap-1 mt-1";
+    labels.forEach(function (l) {
+      var b = document.createElement("div");
+      b.className = "rounded-lg text-center text-sm py-1.5";
+      b.style.background = "#2b5278";
+      b.style.color = "#8ab4f8";
+      b.textContent = l;
+      wrap.appendChild(b);
+    });
+    return wrap;
+  }
+
+  function dgUpdatePreview() {
+    var container = document.getElementById("preview-bubbles");
+    container.innerHTML = "";
+    var tab = "<%= activeTab %>";
+
+    if (tab === "gerado") {
+      var genEl = document.getElementById("pixGeneratedMessage");
+      var gen = (genEl ? genEl.value : "") || "Pagamento gerado! Copie o código PIX abaixo e cole no app do seu banco:";
+      container.appendChild(dgBubble(dgFakeRenderGlobal(gen)));
+
+      var showIntro = document.getElementById("showPixCodeIntroMessage") ? document.getElementById("showPixCodeIntroMessage").checked : true;
+      var introEl = document.querySelector("[name=pixCodeIntroMessage]");
+      var intro = showIntro ? ((introEl && introEl.value) || "Copie o código abaixo:") : null;
+      if (intro) container.appendChild(dgBubble(intro));
+      container.appendChild(dgBubble("00020126850014br.gov.bcb.pix...", { code: true }));
+
+      var checkOn = document.querySelector("[name=showCheckStatusButton]") ? document.querySelector("[name=showCheckStatusButton]").checked : true;
+      var copyOn = document.querySelector("[name=showCopyCodeButton]") ? document.querySelector("[name=showCopyCodeButton]").checked : true;
+      var labels = [];
+      if (checkOn) labels.push("✅ Verificar Status");
+      if (copyOn) labels.push("📋 Copiar Código");
+      var showBtnIntro = document.getElementById("showButtonsIntroMessage") ? document.getElementById("showButtonsIntroMessage").checked : true;
+      if (labels.length > 0 && showBtnIntro) {
+        var btnIntroEl = document.querySelector("[name=buttonsIntroMessage]");
+        container.appendChild(dgBubble((btnIntroEl && btnIntroEl.value) || "Após efetuar o pagamento, clique no botão abaixo 👇"));
+      }
+      if (labels.length > 0) container.appendChild(dgButtonRow(labels));
+
+      var qrSel = document.querySelector("[name=qrCodeDisplay]");
+      if (!qrSel || qrSel.value !== "HIDDEN") {
+        var qrNote = document.createElement("div");
+        qrNote.className = "text-[10px] text-center mt-1";
+        qrNote.style.color = "#7d8b99";
+        qrNote.textContent = "[ imagem do QR Code ]";
+        container.appendChild(qrNote);
+      }
+
+      var socialOn = document.querySelector("[name=showSocialProof]") ? document.querySelector("[name=showSocialProof]").checked : false;
+      if (socialOn) container.appendChild(dgBubble("🎉 Maria acabou de comprar!"));
+    } else {
+      var apprEl = document.getElementById("pixApprovedMessage");
+      var appr = apprEl ? apprEl.value : "";
+      container.appendChild(dgBubble(appr ? dgFakeRenderGlobal(appr) : "(nenhuma mensagem extra configurada)"));
+      var accessOn = document.querySelector("[name=showAccessButton]") ? document.querySelector("[name=showAccessButton]").checked : true;
+      if (accessOn && appr) container.appendChild(dgButtonRow(["🔓 Acessar Conteúdo"]));
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    dgUpdatePreview();
+    document.querySelectorAll("input, textarea, select").forEach(function (el) {
+      el.addEventListener("input", dgUpdatePreview);
+      el.addEventListener("change", dgUpdatePreview);
+    });
+  });
 </script>
 
-  </div>
-</div>
 <%- include("../partials/footer", { active: "flows" }) %>

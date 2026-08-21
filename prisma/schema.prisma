@@ -616,25 +616,140 @@ model ScheduledUpsellSend {
 }
 
 enum PaymentButtonStyle {
+  /// Um botão por linha (Verificar Status embaixo de Copiar Código).
   PADRAO
+  /// Os dois botões na mesma linha, lado a lado.
   COMPACTO
 }
 
-/// Mensagens da seção "Pagamentos" (PIX gerado / aprovado).
+/// Onde/como o QR Code é exibido pro comprador (seção "Configurações do PIX").
+enum QrCodeDisplay {
+  /// Enviado como mensagem de imagem própria, logo após o código PIX (padrão atual).
+  IMAGE
+  /// Não envia o QR Code — só o código copia-e-cola.
+  HIDDEN
+}
+
+/// Formato do texto do código PIX copia-e-cola.
+enum PixCodeFormat {
+  /// `<code>...</code>` — monoespaçado, o Telegram já deixa copiar tocando.
+  CODE
+  /// Texto puro, sem formatação.
+  PLAIN
+}
+
+/// Mensagens da seção "Pagamentos" (PIX gerado / aprovado). Redesenhado
+/// (2026-08-20) pra paridade com o Shark Bot: duas abas — "Pagamento
+/// Gerado" cobre texto+mídia da instrução, mensagens auxiliares antes do
+/// código/botões, os botões Verificar Status/Copiar Código, Prova Social
+/// (mensagem rotativa) e as opções de exibição do QR/formato do código;
+/// "Pagamento Aprovado" cobre texto+mídia da confirmação e o botão de
+/// reenvio de acesso.
 model PaymentMessages {
   id     String @id @default(cuid())
   flowId String @unique
   flow   Flow   @relation(fields: [flowId], references: [id], onDelete: Cascade)
 
-  pixGeneratedMessage  String?
-  pixApprovedMessage   String?
-  buttonStyle          PaymentButtonStyle @default(PADRAO)
-  showConfirmationStep Boolean            @default(false)
+  // --- Pagamento Gerado ---
+  pixGeneratedMessage String?
+  generatedMedia      PaymentGeneratedMedia[]
+
+  showButtonsIntroMessage Boolean @default(true)
+  buttonsIntroMessage     String?
+  /// true = o código PIX vai dentro da MESMA mensagem da instrução (texto
+  /// concatenado); false (padrão) = o código sempre vai numa mensagem à
+  /// parte, como hoje.
+  pixCodeInSameMessage    Boolean @default(false)
+  showPixCodeIntroMessage Boolean @default(true)
+  pixCodeIntroMessage     String?
+
+  showCheckStatusButton Boolean            @default(true)
+  showCopyCodeButton    Boolean            @default(true)
+  buttonStyle            PaymentButtonStyle @default(PADRAO)
+
+  /// Ainda não implementado de verdade no runtime — decisão do usuário
+  /// (2026-08-20): deixar o campo salvando, sem efeito no bot por agora.
+  showConfirmationStep Boolean @default(false)
+
+  showSocialProof            Boolean               @default(false)
+  /// A cada quantos segundos a mensagem de prova social troca de texto
+  /// (edita a mesma mensagem, mesmo padrão do contador regressivo).
+  socialProofIntervalSeconds Int                   @default(3)
+  socialProofMessages        SocialProofMessage[]
+
+  qrCodeDisplay QrCodeDisplay @default(IMAGE)
+  pixCodeFormat PixCodeFormat @default(CODE)
+
+  // --- Pagamento Aprovado ---
+  pixApprovedMessage String?
+  approvedMedia       PaymentApprovedMedia[]
+  showAccessButton    Boolean @default(true)
+
   /// Lembrete de renovação (Fase 2, Milestone 5) — mandado pelo
   /// src/payments/subscriptionScheduler.ts a 2 dias do vencimento de um
   /// OrderItem de assinatura, com botão que gera um PIX novo pro mesmo
   /// plano. Vazio = usa um texto padrão genérico.
-  renewalMessage       String?
+  renewalMessage String?
+}
+
+/// Mídia (até 3, ordenada) anexada à instrução de "Pagamento Gerado" —
+/// mesmo padrão de WelcomeMedia.
+model PaymentGeneratedMedia {
+  id                String          @id @default(cuid())
+  paymentMessagesId String
+  paymentMessages   PaymentMessages @relation(fields: [paymentMessagesId], references: [id], onDelete: Cascade)
+  order             Int
+  mediaType         MediaType
+  fileId            String
+
+  @@unique([paymentMessagesId, order])
+}
+
+/// Mídia (até 3, ordenada) anexada à mensagem de "Pagamento Aprovado".
+model PaymentApprovedMedia {
+  id                String          @id @default(cuid())
+  paymentMessagesId String
+  paymentMessages   PaymentMessages @relation(fields: [paymentMessagesId], references: [id], onDelete: Cascade)
+  order             Int
+  mediaType         MediaType
+  fileId            String
+
+  @@unique([paymentMessagesId, order])
+}
+
+/// Um texto da lista de Prova Social (ex: "🎉 João comprou agora!") —
+/// sorteado ciclicamente enquanto o PIX estiver pendente.
+model SocialProofMessage {
+  id                String          @id @default(cuid())
+  paymentMessagesId String
+  paymentMessages   PaymentMessages @relation(fields: [paymentMessagesId], references: [id], onDelete: Cascade)
+  order             Int
+  text              String
+
+  @@unique([paymentMessagesId, order])
+}
+
+/// Poller de edição ao vivo da mensagem de Prova Social — mesmo padrão de
+/// ScheduledCountdownEdit, mas cicla por uma lista de textos em vez de
+/// contar regressivamente. Para quando o Order sai de PENDING (pago,
+/// recusado ou expirado) — ver src/bot/socialProofScheduler.ts.
+model ScheduledSocialProofEdit {
+  id              String    @id @default(cuid())
+  botId           String
+  chatId          BigInt
+  messageId       Int
+  orderId         String
+  /// Cópia dos textos no momento do envio (não segue mudanças que o admin
+  /// fizer na lista enquanto o PIX já está em andamento).
+  messages        String[]
+  /// Índice do último texto mostrado — evita repetir o mesmo texto duas
+  /// vezes seguidas quando há mais de uma opção.
+  lastIndex       Int       @default(-1)
+  intervalSeconds Int
+  nextTickAt      DateTime
+  finishedAt      DateTime?
+
+  @@index([nextTickAt])
 }
 
 /// Uma cobrança PIX gerada. Cabeçalho — o que foi vendido de fato vive em

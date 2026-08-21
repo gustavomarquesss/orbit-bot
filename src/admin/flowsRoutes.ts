@@ -68,7 +68,13 @@ export function createFlowsRouter(): Router {
         include: {
           bots: { include: { bot: true } },
           welcomeConfig: { include: { media: { orderBy: { order: "asc" } }, redirectButtons: { orderBy: { order: "asc" } } } },
-          paymentMessages: true,
+          paymentMessages: {
+            include: {
+              generatedMedia: { orderBy: { order: "asc" } },
+              approvedMedia: { orderBy: { order: "asc" } },
+              socialProofMessages: { orderBy: { order: "asc" } },
+            },
+          },
           // Só Plan de verdade — Pack (productType PACK) não pode vazar pros
           // seletores de Order Bump/Upsell/Downsell nem pra lista de Planos.
           plans: { where: { productType: "PLAN" }, orderBy: { order: "asc" } },
@@ -880,30 +886,203 @@ export function createFlowsRouter(): Router {
     res.redirect(withSuccess(editUrl, "Arquivo enviado com sucesso!"));
   });
 
-  // --- Pagamentos ---
+  // --- Pagamentos (Fase 2, Milestone 10 — paridade Shark Bot) ---
 
   router.get("/:id/payments", async (req, res) => {
     const flow = await loadFlow(req.params.id, req.session.userId!);
     if (!flow) return res.status(404).send("Fluxo não encontrado.");
-    res.render("flows/payments", { flow });
+    const mediaAssets = await loadMediaAssetsForFlow(flow);
+    const activeTab = req.query.tab === "aprovado" ? "aprovado" : "gerado";
+    const mediaError = typeof req.query.mediaError === "string" ? req.query.mediaError : null;
+    res.render("flows/payments", { flow, mediaAssets, activeTab, mediaError });
   });
 
-  router.post("/:id/payments", async (req, res) => {
+  router.post("/:id/payments/generated", async (req, res) => {
     const flowId = req.params.id;
     if (!(await ownsFlow(flowId, req.session.userId!))) return res.status(404).send("Fluxo não encontrado.");
+    const redirectUrl = `/admin/flows/${flowId}/payments?tab=gerado`;
+
     const pixGeneratedMessage = String(req.body.pixGeneratedMessage ?? "").trim() || null;
-    const pixApprovedMessage = String(req.body.pixApprovedMessage ?? "").trim() || null;
-    const renewalMessage = String(req.body.renewalMessage ?? "").trim() || null;
-    const buttonStyle = String(req.body.buttonStyle ?? "PADRAO");
+    const showButtonsIntroMessage = req.body.showButtonsIntroMessage === "on";
+    const buttonsIntroMessage = String(req.body.buttonsIntroMessage ?? "").trim() || null;
+    const pixCodeInSameMessage = req.body.pixCodeInSameMessage === "on";
+    const showPixCodeIntroMessage = req.body.showPixCodeIntroMessage === "on";
+    const pixCodeIntroMessage = String(req.body.pixCodeIntroMessage ?? "").trim() || null;
+    const showCheckStatusButton = req.body.showCheckStatusButton === "on";
+    const showCopyCodeButton = req.body.showCopyCodeButton === "on";
+    const buttonStyle = req.body.buttonStyle === "COMPACTO" ? "COMPACTO" : "PADRAO";
     const showConfirmationStep = req.body.showConfirmationStep === "on";
+    const showSocialProof = req.body.showSocialProof === "on";
+    const socialProofIntervalSeconds = Math.min(60, Math.max(2, Number(req.body.socialProofIntervalSeconds ?? 3) || 3));
+    const qrCodeDisplay = req.body.qrCodeDisplay === "HIDDEN" ? "HIDDEN" : "IMAGE";
+    const pixCodeFormat = req.body.pixCodeFormat === "PLAIN" ? "PLAIN" : "CODE";
+
+    const data = {
+      pixGeneratedMessage,
+      showButtonsIntroMessage,
+      buttonsIntroMessage,
+      pixCodeInSameMessage,
+      showPixCodeIntroMessage,
+      pixCodeIntroMessage,
+      showCheckStatusButton,
+      showCopyCodeButton,
+      buttonStyle: buttonStyle as never,
+      showConfirmationStep,
+      showSocialProof,
+      socialProofIntervalSeconds,
+      qrCodeDisplay: qrCodeDisplay as never,
+      pixCodeFormat: pixCodeFormat as never,
+    };
+    await prisma.paymentMessages.upsert({
+      where: { flowId },
+      update: data,
+      create: { flowId, ...data },
+    });
+
+    res.redirect(withSuccess(redirectUrl, "Configurações de pagamento gerado salvas com sucesso!"));
+  });
+
+  router.post("/:id/payments/approved", async (req, res) => {
+    const flowId = req.params.id;
+    if (!(await ownsFlow(flowId, req.session.userId!))) return res.status(404).send("Fluxo não encontrado.");
+    const redirectUrl = `/admin/flows/${flowId}/payments?tab=aprovado`;
+
+    const pixApprovedMessage = String(req.body.pixApprovedMessage ?? "").trim() || null;
+    const showAccessButton = req.body.showAccessButton === "on";
+    const renewalMessage = String(req.body.renewalMessage ?? "").trim() || null;
 
     await prisma.paymentMessages.upsert({
       where: { flowId },
-      update: { pixGeneratedMessage, pixApprovedMessage, renewalMessage, buttonStyle: buttonStyle as never, showConfirmationStep },
-      create: { flowId, pixGeneratedMessage, pixApprovedMessage, renewalMessage, buttonStyle: buttonStyle as never, showConfirmationStep },
+      update: { pixApprovedMessage, showAccessButton, renewalMessage },
+      create: { flowId, pixApprovedMessage, showAccessButton, renewalMessage },
     });
 
-    res.redirect(withSuccess(`/admin/flows/${flowId}/payments`, "Mensagens de pagamento salvas com sucesso!"));
+    res.redirect(withSuccess(redirectUrl, "Configurações de pagamento aprovado salvas com sucesso!"));
+  });
+
+  // --- Mídia da instrução de "Pagamento Gerado" ---
+
+  router.post("/:id/payments/generated/media/upload", (req, res, next) => {
+    mediaUpload.single("file")(req, res, (err) => {
+      if (!err) return next();
+      console.error(`[flows] falha no upload de mídia de pagamento gerado (flow ${req.params.id})`, err);
+      res.redirect(`/admin/flows/${req.params.id}/payments?tab=gerado&mediaError=${encodeURIComponent(multerErrorMessage(err))}`);
+    });
+  }, async (req, res) => {
+    const flowId = req.params.id;
+    const flow = await loadFlow(flowId, req.session.userId!);
+    const redirectUrl = `/admin/flows/${flowId}/payments?tab=gerado`;
+    if (!flow) return res.status(404).send("Fluxo não encontrado.");
+    const botId = flow.bots[0]?.botId;
+    if (!req.file) return res.redirect(redirectUrl);
+    if (!botId) {
+      return res.redirect(`${redirectUrl}&mediaError=${encodeURIComponent("Vincule um bot a este fluxo (aba Bots) antes de enviar mídia.")}`);
+    }
+
+    const pm = await prisma.paymentMessages.upsert({ where: { flowId }, update: {}, create: { flowId } });
+    const existing = await prisma.paymentGeneratedMedia.findMany({ where: { paymentMessagesId: pm.id } });
+    if (existing.length >= 3) return res.redirect(redirectUrl);
+
+    try {
+      const asset = await uploadMediaToLibrary({
+        botId,
+        buffer: req.file.buffer,
+        mimeType: req.file.mimetype,
+        filename: req.file.originalname,
+      });
+      const last = existing.reduce((max, m) => Math.max(max, m.order), -1);
+      await prisma.paymentGeneratedMedia.create({
+        data: { paymentMessagesId: pm.id, order: nextOrder(last === -1 ? null : last), mediaType: asset.mediaType, fileId: asset.fileId },
+      });
+    } catch (err) {
+      console.error(`[flows] falha ao subir mídia de pagamento gerado (flow ${flowId})`, err);
+      const message = err instanceof Error ? err.message : "Falha ao enviar o arquivo.";
+      return res.redirect(`${redirectUrl}&mediaError=${encodeURIComponent(message)}`);
+    }
+    res.redirect(withSuccess(redirectUrl, "Mídia enviada com sucesso!"));
+  });
+
+  router.post("/:id/payments/generated/media/:mediaId/delete", async (req, res) => {
+    await prisma.paymentGeneratedMedia.deleteMany({
+      where: { id: req.params.mediaId, paymentMessages: { flow: { ownerId: req.session.userId! } } },
+    });
+    res.redirect(withSuccess(`/admin/flows/${req.params.id}/payments?tab=gerado`, "Mídia removida com sucesso!"));
+  });
+
+  // --- Mídia da mensagem de "Pagamento Aprovado" ---
+
+  router.post("/:id/payments/approved/media/upload", (req, res, next) => {
+    mediaUpload.single("file")(req, res, (err) => {
+      if (!err) return next();
+      console.error(`[flows] falha no upload de mídia de pagamento aprovado (flow ${req.params.id})`, err);
+      res.redirect(`/admin/flows/${req.params.id}/payments?tab=aprovado&mediaError=${encodeURIComponent(multerErrorMessage(err))}`);
+    });
+  }, async (req, res) => {
+    const flowId = req.params.id;
+    const flow = await loadFlow(flowId, req.session.userId!);
+    const redirectUrl = `/admin/flows/${flowId}/payments?tab=aprovado`;
+    if (!flow) return res.status(404).send("Fluxo não encontrado.");
+    const botId = flow.bots[0]?.botId;
+    if (!req.file) return res.redirect(redirectUrl);
+    if (!botId) {
+      return res.redirect(`${redirectUrl}&mediaError=${encodeURIComponent("Vincule um bot a este fluxo (aba Bots) antes de enviar mídia.")}`);
+    }
+
+    const pm = await prisma.paymentMessages.upsert({ where: { flowId }, update: {}, create: { flowId } });
+    const existing = await prisma.paymentApprovedMedia.findMany({ where: { paymentMessagesId: pm.id } });
+    if (existing.length >= 3) return res.redirect(redirectUrl);
+
+    try {
+      const asset = await uploadMediaToLibrary({
+        botId,
+        buffer: req.file.buffer,
+        mimeType: req.file.mimetype,
+        filename: req.file.originalname,
+      });
+      const last = existing.reduce((max, m) => Math.max(max, m.order), -1);
+      await prisma.paymentApprovedMedia.create({
+        data: { paymentMessagesId: pm.id, order: nextOrder(last === -1 ? null : last), mediaType: asset.mediaType, fileId: asset.fileId },
+      });
+    } catch (err) {
+      console.error(`[flows] falha ao subir mídia de pagamento aprovado (flow ${flowId})`, err);
+      const message = err instanceof Error ? err.message : "Falha ao enviar o arquivo.";
+      return res.redirect(`${redirectUrl}&mediaError=${encodeURIComponent(message)}`);
+    }
+    res.redirect(withSuccess(redirectUrl, "Mídia enviada com sucesso!"));
+  });
+
+  router.post("/:id/payments/approved/media/:mediaId/delete", async (req, res) => {
+    await prisma.paymentApprovedMedia.deleteMany({
+      where: { id: req.params.mediaId, paymentMessages: { flow: { ownerId: req.session.userId! } } },
+    });
+    res.redirect(withSuccess(`/admin/flows/${req.params.id}/payments?tab=aprovado`, "Mídia removida com sucesso!"));
+  });
+
+  // --- Lista de mensagens de Prova Social ---
+
+  router.post("/:id/payments/social-proof", async (req, res) => {
+    const flowId = req.params.id;
+    if (!(await ownsFlow(flowId, req.session.userId!))) return res.status(404).send("Fluxo não encontrado.");
+    const redirectUrl = `/admin/flows/${flowId}/payments?tab=gerado`;
+    const text = String(req.body.text ?? "").trim();
+    if (!text) return res.redirect(redirectUrl);
+
+    const pm = await prisma.paymentMessages.upsert({ where: { flowId }, update: {}, create: { flowId } });
+    const existing = await prisma.socialProofMessage.findMany({ where: { paymentMessagesId: pm.id } });
+    if (existing.length >= 20) return res.redirect(redirectUrl);
+
+    const last = existing.reduce((max, m) => Math.max(max, m.order), -1);
+    await prisma.socialProofMessage.create({
+      data: { paymentMessagesId: pm.id, order: nextOrder(last === -1 ? null : last), text },
+    });
+    res.redirect(withSuccess(redirectUrl, "Mensagem adicionada com sucesso!"));
+  });
+
+  router.post("/:id/payments/social-proof/:messageId/delete", async (req, res) => {
+    await prisma.socialProofMessage.deleteMany({
+      where: { id: req.params.messageId, paymentMessages: { flow: { ownerId: req.session.userId! } } },
+    });
+    res.redirect(withSuccess(`/admin/flows/${req.params.id}/payments?tab=gerado`, "Mensagem removida com sucesso!"));
   });
 
   // --- Order Bump ---

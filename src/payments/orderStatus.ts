@@ -8,7 +8,19 @@ import type { NormalizedChargeStatus } from "./syncpay.js";
 export const ORDER_INCLUDE = {
   lead: true,
   items: {
-    include: { plan: { include: { flow: { include: { welcomeConfig: true, paymentMessages: true, delivery: true } } } } },
+    include: {
+      plan: {
+        include: {
+          flow: {
+            include: {
+              welcomeConfig: true,
+              paymentMessages: { include: { approvedMedia: { orderBy: { order: "asc" } } } },
+              delivery: true,
+            },
+          },
+        },
+      },
+    },
   },
 } satisfies Prisma.OrderInclude;
 
@@ -131,6 +143,8 @@ export async function applyNormalizedStatus(
           plan,
           order: updatedOrder,
           pixApprovedMessage: plan.flow.paymentMessages?.pixApprovedMessage,
+          approvedMedia: plan.flow.paymentMessages?.approvedMedia,
+          showAccessButton: plan.flow.paymentMessages?.showAccessButton ?? true,
         });
       } catch (err) {
         console.error("[order-status] falha ao notificar comprador da aprovação", err);

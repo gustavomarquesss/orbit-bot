@@ -1,6 +1,21 @@
 import { Markup, type Telegraf, type Context } from "telegraf";
 import type { InlineKeyboardButton } from "telegraf/types";
-import type { Lead, Offer, Plan, WelcomeConfig, WelcomeMedia, RedirectButton, Bot, PackConfig, PreviewConfig, PreviewMedia } from "@prisma/client";
+import type {
+  Lead,
+  Offer,
+  Plan,
+  WelcomeConfig,
+  WelcomeMedia,
+  RedirectButton,
+  Bot,
+  PackConfig,
+  PreviewConfig,
+  PreviewMedia,
+  PaymentGeneratedMedia,
+  SocialProofMessage,
+  PaymentButtonStyle,
+  PixCodeFormat,
+} from "@prisma/client";
 import { prisma } from "../db/client.js";
 import { createOrderAndCharge, type OrderItemInput } from "../payments/orders.js";
 import { resolveOriginAndUpsertLead, touchLead } from "./deepLink.js";
@@ -8,6 +23,13 @@ import { prepareRichText, registerCountdownIfNeeded, styledCallbackButton, style
 import { offerRawTemplate, offerExtraVars, defaultAcceptLabel, defaultDeclineLabel } from "./offerMessage.js";
 import { applyDiscount, parseDownsellBuyCallback, DOWNSELL_BUY_PREFIX } from "./downsellMessage.js";
 import { scheduleGeneralDownsell, scheduleDownsellForOrder } from "./downsellScheduler.js";
+import { registerSocialProof } from "./socialProofScheduler.js";
+// `checkOrderStatusNow` (payments/reconciliation.js) e `resolveEffectiveDelivery`/
+// `deliverPlanToLead` (./delivery.js) são importados dinamicamente onde são
+// usados (ver handlers pmCheck:/pmAccess: abaixo) — um import estático aqui
+// fecharia um ciclo real (delivery.js -> botManager.js -> flows.js), que
+// funciona em runtime (as chamadas só acontecem depois de tudo inicializado)
+// mas quebra o `importOriginal()` do vi.mock nos testes de pagamento.
 
 type WelcomeWithRelations = WelcomeConfig & { media: WelcomeMedia[]; redirectButtons: RedirectButton[] };
 
@@ -21,6 +43,10 @@ const PACKS_CALLBACK = "packs";
 const PACK_DETAIL_PREFIX = "packDetail:";
 /** Fase 2, Milestone 9 — Prévias que somem. */
 const PREVIEW_CALLBACK = "preview";
+/** Fase 2, Milestone 10 — botões da seção Pagamentos redesenhada. */
+const CHECK_STATUS_PREFIX = "pmCheck:";
+const COPY_CODE_PREFIX = "pmCopy:";
+const ACCESS_CONTENT_PREFIX = "pmAccess:";
 
 async function getFlowForBot(botId: string) {
   const flowBot = await prisma.flowBot.findFirst({
@@ -195,11 +221,92 @@ function buildPhotoInput(qrCodeUrl: string): string | { source: Buffer } {
   return { source: Buffer.from(base64, "base64") };
 }
 
+function escapeHtmlForCode(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** `pixCodeFormat` CODE = `<code>` monoespaçado (o Telegram já deixa copiar
+ * tocando, sem precisar de nenhum botão) — PLAIN = texto puro. */
+function formatPixCodeMessage(code: string, format: PixCodeFormat): { text: string; parseMode?: "HTML" } {
+  if (format === "PLAIN") return { text: code };
+  return { text: `<code>${escapeHtmlForCode(code)}</code>`, parseMode: "HTML" };
+}
+
+/** Junta a "mensagem antes do código" (se houver) com o código formatado —
+ * escapa a intro quando o resultado vai como HTML, já que os dois
+ * compartilham o mesmo parse_mode nessa única mensagem. */
+function buildCombinedCodeText(introLine: string | null, codeFormatted: { text: string; parseMode?: "HTML" }): string {
+  const intro = introLine && codeFormatted.parseMode === "HTML" ? escapeHtmlForCode(introLine) : introLine;
+  return [intro, codeFormatted.text].filter(Boolean).join("\n");
+}
+
+function buildPaymentButtonRows(
+  pm: { showCheckStatusButton: boolean; showCopyCodeButton: boolean; buttonStyle: PaymentButtonStyle },
+  orderId: string
+): InlineKeyboardButton[][] {
+  const buttons: InlineKeyboardButton[] = [];
+  if (pm.showCheckStatusButton) buttons.push(Markup.button.callback("✅ Verificar Status", `${CHECK_STATUS_PREFIX}${orderId}`));
+  if (pm.showCopyCodeButton) buttons.push(Markup.button.callback("📋 Copiar Código", `${COPY_CODE_PREFIX}${orderId}`));
+  if (buttons.length === 0) return [];
+  return pm.buttonStyle === "COMPACTO" ? [buttons] : buttons.map((b) => [b]);
+}
+
+/** Manda a instrução de "Texto do PIX" — com até 3 mídias (1 = legenda,
+ * 2-3 = grupo + texto à parte), mesmo padrão de `renderWelcome`. Retorna o
+ * messageId e se o texto foi enviado como legenda (pro registro do
+ * countdown ao vivo saber qual API de edição usar). */
+async function sendPaymentInstruction(
+  ctx: Context,
+  prepared: PreparedText,
+  media: PaymentGeneratedMedia[]
+): Promise<{ messageId: number; isCaption: boolean } | null> {
+  const items = media.slice(0, 3);
+  try {
+    if (items.length === 1) {
+      const m = items[0];
+      const opts = {
+        caption: prepared.text || undefined,
+        parse_mode: "HTML" as const,
+        message_effect_id: prepared.effectId,
+      } as never;
+      let sent;
+      switch (m.mediaType) {
+        case "PHOTO":
+          sent = await ctx.replyWithPhoto(m.fileId, opts);
+          break;
+        case "VIDEO":
+          sent = await ctx.replyWithVideo(m.fileId, opts);
+          break;
+        case "AUDIO":
+          sent = await ctx.replyWithAudio(m.fileId, opts);
+          break;
+        case "DOCUMENT":
+          sent = await ctx.replyWithDocument(m.fileId, opts);
+          break;
+      }
+      if (sent) return { messageId: sent.message_id, isCaption: true };
+    } else if (items.length > 1) {
+      await ctx.replyWithMediaGroup(
+        items.map((m) => ({ type: m.mediaType.toLowerCase() as "photo" | "video", media: m.fileId }))
+      );
+    }
+  } catch (err) {
+    console.error("[flows] falha ao enviar mídia da instrução de pagamento, seguindo com o texto", err);
+  }
+  const sentText = await ctx.reply(prepared.text || "​", { parse_mode: "HTML", message_effect_id: prepared.effectId } as never);
+  return { messageId: sentText.message_id, isCaption: false };
+}
+
 /**
  * Gera a cobrança PIX pra 1+ itens (Plano base + Order Bumps marcados, ou
- * um Upsell/Downsell isolado) e manda pro comprador. Reaproveita o preview
- * (`pixGeneratedMessage`) do funil do plano BASE — ou do primeiro item, se
- * não houver BASE (caso de Upsell/Downsell gerando seu próprio PIX à parte).
+ * um Upsell/Downsell isolado) e manda pro comprador. Reaproveita a config
+ * (`PaymentMessages`) do funil do plano BASE — ou do primeiro item, se não
+ * houver BASE (caso de Upsell/Downsell gerando seu próprio PIX à parte).
+ * Sequência de mensagens (Fase 2, Milestone 10 — paridade Shark Bot):
+ * instrução (+ mídia) → [código PIX, junto ou em mensagem própria, com os
+ * botões Verificar Status/Copiar Código anexados onde fizer sentido] →
+ * mensagem "antes dos botões" (se configurada e houver algum botão) → QR
+ * Code (se não estiver oculto) → Prova Social rotativa (se ativa).
  */
 async function handleBuyItems(ctx: Context, botId: string, lead: Lead, items: OrderItemInput[]): Promise<void> {
   try {
@@ -213,7 +320,18 @@ async function handleBuyItems(ctx: Context, botId: string, lead: Lead, items: Or
     const primaryPlanId = items.find((i) => (i.kind ?? "BASE") === "BASE")?.planId ?? items[0].planId;
     const plan = await prisma.plan.findUnique({
       where: { id: primaryPlanId },
-      include: { flow: { include: { paymentMessages: true } } },
+      include: {
+        flow: {
+          include: {
+            paymentMessages: {
+              include: {
+                generatedMedia: { orderBy: { order: "asc" } },
+                socialProofMessages: { orderBy: { order: "asc" } },
+              },
+            },
+          },
+        },
+      },
     });
     if (plan) {
       try {
@@ -224,21 +342,60 @@ async function handleBuyItems(ctx: Context, botId: string, lead: Lead, items: Or
     }
 
     const botRow = await prisma.bot.findUniqueOrThrow({ where: { id: botId } });
-    const template = plan?.flow.paymentMessages?.pixGeneratedMessage;
+    const pm = plan?.flow.paymentMessages;
+    const template = pm?.pixGeneratedMessage;
     const prepared: PreparedText = template
       ? prepareRichText(template, { lead, bot: botRow, extra: { valor: formatBRL(order.amountCents), plano: plan?.name ?? "" } })
       : { text: "Pagamento gerado! Copie o código PIX abaixo e cole no app do seu banco:" };
 
-    const sentIntro = await ctx.reply(prepared.text, { parse_mode: "HTML", message_effect_id: prepared.effectId } as never);
-    if (ctx.chat) {
-      await registerCountdownIfNeeded(prepared, { botId, chatId: ctx.chat.id, messageId: sentIntro.message_id });
+    const instructionSent = await sendPaymentInstruction(ctx, prepared, pm?.generatedMedia ?? []);
+    if (ctx.chat && instructionSent) {
+      await registerCountdownIfNeeded(prepared, {
+        botId,
+        chatId: ctx.chat.id,
+        messageId: instructionSent.messageId,
+        isCaption: instructionSent.isCaption,
+      });
     }
-    // O código copia-e-cola sempre vai numa mensagem própria, sem depender
-    // do texto customizado mencionar {qr_code}/etc — se o admin esquecer de
-    // incluir alguma referência, o comprador ainda assim recebe o código.
-    await ctx.reply(pixCopyPaste);
 
-    if (qrCodeUrl) {
+    const buttonRows = buildPaymentButtonRows(
+      {
+        showCheckStatusButton: pm?.showCheckStatusButton ?? true,
+        showCopyCodeButton: pm?.showCopyCodeButton ?? true,
+        buttonStyle: pm?.buttonStyle ?? "PADRAO",
+      },
+      order.id
+    );
+    const hasButtons = buttonRows.length > 0;
+    const showButtonsIntro = pm?.showButtonsIntroMessage ?? true;
+    // Os botões vão anexados na própria mensagem do código quando não há
+    // (ou está desligada) a mensagem "antes dos botões" — nunca ficam sem
+    // nenhuma mensagem pra grudar.
+    const attachButtonsToCodeMessage = hasButtons && !showButtonsIntro;
+    const codeFormatted = formatPixCodeMessage(pixCopyPaste, pm?.pixCodeFormat ?? "CODE");
+    const introLine = (pm?.showPixCodeIntroMessage ?? true) ? pm?.pixCodeIntroMessage || "Copie o código abaixo:" : null;
+
+    // O código copia-e-cola sempre vai pro comprador, sem depender do texto
+    // customizado mencionar {qr_code}/etc.
+    if (pm?.pixCodeInSameMessage) {
+      await ctx.reply(buildCombinedCodeText(introLine, codeFormatted), {
+        parse_mode: codeFormatted.parseMode,
+        reply_markup: attachButtonsToCodeMessage ? Markup.inlineKeyboard(buttonRows).reply_markup : undefined,
+      } as never);
+    } else {
+      if (introLine) await ctx.reply(introLine);
+      await ctx.reply(codeFormatted.text, {
+        parse_mode: codeFormatted.parseMode,
+        reply_markup: attachButtonsToCodeMessage ? Markup.inlineKeyboard(buttonRows).reply_markup : undefined,
+      } as never);
+    }
+
+    if (hasButtons && showButtonsIntro) {
+      const introText = pm?.buttonsIntroMessage || "Após efetuar o pagamento, clique no botão abaixo 👇";
+      await ctx.reply(introText, { reply_markup: Markup.inlineKeyboard(buttonRows).reply_markup } as never);
+    }
+
+    if ((pm?.qrCodeDisplay ?? "IMAGE") === "IMAGE" && qrCodeUrl) {
       try {
         await ctx.replyWithPhoto(buildPhotoInput(qrCodeUrl), {
           caption: "Ou escaneie o QR Code para pagar.",
@@ -248,6 +405,25 @@ async function handleBuyItems(ctx: Context, botId: string, lead: Lead, items: Or
         if (!DATA_URI_PREFIX.test(qrCodeUrl)) {
           await ctx.reply(`QR Code: ${qrCodeUrl}`);
         }
+      }
+    }
+
+    if (pm?.showSocialProof && pm.socialProofMessages.length > 0 && ctx.chat) {
+      try {
+        const texts = pm.socialProofMessages.map((m: SocialProofMessage) => m.text);
+        const firstIndex = Math.floor(Math.random() * texts.length);
+        const sentProof = await ctx.reply(texts[firstIndex]);
+        await registerSocialProof({
+          botId,
+          chatId: ctx.chat.id,
+          messageId: sentProof.message_id,
+          orderId: order.id,
+          messages: texts,
+          intervalSeconds: pm.socialProofIntervalSeconds,
+          firstIndex,
+        });
+      } catch (err) {
+        console.error("[flows] falha ao mandar prova social", err);
       }
     }
   } catch (err) {
@@ -621,5 +797,87 @@ export function registerFlowHandlers(bot: Telegraf, botId: string): void {
     if (!lead) return;
 
     await handleDownsellPurchase(ctx, botId, lead, parsed.sequenceId, parsed.planId);
+  });
+
+  // --- Botões da seção Pagamentos (Fase 2, Milestone 10) ---
+
+  bot.action(new RegExp(`^${CHECK_STATUS_PREFIX}.+`), async (ctx) => {
+    const data = getCallbackData(ctx);
+    const orderId = data?.startsWith(CHECK_STATUS_PREFIX) ? data.slice(CHECK_STATUS_PREFIX.length) : null;
+    if (!orderId) {
+      await ctx.answerCbQuery().catch(() => {});
+      return;
+    }
+    try {
+      const { checkOrderStatusNow } = await import("../payments/reconciliation.js");
+      const status = await checkOrderStatusNow(orderId);
+      if (status === "PAID") {
+        await ctx.answerCbQuery("✅ Pagamento confirmado! Confira as mensagens acima.", { show_alert: true }).catch(() => {});
+      } else if (status === "PENDING") {
+        await ctx
+          .answerCbQuery("⏳ Ainda não identificamos seu pagamento. Assim que cair, avisamos automaticamente.", { show_alert: true })
+          .catch(() => {});
+      } else {
+        await ctx.answerCbQuery("Não foi possível verificar agora. Tente novamente em instantes.", { show_alert: true }).catch(() => {});
+      }
+    } catch (err) {
+      console.error("[flows] falha ao verificar status do pagamento", err);
+      await ctx.answerCbQuery("Não foi possível verificar agora. Tente novamente em instantes.", { show_alert: true }).catch(() => {});
+    }
+  });
+
+  bot.action(new RegExp(`^${COPY_CODE_PREFIX}.+`), async (ctx) => {
+    const data = getCallbackData(ctx);
+    const orderId = data?.startsWith(COPY_CODE_PREFIX) ? data.slice(COPY_CODE_PREFIX.length) : null;
+    if (!orderId) {
+      await ctx.answerCbQuery().catch(() => {});
+      return;
+    }
+    const order = await prisma.order.findUnique({ where: { id: orderId }, select: { pixCopyPaste: true } });
+    const code = order?.pixCopyPaste;
+    if (!code) {
+      await ctx.answerCbQuery("Código não encontrado.", { show_alert: true }).catch(() => {});
+      return;
+    }
+    // O alerta de callback do Telegram tem limite de 200 caracteres — um
+    // código PIX mais longo que isso não cabe; manda como mensagem nova
+    // formatada em vez de truncar o código (inutilizável truncado).
+    if (code.length <= 200) {
+      await ctx.answerCbQuery(code, { show_alert: true }).catch(() => {});
+    } else {
+      await ctx.answerCbQuery("📋 Copiado! Veja a mensagem abaixo.").catch(() => {});
+      await ctx.reply(`<code>${escapeHtmlForCode(code)}</code>`, { parse_mode: "HTML" } as never);
+    }
+  });
+
+  bot.action(new RegExp(`^${ACCESS_CONTENT_PREFIX}.+`), async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+    const data = getCallbackData(ctx);
+    const orderId = data?.startsWith(ACCESS_CONTENT_PREFIX) ? data.slice(ACCESS_CONTENT_PREFIX.length) : null;
+    if (!orderId) return;
+
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      include: { lead: true, items: { include: { plan: { include: { flow: { include: { delivery: true } } } } } } },
+    });
+    // Defesa: só reenvia se o pedido já está pago e quem clicou é o próprio
+    // lead do pedido (callback_data não é secreto, mas escopado por chat).
+    if (!order || order.status !== "PAID" || !ctx.from || BigInt(ctx.from.id) !== order.lead.telegramId) return;
+
+    const { resolveEffectiveDelivery, deliverPlanToLead } = await import("./delivery.js");
+    for (const item of order.items) {
+      const resolved = resolveEffectiveDelivery(item.plan, item.plan.flow.delivery);
+      if (!resolved || (!resolved.deliveryTarget && resolved.plan.deliveryType === "FILE")) continue;
+      try {
+        await deliverPlanToLead({
+          botId,
+          leadTelegramId: order.lead.telegramId,
+          plan: resolved.plan,
+          deliveryTarget: resolved.deliveryTarget ?? "",
+        });
+      } catch (err) {
+        console.error("[flows] falha ao reenviar conteúdo via botão de acesso", err);
+      }
+    }
   });
 }

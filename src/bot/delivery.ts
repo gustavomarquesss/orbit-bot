@@ -1,9 +1,15 @@
-import type { Order, OrderItem, OrderItemKind, Plan, FlowDelivery, DeliveryType, Lead } from "@prisma/client";
+import type { Telegraf } from "telegraf";
+import type { Order, OrderItem, OrderItemKind, Plan, FlowDelivery, DeliveryType, Lead, PaymentApprovedMedia } from "@prisma/client";
 import { getTelegraf } from "./botManager.js";
 import { prisma } from "../db/client.js";
 import { formatBRL, formatConversionDuration } from "./format.js";
-import { prepareRichText, registerCountdownIfNeeded } from "./richSend.js";
+import { prepareRichText, registerCountdownIfNeeded, type PreparedText } from "./richSend.js";
 import { config } from "../config.js";
+
+/** Mesmo prefixo de callback_data usado em src/bot/flows.ts (registerFlowHandlers)
+ * — duplicado aqui (em vez de importado) pra não criar dependência circular
+ * (flows.ts já importa este módulo). */
+const ACCESS_CONTENT_PREFIX = "pmAccess:";
 
 /** Só os campos que `deliverPlanToLead` de fato usa — deixa explícito que
  * pode vir tanto de um `Plan` com entrega própria quanto do `FlowDelivery`
@@ -208,10 +214,66 @@ export async function notifyAdminOfSale(params: {
   await telegraf.telegram.sendMessage(target, lines.join("\n"));
 }
 
+/** Mesma ideia de `sendPaymentInstruction` (src/bot/flows.ts), só que sem
+ * `Context` (chamado fora de uma interação do lead — webhook/polling —,
+ * então manda direto via `telegraf.telegram` em vez de `ctx.reply*`). */
+async function sendApprovalMessage(
+  telegraf: Telegraf,
+  chatId: number,
+  prepared: PreparedText,
+  media: PaymentApprovedMedia[],
+  replyMarkup: { inline_keyboard: { text: string; callback_data: string }[][] } | undefined
+): Promise<{ messageId: number; isCaption: boolean } | null> {
+  const items = media.slice(0, 3);
+  try {
+    if (items.length === 1) {
+      const m = items[0];
+      const opts = {
+        caption: prepared.text || undefined,
+        parse_mode: "HTML" as const,
+        message_effect_id: prepared.effectId,
+        reply_markup: replyMarkup,
+      } as never;
+      let sent;
+      switch (m.mediaType) {
+        case "PHOTO":
+          sent = await telegraf.telegram.sendPhoto(chatId, m.fileId, opts);
+          break;
+        case "VIDEO":
+          sent = await telegraf.telegram.sendVideo(chatId, m.fileId, opts);
+          break;
+        case "AUDIO":
+          sent = await telegraf.telegram.sendAudio(chatId, m.fileId, opts);
+          break;
+        case "DOCUMENT":
+          sent = await telegraf.telegram.sendDocument(chatId, m.fileId, opts);
+          break;
+      }
+      if (sent) return { messageId: sent.message_id, isCaption: true };
+    } else if (items.length > 1) {
+      await telegraf.telegram.sendMediaGroup(
+        chatId,
+        items.map((m) => ({ type: m.mediaType.toLowerCase() as "photo" | "video", media: m.fileId }))
+      );
+    }
+  } catch (err) {
+    console.error("[delivery] falha ao enviar mídia da aprovação, seguindo com o texto", err);
+  }
+  const sentText = await telegraf.telegram.sendMessage(chatId, prepared.text || "​", {
+    parse_mode: "HTML",
+    message_effect_id: prepared.effectId,
+    reply_markup: replyMarkup,
+  } as never);
+  return { messageId: sentText.message_id, isCaption: false };
+}
+
 /**
  * Envia a mensagem de "pagamento aprovado" pro comprador (PaymentMessages.
  * pixApprovedMessage do funil), se configurada — senão não manda nada extra
  * (a entrega em si, via `deliverPlanToLead`, já é a confirmação visível).
+ * Fase 2, Milestone 10: ganhou mídia própria (até 3) e o botão "Acessar
+ * Conteúdo" opcional (reenvia a entrega — útil se o comprador perder o
+ * arquivo/link original), tratado em src/bot/flows.ts (registerFlowHandlers).
  */
 export async function notifyLeadOfApproval(params: {
   botId: string;
@@ -220,8 +282,10 @@ export async function notifyLeadOfApproval(params: {
   plan: Plan;
   order: Order;
   pixApprovedMessage: string | null | undefined;
+  approvedMedia?: PaymentApprovedMedia[];
+  showAccessButton?: boolean;
 }): Promise<void> {
-  const { botId, leadTelegramId, lead, plan, order, pixApprovedMessage } = params;
+  const { botId, leadTelegramId, lead, plan, order, pixApprovedMessage, approvedMedia, showAccessButton } = params;
   if (!pixApprovedMessage) return;
 
   const telegraf = getTelegraf(botId);
@@ -236,9 +300,12 @@ export async function notifyLeadOfApproval(params: {
   });
 
   const chatId = Number(leadTelegramId);
-  const sent = await telegraf.telegram.sendMessage(chatId, prepared.text, {
-    parse_mode: "HTML",
-    message_effect_id: prepared.effectId,
-  } as never);
-  await registerCountdownIfNeeded(prepared, { botId, chatId, messageId: sent.message_id });
+  const replyMarkup = showAccessButton
+    ? { inline_keyboard: [[{ text: "🔓 Acessar Conteúdo", callback_data: `${ACCESS_CONTENT_PREFIX}${order.id}` }]] }
+    : undefined;
+
+  const sent = await sendApprovalMessage(telegraf, chatId, prepared, approvedMedia ?? [], replyMarkup);
+  if (sent) {
+    await registerCountdownIfNeeded(prepared, { botId, chatId, messageId: sent.messageId, isCaption: sent.isCaption });
+  }
 }

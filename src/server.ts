@@ -10,6 +10,7 @@ import { startDownsellScheduler } from "./bot/downsellScheduler.js";
 import { startSubscriptionScheduler } from "./payments/subscriptionScheduler.js";
 import { startCountdownScheduler } from "./bot/countdownScheduler.js";
 import { startPreviewScheduler } from "./bot/previewScheduler.js";
+import { startSocialProofScheduler } from "./bot/socialProofScheduler.js";
 import { createAdminRouter } from "./admin/routes.js";
 import { icon } from "./admin/icons.js";
 
@@ -34,6 +35,9 @@ const COUNTDOWN_SCHEDULER_INTERVAL_MS = 3_000;
 // mesma granularidade do countdown, já que "apagar após" também é
 // configurado em segundos.
 const PREVIEW_SCHEDULER_INTERVAL_MS = 3_000;
+// Varredura da Prova Social rotativa (src/bot/socialProofScheduler.ts) —
+// intervalo mínimo admitido é 2s (ver flowsRoutes.ts), 1s garante folga.
+const SOCIAL_PROOF_SCHEDULER_INTERVAL_MS = 1_000;
 
 // Rede de segurança: sem isso, um erro não tratado em QUALQUER rota async
 // (ex: uma constraint do banco estourando, como aconteceu ao tentar excluir
@@ -83,6 +87,7 @@ async function main() {
   startSubscriptionScheduler(SUBSCRIPTION_SCHEDULER_INTERVAL_MS);
   startCountdownScheduler(COUNTDOWN_SCHEDULER_INTERVAL_MS);
   startPreviewScheduler(PREVIEW_SCHEDULER_INTERVAL_MS);
+  startSocialProofScheduler(SOCIAL_PROOF_SCHEDULER_INTERVAL_MS);
 
   app.listen(config.PORT, () => {
     console.log(`[server] ouvindo na porta ${config.PORT} (${config.NODE_ENV})`);
