@@ -909,7 +909,9 @@ export function createFlowsRouter(): Router {
     const showPixCodeIntroMessage = req.body.showPixCodeIntroMessage === "on";
     const pixCodeIntroMessage = String(req.body.pixCodeIntroMessage ?? "").trim() || null;
     const showCheckStatusButton = req.body.showCheckStatusButton === "on";
+    const checkStatusButtonLabel = String(req.body.checkStatusButtonLabel ?? "").trim() || null;
     const showCopyCodeButton = req.body.showCopyCodeButton === "on";
+    const copyCodeButtonLabel = String(req.body.copyCodeButtonLabel ?? "").trim() || null;
     const buttonStyle = req.body.buttonStyle === "COMPACTO" ? "COMPACTO" : "PADRAO";
     const showConfirmationStep = req.body.showConfirmationStep === "on";
     const showSocialProof = req.body.showSocialProof === "on";
@@ -925,7 +927,9 @@ export function createFlowsRouter(): Router {
       showPixCodeIntroMessage,
       pixCodeIntroMessage,
       showCheckStatusButton,
+      checkStatusButtonLabel,
       showCopyCodeButton,
+      copyCodeButtonLabel,
       buttonStyle: buttonStyle as never,
       showConfirmationStep,
       showSocialProof,
@@ -949,12 +953,13 @@ export function createFlowsRouter(): Router {
 
     const pixApprovedMessage = String(req.body.pixApprovedMessage ?? "").trim() || null;
     const showAccessButton = req.body.showAccessButton === "on";
+    const accessButtonLabel = String(req.body.accessButtonLabel ?? "").trim() || null;
     const renewalMessage = String(req.body.renewalMessage ?? "").trim() || null;
 
     await prisma.paymentMessages.upsert({
       where: { flowId },
-      update: { pixApprovedMessage, showAccessButton, renewalMessage },
-      create: { flowId, pixApprovedMessage, showAccessButton, renewalMessage },
+      update: { pixApprovedMessage, showAccessButton, accessButtonLabel, renewalMessage },
+      create: { flowId, pixApprovedMessage, showAccessButton, accessButtonLabel, renewalMessage },
     });
 
     res.redirect(withSuccess(redirectUrl, "Configurações de pagamento aprovado salvas com sucesso!"));

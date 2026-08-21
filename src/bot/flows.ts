@@ -241,12 +241,22 @@ function buildCombinedCodeText(introLine: string | null, codeFormatted: { text: 
 }
 
 function buildPaymentButtonRows(
-  pm: { showCheckStatusButton: boolean; showCopyCodeButton: boolean; buttonStyle: PaymentButtonStyle },
+  pm: {
+    showCheckStatusButton: boolean;
+    checkStatusButtonLabel?: string | null;
+    showCopyCodeButton: boolean;
+    copyCodeButtonLabel?: string | null;
+    buttonStyle: PaymentButtonStyle;
+  },
   orderId: string
 ): InlineKeyboardButton[][] {
   const buttons: InlineKeyboardButton[] = [];
-  if (pm.showCheckStatusButton) buttons.push(Markup.button.callback("✅ Verificar Status", `${CHECK_STATUS_PREFIX}${orderId}`));
-  if (pm.showCopyCodeButton) buttons.push(Markup.button.callback("📋 Copiar Código", `${COPY_CODE_PREFIX}${orderId}`));
+  if (pm.showCheckStatusButton) {
+    buttons.push(styledCallbackButton(pm.checkStatusButtonLabel || "✅ Verificar Status", `${CHECK_STATUS_PREFIX}${orderId}`));
+  }
+  if (pm.showCopyCodeButton) {
+    buttons.push(styledCallbackButton(pm.copyCodeButtonLabel || "📋 Copiar Código", `${COPY_CODE_PREFIX}${orderId}`));
+  }
   if (buttons.length === 0) return [];
   return pm.buttonStyle === "COMPACTO" ? [buttons] : buttons.map((b) => [b]);
 }
@@ -361,7 +371,9 @@ async function handleBuyItems(ctx: Context, botId: string, lead: Lead, items: Or
     const buttonRows = buildPaymentButtonRows(
       {
         showCheckStatusButton: pm?.showCheckStatusButton ?? true,
+        checkStatusButtonLabel: pm?.checkStatusButtonLabel,
         showCopyCodeButton: pm?.showCopyCodeButton ?? true,
+        copyCodeButtonLabel: pm?.copyCodeButtonLabel,
         buttonStyle: pm?.buttonStyle ?? "PADRAO",
       },
       order.id

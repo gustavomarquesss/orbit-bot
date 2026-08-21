@@ -663,8 +663,14 @@ model PaymentMessages {
   showPixCodeIntroMessage Boolean @default(true)
   pixCodeIntroMessage     String?
 
-  showCheckStatusButton Boolean            @default(true)
-  showCopyCodeButton    Boolean            @default(true)
+  showCheckStatusButton  Boolean            @default(true)
+  /// Vazio = usa o texto padrão "✅ Verificar Status". Aceita o sufixo
+  /// {#HEX} de cor real (parseButtonLabel), igual aos outros botões
+  /// editáveis do painel (CTA, redirect, aceitar/recusar bump...).
+  checkStatusButtonLabel String?
+  showCopyCodeButton     Boolean            @default(true)
+  /// Vazio = usa o texto padrão "📋 Copiar Código".
+  copyCodeButtonLabel    String?
   buttonStyle            PaymentButtonStyle @default(PADRAO)
 
   /// Ainda não implementado de verdade no runtime — decisão do usuário
@@ -684,6 +690,8 @@ model PaymentMessages {
   pixApprovedMessage String?
   approvedMedia       PaymentApprovedMedia[]
   showAccessButton    Boolean @default(true)
+  /// Vazio = usa o texto padrão "🔓 Acessar Conteúdo".
+  accessButtonLabel   String?
 
   /// Lembrete de renovação (Fase 2, Milestone 5) — mandado pelo
   /// src/payments/subscriptionScheduler.ts a 2 dias do vencimento de um

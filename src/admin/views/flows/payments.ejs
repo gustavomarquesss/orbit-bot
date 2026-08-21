@@ -83,17 +83,22 @@
               <input type="text" name="pixCodeIntroMessage" value="<%= pm.pixCodeIntroMessage || '' %>" placeholder="Copie o código abaixo:" class="input input-bordered input-sm w-full" />
             </div>
 
-            <div class="flex flex-col gap-2 mb-3">
-              <label class="flex items-center justify-between gap-3 rounded-lg border border-base-300 px-3 py-2 cursor-pointer">
-                <span class="flex items-center gap-2 text-sm font-medium">✅ Verificar Status</span>
-                <input type="checkbox" name="showCheckStatusButton" <%= pm.showCheckStatusButton !== false ? "checked" : "" %> class="toggle toggle-primary toggle-sm" />
-              </label>
-              <p class="text-xs text-base-content/50 -mt-1">Checa o pagamento na hora e libera o acesso se já tiver caído.</p>
-              <label class="flex items-center justify-between gap-3 rounded-lg border border-base-300 px-3 py-2 cursor-pointer">
-                <span class="flex items-center gap-2 text-sm font-medium">📋 Copiar Código</span>
-                <input type="checkbox" name="showCopyCodeButton" <%= pm.showCopyCodeButton !== false ? "checked" : "" %> class="toggle toggle-primary toggle-sm" />
-              </label>
-              <p class="text-xs text-base-content/50 -mt-1">Mostra o código num alerta — o texto do código já vem formatado pra copiar tocando.</p>
+            <div class="flex flex-col gap-3 mb-3">
+              <div class="flex items-center gap-2">
+                <input type="checkbox" name="showCheckStatusButton" <%= pm.showCheckStatusButton !== false ? "checked" : "" %> class="toggle toggle-primary toggle-sm shrink-0" />
+                <div class="flex-1">
+                  <%- include("../partials/buttonColorInput", { id: "checkStatusButtonLabel", name: "checkStatusButtonLabel", value: pm.checkStatusButtonLabel, placeholder: "✅ Verificar Status" }) %>
+                </div>
+              </div>
+              <p class="text-xs text-base-content/50 -mt-2">Checa o pagamento na hora e libera o acesso se já tiver caído.</p>
+
+              <div class="flex items-center gap-2">
+                <input type="checkbox" name="showCopyCodeButton" <%= pm.showCopyCodeButton !== false ? "checked" : "" %> class="toggle toggle-primary toggle-sm shrink-0" />
+                <div class="flex-1">
+                  <%- include("../partials/buttonColorInput", { id: "copyCodeButtonLabel", name: "copyCodeButtonLabel", value: pm.copyCodeButtonLabel, placeholder: "📋 Copiar Código" }) %>
+                </div>
+              </div>
+              <p class="text-xs text-base-content/50 -mt-2">Mostra o código num alerta — o texto do código já vem formatado pra copiar tocando.</p>
             </div>
 
             <label class="form-control max-w-xs mb-3">
@@ -216,10 +221,12 @@
 
             <div class="divider my-2"></div>
             <h3 class="font-semibold mb-1 flex items-center gap-2"><%- icon("credit-card", "w-4 h-4") %> Botão de Acesso</h3>
-            <label class="flex items-center justify-between gap-3 rounded-lg border border-base-300 px-3 py-2 cursor-pointer max-w-xs mb-1">
-              <span class="flex items-center gap-2 text-sm font-medium">🔓 Acessar Conteúdo</span>
-              <input type="checkbox" name="showAccessButton" <%= pm.showAccessButton !== false ? "checked" : "" %> class="toggle toggle-primary toggle-sm" />
-            </label>
+            <div class="flex items-center gap-2 max-w-sm mb-1">
+              <input type="checkbox" name="showAccessButton" <%= pm.showAccessButton !== false ? "checked" : "" %> class="toggle toggle-primary toggle-sm shrink-0" />
+              <div class="flex-1">
+                <%- include("../partials/buttonColorInput", { id: "accessButtonLabel", name: "accessButtonLabel", value: pm.accessButtonLabel, placeholder: "🔓 Acessar Conteúdo" }) %>
+              </div>
+            </div>
             <p class="text-xs text-base-content/50 mb-3">Reenvia a entrega (arquivo/link/convite) se o comprador clicar — útil se ele perder o acesso original.</p>
 
             <div class="divider my-2"></div>
@@ -289,9 +296,11 @@
 
       var checkOn = document.querySelector("[name=showCheckStatusButton]") ? document.querySelector("[name=showCheckStatusButton]").checked : true;
       var copyOn = document.querySelector("[name=showCopyCodeButton]") ? document.querySelector("[name=showCopyCodeButton]").checked : true;
+      var checkLabelEl = document.querySelector("[name=checkStatusButtonLabel]");
+      var copyLabelEl = document.querySelector("[name=copyCodeButtonLabel]");
       var labels = [];
-      if (checkOn) labels.push("✅ Verificar Status");
-      if (copyOn) labels.push("📋 Copiar Código");
+      if (checkOn) labels.push((checkLabelEl && checkLabelEl.value) || "✅ Verificar Status");
+      if (copyOn) labels.push((copyLabelEl && copyLabelEl.value) || "📋 Copiar Código");
       var showBtnIntro = document.getElementById("showButtonsIntroMessage") ? document.getElementById("showButtonsIntroMessage").checked : true;
       if (labels.length > 0 && showBtnIntro) {
         var btnIntroEl = document.querySelector("[name=buttonsIntroMessage]");
@@ -315,7 +324,8 @@
       var appr = apprEl ? apprEl.value : "";
       container.appendChild(dgBubble(appr ? dgFakeRenderGlobal(appr) : "(nenhuma mensagem extra configurada)"));
       var accessOn = document.querySelector("[name=showAccessButton]") ? document.querySelector("[name=showAccessButton]").checked : true;
-      if (accessOn && appr) container.appendChild(dgButtonRow(["🔓 Acessar Conteúdo"]));
+      var accessLabelEl = document.querySelector("[name=accessButtonLabel]");
+      if (accessOn && appr) container.appendChild(dgButtonRow([(accessLabelEl && accessLabelEl.value) || "🔓 Acessar Conteúdo"]));
     }
   }
 

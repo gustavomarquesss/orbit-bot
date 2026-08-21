@@ -145,6 +145,7 @@ export async function applyNormalizedStatus(
           pixApprovedMessage: plan.flow.paymentMessages?.pixApprovedMessage,
           approvedMedia: plan.flow.paymentMessages?.approvedMedia,
           showAccessButton: plan.flow.paymentMessages?.showAccessButton ?? true,
+          accessButtonLabel: plan.flow.paymentMessages?.accessButtonLabel,
         });
       } catch (err) {
         console.error("[order-status] falha ao notificar comprador da aprovação", err);

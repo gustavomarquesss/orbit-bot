@@ -1,9 +1,10 @@
 import type { Telegraf } from "telegraf";
+import type { InlineKeyboardMarkup } from "telegraf/types";
 import type { Order, OrderItem, OrderItemKind, Plan, FlowDelivery, DeliveryType, Lead, PaymentApprovedMedia } from "@prisma/client";
 import { getTelegraf } from "./botManager.js";
 import { prisma } from "../db/client.js";
 import { formatBRL, formatConversionDuration } from "./format.js";
-import { prepareRichText, registerCountdownIfNeeded, type PreparedText } from "./richSend.js";
+import { prepareRichText, registerCountdownIfNeeded, styledCallbackButton, type PreparedText } from "./richSend.js";
 import { config } from "../config.js";
 
 /** Mesmo prefixo de callback_data usado em src/bot/flows.ts (registerFlowHandlers)
@@ -222,7 +223,7 @@ async function sendApprovalMessage(
   chatId: number,
   prepared: PreparedText,
   media: PaymentApprovedMedia[],
-  replyMarkup: { inline_keyboard: { text: string; callback_data: string }[][] } | undefined
+  replyMarkup: InlineKeyboardMarkup | undefined
 ): Promise<{ messageId: number; isCaption: boolean } | null> {
   const items = media.slice(0, 3);
   try {
@@ -284,8 +285,9 @@ export async function notifyLeadOfApproval(params: {
   pixApprovedMessage: string | null | undefined;
   approvedMedia?: PaymentApprovedMedia[];
   showAccessButton?: boolean;
+  accessButtonLabel?: string | null;
 }): Promise<void> {
-  const { botId, leadTelegramId, lead, plan, order, pixApprovedMessage, approvedMedia, showAccessButton } = params;
+  const { botId, leadTelegramId, lead, plan, order, pixApprovedMessage, approvedMedia, showAccessButton, accessButtonLabel } = params;
   if (!pixApprovedMessage) return;
 
   const telegraf = getTelegraf(botId);
@@ -301,7 +303,7 @@ export async function notifyLeadOfApproval(params: {
 
   const chatId = Number(leadTelegramId);
   const replyMarkup = showAccessButton
-    ? { inline_keyboard: [[{ text: "🔓 Acessar Conteúdo", callback_data: `${ACCESS_CONTENT_PREFIX}${order.id}` }]] }
+    ? { inline_keyboard: [[styledCallbackButton(accessButtonLabel || "🔓 Acessar Conteúdo", `${ACCESS_CONTENT_PREFIX}${order.id}`)]] }
     : undefined;
 
   const sent = await sendApprovalMessage(telegraf, chatId, prepared, approvedMedia ?? [], replyMarkup);
