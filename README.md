@@ -9,10 +9,17 @@ Estado atual do projeto (decisões, pendências) em [`PROJECT_STATE.md`](./PROJE
 
 ## Setup local
 
+Guia completo (pré-requisitos, Postgres via Docker, `.env` mínimo, migrations,
+login do painel e erros comuns) em [`SETUP-LOCAL.md`](./SETUP-LOCAL.md).
+
+Resumo:
+
 ```bash
 npm install
-cp .env.example .env   # preencher com suas credenciais (nunca commitar o .env)
+docker run -d --name dgbot-db -e POSTGRES_USER=dgbot -e POSTGRES_PASSWORD=devpass -e POSTGRES_DB=dgbot -p 55432:5432 postgres:16-alpine
+cp .env.example .env   # ajustar DATABASE_URL para @localhost:55432 (nunca commitar o .env)
 npx prisma migrate dev # cria as tabelas no banco apontado por DATABASE_URL
+npm run user:create    # cria um login para o painel /admin
 npm run dev
 ```
 
