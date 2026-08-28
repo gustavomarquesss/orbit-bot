@@ -114,6 +114,46 @@ Quando aparecer `ouvindo na porta 3000 (development)`, abra:
 
 Para parar: `Ctrl+C`. Para parar o banco: `docker stop dgbot-db`.
 
+## Fazer o bot responder no Telegram (túnel HTTPS)
+
+O projeto é **100% webhook** — não tem long-polling. Para o bot responder a
+`/start`, o Telegram precisa conseguir fazer um `POST` numa URL HTTPS pública
+que chegue no seu `localhost:3000`. Em dev isso é feito com um túnel grátis do
+Cloudflare (sem conta):
+
+```bash
+docker run -d --name dgbot-tunnel cloudflare/cloudflared:latest \
+  tunnel --url http://host.docker.internal:3000
+```
+
+Depois:
+
+1. Pegue a URL pública gerada:
+   ```bash
+   docker logs dgbot-tunnel 2>&1 | grep trycloudflare.com
+   ```
+2. Coloque essa URL em `PUBLIC_BASE_URL` no `.env`.
+3. Reinicie o `npm run dev` (o `tsx watch` **não** recarrega em mudança de
+   `.env`) — no boot ele chama `setWebhook` para cada bot ativo.
+
+No log você deve ver `webhook registrado em https://...` para cada bot com token
+válido.
+
+### Gotchas do túnel grátis
+
+- **A URL muda toda vez que o container reinicia** (`trycloudflare` dá um
+  subdomínio aleatório). Sempre que reiniciar o túnel, atualize o `.env` e
+  reinicie o servidor.
+- **`400: bad webhook: Failed to resolve host`** no `setWebhook`: o Telegram às
+  vezes demora (ou não consegue) resolver um subdomínio `trycloudflare.com`
+  recém-criado, mesmo com o túnel no ar. Solução: `docker restart dgbot-tunnel`
+  para pegar outro subdomínio, atualizar o `.env`, reiniciar — repita até um
+  hostname que o Telegram aceite (`setWebhook -> OK`).
+- **`file_id` de mídia não é portável entre bots.** Um passo de fluxo cujo
+  vídeo/foto foi enviado por outro bot vai dar `400: wrong file identifier` — o
+  código cai no texto como fallback. Regenere a mídia pelo bot atual (painel
+  `/admin/bots/<id>/media` ou reenviando pro bot).
+
 ## O que exige credenciais reais (não precisa para desenvolver a interface)
 
 | Recurso | Por quê |
